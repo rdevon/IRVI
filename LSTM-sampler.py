@@ -2,6 +2,7 @@
 Sampling and inference with LSTM models
 '''
 
+import numpy as np
 import theano
 from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
@@ -10,14 +11,15 @@ import time
 from gru import GRU
 from gru import GenStochasticGRU
 import mnist
-import optimization as op
+import op
 from tools import itemlist
 
 floatX = theano.config.floatX
 
 
 def test(dim_h=100, n_steps=7, batch_size=1, inference_steps=21, l=0.1):
-    learning_rate = 0.001
+    learning_rate = 0.00001
+    epochs = 100
     optimizer = 'sgd'
 
     dataset = mnist.mnist_iterator(batch_size=2 * batch_size)
@@ -38,49 +40,82 @@ def test(dim_h=100, n_steps=7, batch_size=1, inference_steps=21, l=0.1):
 
     print 'Dumb looping'
     for i in xrange(inference_steps):
-        x, z, h, p = rnn.step_infer(x, z, 0.1, rnn.HX, rnn.bx, rnn.sigmas, *params)
+        x, z, p, h, lp, z_, zp, x_ = rnn.step_infer(x, z, l, rnn.HX, rnn.bx, rnn.sigmas, *params)
     #(x, z), updates_1 = rnn.inference(x, z, 0.1, inference_steps)
-    updates += [(rnn.sigmas, (h - h.mean(axis=(0, 1))**2).mean(axis=(0, 1)))]
+    updates += [(rnn.sigmas, T.sqrt(((h - h.mean(axis=(0, 1)))**2).mean(axis=(0, 1))))]
     t1 = time.time()
     print 'Time:', t1 - t0
+    '''
+    fn = theano.function(inps, [x, z, p, h, lp], updates=updates)
+    outs = fn(x0, xT)
+    for k, out in zip(['x', 'z', 'p', 'h', 'lp'], outs):
+        if np.any(np.isnan(out)):
+            print k, 'nan'
+        elif np.any(np.isinf(out)):
+            print k, 'inf'
+        else:
+            print k, 'clean'
+    return
+    '''
 
     print 'Calculating cost'
-    cost = (- x * T.log(p + 1e-7) - (1. - x) * T.log(1. - p + 1e-7)).mean()
+    #p0 = T.zeros_like(p) + p
+    cost = -lp
     #f_cost = theano.function(inps, cost, updates=updates)
 
-    (x0, xT), _ = dataset.next()
     print 'Compiling grad'
 
-    f_cost = theano.function(inps, p, updates=updates)
-    print f_cost(x0.reshape(batch_size, dataset.dim),
-                 xT.reshape(batch_size, dataset.dim))
+    #f_cost = theano.function(inps, p, updates=updates)
+    #print f_cost(x0.reshape(batch_size, dataset.dim),
+    #             xT.reshape(batch_size, dataset.dim))
 
-    return
+    #return
 
-    grads = T.grad(cost, wrt=itemlist(tparams), consider_constant=[x, z])
+    grads = T.grad(cost, wrt=itemlist(tparams), consider_constant=[z, z_, zp, x_])
 
-    f_grad = theano.function(inps, grads, updates=updates)
-    print f_grad(x0, xT)
+    #f_grad = theano.function(inps, grads, updates=updates)
+    #print f_grad(x0, xT)
 
     lr = T.scalar(name='lr')
 
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, inps, cost,
-        extra_ups=updates)
+        extra_ups=updates,
+        extra_outs=[x, z, p, h, lp, z_, zp, x_])
 
     t2 = time.time()
     print 'Time:', t2 - t1
 
-
     print 'Actually running'
-    c = f_grad_shared(x0, xT)
-    print c
-    f_grad_updates(learning_rate)
-    #x, z = fn(x0.reshape(1, dataset.dim), xT.reshape(1, dataset.dim))
-    t3 = time.time()
-    print 'Time:', t3 - t2
+    for e in xrange(epochs):
+        (x0, xT), _ = dataset.next()
+        x0 = x0.reshape((1, x0.shape[0]))
+        xT = xT.reshape((1, xT.shape[0]))
+        rval = f_grad_shared(x0, xT)
+        r = False
+        for k, out in zip(['cost', 'x', 'z', 'p', 'h', 'lp', 'z_', 'zp', 'x_'], rval):
+            if np.any(np.isnan(out)):
+                print k, 'nan'
+                r = True
+            elif np.any(np.isinf(out)):
+                print k, 'inf'
+                r = True
+        if r:
+            return
+        print e, rval[0], rnn.sigmas.mean().eval()
+        f_grad_updates(learning_rate)
+        #x, z = fn(x0.reshape(1, dataset.dim), xT.reshape(1, dataset.dim))
+        t3 = time.time()
+        #print 'Time:', t3 - t2
+    print 'sampling'
+    (x0, xT), _ = dataset.next()
+    x0 = x0.reshape((1, x0.shape[0]))
+    xT = xT.reshape((1, xT.shape[0]))
+    fn = theano.function(inps, x, updates=updates)
+    sample = fn(x0, xT)
 
-    dataset.save_images(x, '/Users/devon/tmp/naive_sampler.png')
+    print 'Saving'
+    dataset.save_images(sample, '/Users/devon/tmp/naive_sampler.png')
 
 if __name__ == '__main__':
     test()
