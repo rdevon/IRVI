@@ -17,9 +17,9 @@ from tools import itemlist
 floatX = theano.config.floatX
 
 
-def test(dim_h=100, n_steps=7, batch_size=1, inference_steps=21, l=0.1):
-    learning_rate = 0.00001
-    epochs = 100
+def test(dim_h=500, n_steps=4, batch_size=1, inference_steps=20, l=0.01):
+    learning_rate = 0.0001
+    epochs = 2000
     optimizer = 'sgd'
 
     dataset = mnist.mnist_iterator(batch_size=2 * batch_size)
@@ -41,7 +41,6 @@ def test(dim_h=100, n_steps=7, batch_size=1, inference_steps=21, l=0.1):
     print 'Dumb looping'
     for i in xrange(inference_steps):
         x, z, p, h, lp, z_, zp, x_ = rnn.step_infer(x, z, l, rnn.HX, rnn.bx, rnn.sigmas, *params)
-    #(x, z), updates_1 = rnn.inference(x, z, 0.1, inference_steps)
     updates += [(rnn.sigmas, T.sqrt(((h - h.mean(axis=(0, 1)))**2).mean(axis=(0, 1))))]
     t1 = time.time()
     print 'Time:', t1 - t0
@@ -102,7 +101,9 @@ def test(dim_h=100, n_steps=7, batch_size=1, inference_steps=21, l=0.1):
                 r = True
         if r:
             return
-        print e, rval[0], rnn.sigmas.mean().eval()
+        if e % 10 == 0:
+            print e, rval[0], rnn.sigmas.mean().eval()
+
         f_grad_updates(learning_rate)
         #x, z = fn(x0.reshape(1, dataset.dim), xT.reshape(1, dataset.dim))
         t3 = time.time()
