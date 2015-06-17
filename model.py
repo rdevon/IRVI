@@ -53,8 +53,8 @@ class DataIter():
 def get_model():
     dim_r = 500
     dim_g = 200
-    batch_size = 10
-    n_steps = 10
+    batch_size = 17
+    n_steps = 11
 
     train = mnist_iterator(batch_size=2 * batch_size, mode='train')
     valid = mnist_iterator(batch_size=2 * batch_size, mode='valid')
@@ -95,7 +95,7 @@ def get_model():
     logger.info('Computing reward')
     q = outs[rnn.name]['p']
     samples = outs[rnn.name]['x']
-    energy_q = (samples * T.log(q + 1e-7) + (1. - samples) * T.log(1. - q + 1e-7)).sum(axis=2)
+    energy_q = (samples * T.log(q + 1e-7) + (1. - samples) * T.log(1. - q + 1e-7)).sum(axis=(0, 2))
     outs[rnn.name]['log_p'] = energy_q
     energy_p = outs[rbm.name]['log_p']
     reward = (energy_p - energy_q)
