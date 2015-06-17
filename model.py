@@ -70,7 +70,7 @@ def get_model():
 
     rnn = gru.CondGenGRU(dim_in, dim_r, trng=trng)
     rbm = RBM(dim_in, dim_g, trng=trng)
-    baseline = layers.BaselineWithInput((dim_in, dim_in),
+    baseline = layers.BaselineWithInput((dim_in, dim_in), n_steps + 1,
         name='reward_baseline')
 
     tparams = rnn.set_tparams()
@@ -95,7 +95,7 @@ def get_model():
     logger.info('Computing reward')
     q = outs[rnn.name]['p']
     samples = outs[rnn.name]['x']
-    energy_q = (samples * T.log(q + 1e-7) + (1. - samples) * T.log(1. - q + 1e-7)).sum(axis=(0, 2))
+    energy_q = (samples * T.log(q + 1e-7) + (1. - samples) * T.log(1. - q + 1e-7)).sum(axis=2)
     outs[rnn.name]['log_p'] = energy_q
     energy_p = outs[rbm.name]['log_p']
     reward = (energy_p - energy_q)
