@@ -136,7 +136,7 @@ def get_costs(inps=None, outs=None, **kwargs):
     base_cost = -(energy_p + centered_reward * energy_q).mean()
     idb = outs['reward_baseline']['idb']
     c = outs['reward_baseline']['c']
-    idb_cost = ((reward0[:, None] - idb - c)**2).mean()
+    idb_cost = ((reward0 - idb - c)**2).mean()
     cost = base_cost + idb_cost
 
     return OrderedDict(
