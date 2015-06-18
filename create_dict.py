@@ -18,8 +18,7 @@ def create_dictionary():
     ACCESS_TOKEN_SECRET = 'IG7bN7kU2EOS3MzqrgP3BG6mZ0mVMLkQuRhR0DTFybRWj'
     api = twitter.Api(consumer_key=CONSUMER_KEY,consumer_secret=CONSUMER_SECRET,access_token_key=ACCESS_TOKEN_KEY,access_token_secret=ACCESS_TOKEN_SECRET)
 
-    users = api.GetFriends()
-    save_obj(users,'users')
+    users = load_obj('users')
     users = users[0:10]
     for j in range(len(users)):
         statuses = api.GetUserTimeline(user_id = users[j].id,count=200)
