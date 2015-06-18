@@ -24,7 +24,7 @@ logger = logger.setup_custom_logger('nmt', logging.DEBUG)
 default_hyperparams = OrderedDict(
     epochs=5000,
     display_interval=10,
-    learning_rate=0.1,
+    learning_rate=0.00001,
     optimizer='rmsprop',
     saveto='model.npz',
     disp_freq=100,
@@ -50,14 +50,14 @@ class DataIter():
         return (x,)
 
 
-def get_model():
+def get_model(**kwargs):
     dim_r = 500
     dim_g = 200
     batch_size = 17
     n_steps = 11
 
     train = mnist_iterator(batch_size=2 * batch_size, mode='train')
-    valid = mnist_iterator(batch_size=2 * batch_size, mode='valid')
+    valid = None
     test = None
 
     x = T.matrix('x', dtype='float32')
@@ -112,6 +112,8 @@ def get_model():
     ]
 
     logger.info('Done setting up model')
+
+    errs = OrderedDict()
 
     return OrderedDict(
         inps=inps,
