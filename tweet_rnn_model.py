@@ -76,7 +76,10 @@ def get_model(**kwargs):
 def get_costs(inps=None, outs=None, **kwargs):
     r_hat = outs['logistic']['y_hat']
     r = inps['r']
-    cost = ((r - r_hat)**2).mean()
+    # Fix here
+    mask = outs['hiero_gru']['mask']
+
+    cost = ((r - r_hat * (1 - mask))**2).mean()
 
     return OrderedDict(
         cost=cost,
