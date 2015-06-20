@@ -53,16 +53,17 @@ class DataIter():
 def get_model(**kwargs):
     dim_r = 500
     dim_g = 200
-    batch_size = 17
+    batch_size = 5
     n_steps = 11
+    n_reps = 40
 
-    train = mnist_iterator(batch_size=2 * batch_size, mode='train')
+    train = mnist_iterator(batch_size=2 * batch_size, mode='train', repeat=n_reps)
     valid = None
     test = None
 
     x = T.matrix('x', dtype='float32')
-    x0 = x[:batch_size]
-    xT = x[batch_size:]
+    x0 = x[:batch_size * n_reps]
+    xT = x[batch_size * n_reps:][::-1]
 
     trng = RandomStreams(6 * 10 * 2015)
 
@@ -70,8 +71,9 @@ def get_model(**kwargs):
 
     rnn = gru.CondGenGRU(dim_in, dim_r, trng=trng)
     rbm = RBM(dim_in, dim_g, trng=trng)
-    baseline = layers.BaselineWithInput((dim_in, dim_in), n_steps + 1,
-        name='reward_baseline')
+    #baseline = layers.BaselineWithInput((dim_in, dim_in), n_steps + 1,
+    #    name='reward_baseline')
+    baseline = layers.Baseline(name='reward_baseline')
 
     tparams = rnn.set_tparams()
     exclude_params = rnn.get_excludes()
@@ -92,9 +94,14 @@ def get_model(**kwargs):
     outs[rbm.name] = outs_rbm
     updates.update(updates_rbm)
 
+    outs_rbm_s, updates_rbm_s = rbm(n_steps, n_chains=10)
+    outs[rbm.name].update(outs_rbm_s)
+    updates.update(updates_rbm_s)
+
     logger.info('Computing reward')
     q = outs[rnn.name]['p']
     samples = outs[rnn.name]['x']
+    #energy_q = T.log(q).sum(axis=2)
     energy_q = (samples * T.log(q + 1e-7) + (1. - samples) * T.log(1. - q + 1e-7)).sum(axis=2)
     outs[rnn.name]['log_p'] = energy_q
     energy_p = outs[rbm.name]['log_p']
@@ -102,7 +109,8 @@ def get_model(**kwargs):
     reward.name = 'reward'
 
     logger.info('Pushing reward through baseline')
-    outs_baseline, updates_baseline = baseline(reward, x0, xT)
+    #outs_baseline, updates_baseline = baseline(reward, x0, xT)
+    outs_baseline, updates_baseline = baseline(reward)
     outs[baseline.name] = outs_baseline
     updates.update(updates_baseline)
 
@@ -132,21 +140,22 @@ def get_costs(inps=None, outs=None, **kwargs):
     energy_q = outs['cond_gen_gru']['log_p']
     energy_p = outs['rbm']['log_p']
 
-    reward0 = outs['reward_baseline']['x']
+    #reward0 = outs['reward_baseline']['x']
     centered_reward = outs['reward_baseline']['x_centered']
 
-    base_cost = -(energy_p + centered_reward * energy_q).mean()
-    idb = outs['reward_baseline']['idb']
-    c = outs['reward_baseline']['c']
-    idb_cost = ((reward0 - idb - c)**2).mean()
-    cost = base_cost + idb_cost
+    #base_cost = -(energy_p + centered_reward * energy_q).mean()
+    cost = -(energy_p + centered_reward * energy_q).mean()
+    #idb = outs['reward_baseline']['idb']
+    #c = outs['reward_baseline']['c']
+    #idb_cost = ((reward0 - idb - c)**2).mean()
+    #cost = base_cost + idb_cost
 
     return OrderedDict(
         energy_q=energy_q.mean(),
         energy_p=energy_p.mean(),
         centered_reward=centered_reward.mean(),
-        idb_cost=idb_cost,
+        #idb_cost=idb_cost,
         cost=cost,
-        base_cost=base_cost,
+        #base_cost=base_cost,
         known_grads=OrderedDict()
     )
