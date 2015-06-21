@@ -71,7 +71,7 @@ def get_model(**kwargs):
 
     rnn = gru.CondGenGRU(dim_in, dim_r, trng=trng)
     rbm = RBM(dim_in, dim_g, trng=trng)
-    #baseline = layers.BaselineWithInput((dim_in, dim_in), n_steps + 1,
+    #baseline = layers.BaselineWithInput((dim_in, dim_in), n_steps,
     #    name='reward_baseline')
     baseline = layers.Baseline(name='reward_baseline')
 
@@ -86,7 +86,7 @@ def get_model(**kwargs):
 
     logger.info('Pushing through GRU')
     outs = OrderedDict()
-    outs_rnn, updates = rnn(x0, xT, reversed=True, n_steps=n_steps)
+    outs_rnn, updates = rnn(x0, xT, reverse=True, n_steps=n_steps)
     outs[rnn.name] = outs_rnn
 
     logger.info('Pushing through RBM')
@@ -100,12 +100,15 @@ def get_model(**kwargs):
 
     logger.info('Computing reward')
     q = outs[rnn.name]['p']
-    samples = outs[rnn.name]['x']
-    #energy_q = T.log(q).sum(axis=2)
-    energy_q = (samples * T.log(q + 1e-7) + (1. - samples) * T.log(1. - q + 1e-7)).sum(axis=2)
-    outs[rnn.name]['log_p'] = energy_q
-    energy_p = outs[rbm.name]['log_p']
-    reward = (energy_p - energy_q)
+    x = outs[rnn.name]['x']
+
+    outs_rnn_e, updates_rnn_e = rnn.energy(x, q)
+    outs[rnn.name].update(outs_rnn_e)
+    updates.update(updates_rnn_e)
+
+    acc_log_q = outs[rnn.name]['acc_log_p']
+    acc_log_p = outs[rbm.name]['acc_log_p']
+    reward = (acc_log_p - acc_log_q)
     reward.name = 'reward'
 
     logger.info('Pushing reward through baseline')
@@ -134,25 +137,22 @@ def get_model(**kwargs):
     )
 
 def get_costs(inps=None, outs=None, **kwargs):
-    print outs
-    q = outs['cond_gen_gru']['p']
-    samples = outs['cond_gen_gru']['x']
-    energy_q = outs['cond_gen_gru']['log_p']
-    energy_p = outs['rbm']['log_p']
+    log_q = outs['cond_gen_gru']['log_p']
+    log_p = outs['rbm']['log_p']
 
     #reward0 = outs['reward_baseline']['x']
     centered_reward = outs['reward_baseline']['x_centered']
 
-    #base_cost = -(energy_p + centered_reward * energy_q).mean()
-    cost = -(energy_p + centered_reward * energy_q).mean()
+    #base_cost = -(log_p + centered_reward * log_q).mean()
+    cost = -(log_p + centered_reward * log_q).mean()
     #idb = outs['reward_baseline']['idb']
     #c = outs['reward_baseline']['c']
     #idb_cost = ((reward0 - idb - c)**2).mean()
     #cost = base_cost + idb_cost
 
     return OrderedDict(
-        energy_q=energy_q.mean(),
-        energy_p=energy_p.mean(),
+        energy_q=-log_q.mean(),
+        energy_p=-log_p.mean(),
         centered_reward=centered_reward.mean(),
         #idb_cost=idb_cost,
         cost=cost,
