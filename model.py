@@ -8,7 +8,6 @@ import pprint
 from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
-import costs
 import gru
 import layers
 from mnist import mnist_iterator
@@ -71,9 +70,9 @@ def get_model(**kwargs):
 
     rnn = gru.CondGenGRU(dim_in, dim_r, trng=trng)
     rbm = RBM(dim_in, dim_g, trng=trng)
-    #baseline = layers.BaselineWithInput((dim_in, dim_in), n_steps,
-    #    name='reward_baseline')
-    baseline = layers.Baseline(name='reward_baseline')
+    baseline = layers.BaselineWithInput((dim_in, dim_in), n_steps,
+        name='reward_baseline')
+    #baseline = layers.Baseline(name='reward_baseline')
 
     tparams = rnn.set_tparams()
     exclude_params = rnn.get_excludes()
@@ -112,8 +111,8 @@ def get_model(**kwargs):
     reward.name = 'reward'
 
     logger.info('Pushing reward through baseline')
-    #outs_baseline, updates_baseline = baseline(reward, x0, xT)
-    outs_baseline, updates_baseline = baseline(reward)
+    outs_baseline, updates_baseline = baseline(reward, x0, xT)
+    #outs_baseline, updates_baseline = baseline(reward)
     outs[baseline.name] = outs_baseline
     updates.update(updates_baseline)
 
@@ -140,22 +139,23 @@ def get_costs(inps=None, outs=None, **kwargs):
     log_q = outs['cond_gen_gru']['log_p']
     log_p = outs['rbm']['log_p']
 
-    #reward0 = outs['reward_baseline']['x']
+    reward0 = outs['reward_baseline']['x']
     centered_reward = outs['reward_baseline']['x_centered']
 
-    #base_cost = -(log_p + centered_reward * log_q).mean()
-    cost = -(log_p + centered_reward * log_q).mean()
-    #idb = outs['reward_baseline']['idb']
-    #c = outs['reward_baseline']['c']
-    #idb_cost = ((reward0 - idb - c)**2).mean()
-    #cost = base_cost + idb_cost
+    base_cost = -(log_p + centered_reward * log_q).mean()
+    #cost = -(log_p + centered_reward * log_q).mean()
+    idb = outs['reward_baseline']['idb']
+    c = outs['reward_baseline']['c']
+    var = outs['reward_baseline']['var']
+    idb_cost = (((reward0 - idb - c) / T.maximum(1., T.sqrt(var)))**2).mean()
+    cost = base_cost + idb_cost
 
     return OrderedDict(
         energy_q=-log_q.mean(),
         energy_p=-log_p.mean(),
         centered_reward=centered_reward.mean(),
-        #idb_cost=idb_cost,
+        idb_cost=idb_cost,
         cost=cost,
-        #base_cost=base_cost,
+        base_cost=base_cost,
         known_grads=OrderedDict()
     )
