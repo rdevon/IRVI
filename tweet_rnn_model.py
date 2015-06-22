@@ -26,7 +26,7 @@ default_hyperparams = OrderedDict(
     valid_freq=1000,
     save_freq=1000,
     sample_freq=100,
-    weight_noise=True
+    weight_noise=False
 )
 
 def get_model(**kwargs):
@@ -34,7 +34,7 @@ def get_model(**kwargs):
     dim_s = 200
 
     train = TwitterFeed()
-    valid = None
+    valid = None#TwitterFeed(mode='feed')
     test = None
 
     X = T.tensor3('X')
@@ -66,6 +66,8 @@ def get_model(**kwargs):
     return OrderedDict(
         inps=inps,
         outs=outs,
+        vouts=outs,
+        errs=OrderedDict(),
         updates=updates,
         exclude_params=exclude_params,
         consider_constant=consider_constant,
@@ -79,11 +81,9 @@ def get_costs(inps=None, outs=None, **kwargs):
     # Fix here
     mask = outs['hiero_gru']['mask']
 
-    cost = ((r - r_hat * (1 - mask))**2).mean()
+    cost = (((r - r_hat[:, :, 0]) * (1 - mask))**2).sum()
 
     return OrderedDict(
         cost=cost,
         known_grads=OrderedDict()
     )
-
-
