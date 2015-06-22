@@ -22,7 +22,7 @@ default_hyperparams = OrderedDict(
     learning_rate=0.01,
     optimizer='rmsprop',
     saveto='model.npz',
-    disp_freq=1,
+    disp_freq=10,
     valid_freq=1000,
     save_freq=1000,
     sample_freq=100,
@@ -34,7 +34,7 @@ def get_model(**kwargs):
     dim_s = 200
 
     train = TwitterFeed()
-    valid = None#TwitterFeed(mode='feed')
+    valid = TwitterFeed(mode='feed')
     test = None
 
     X = T.tensor3('X')
