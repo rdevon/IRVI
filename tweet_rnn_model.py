@@ -43,7 +43,7 @@ def get_model(**kwargs):
     inps['x'] = X
     inps['r'] = R
 
-    rnn = HeirarchalGRU(train.dim, dim_h, dim_s)
+    rnn = HeirarchalGRU(train.dim, dim_h, dim_s, dropout=0.5)
     tparams = rnn.set_tparams()
     exclude_params = rnn.get_excludes()
     logistic = Logistic()
@@ -60,13 +60,20 @@ def get_model(**kwargs):
     updates.update(updates_l)
 
     logger.info('Done setting up model')
+    logger.info('Adding validation graph')
+    vouts = OrderedDict()
+    vouts_rnn, vupdates = rnn(X, suppress_noise=True)
+    vouts[rnn.name] = vouts_rnn
+
+    vouts_l, vupdates_l = logistic(outs_rnn['o'])
+    vouts[logistic.name] = vouts_l
 
     consider_constant = []
 
     return OrderedDict(
         inps=inps,
         outs=outs,
-        vouts=outs,
+        vouts=vouts,
         errs=OrderedDict(),
         updates=updates,
         exclude_params=exclude_params,
