@@ -7,13 +7,13 @@ import logging
 import pprint
 from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
-
+import theano
 from gru import HeirarchalGRU
 from layers import Logistic
 import logger
 from twitter_api import TwitterFeed
-
-
+import itertools
+import math
 logger = logger.setup_custom_logger('nmt', logging.DEBUG)
 
 default_hyperparams = OrderedDict(
@@ -65,6 +65,13 @@ def get_model(**kwargs):
     vouts_rnn, vupdates = rnn(X, suppress_noise=True)
     vouts[rnn.name] = vouts_rnn
 
+    top_10 = compute_top(outs['logistic']['y_hat'][:,:,0],R,outs['hiero_gru']['mask'],0.1)
+    top_20 = compute_top(outs['logistic']['y_hat'][:,:,0],R,outs['hiero_gru']['mask'],0.2)
+    errs = OrderedDict(
+        top_10_error = top_10,
+        top_20_error = top_20
+    )
+
     vouts_l, vupdates_l = logistic(outs_rnn['o'])
     vouts[logistic.name] = vouts_l
 
@@ -74,13 +81,32 @@ def get_model(**kwargs):
         inps=inps,
         outs=outs,
         vouts=vouts,
-        errs=OrderedDict(),
+        errs=errs,
         updates=updates,
         exclude_params=exclude_params,
         consider_constant=consider_constant,
         tparams=tparams,
         data=dict(train=train, valid=valid, test=test)
     )
+
+def compute_top(r_hat,R,mask,threshold):
+    GT_ids = T.argsort(R,axis=0)
+    RH_ids = T.argsort(r_hat,axis=0)
+    n_total = T.floor(threshold * mask.sum().astype('float32')).astype('int64')
+
+    GT_ids = GT_ids[-n_total:]
+    mask_gt = T.zeros_like(mask)
+    mask_gt = T.set_subtensor(mask_gt[GT_ids], 1.).astype('float32')
+
+    RH_ids = RH_ids[-n_total:]
+    mask_r = T.zeros_like(mask)
+    mask_r = T.set_subtensor(mask_r[RH_ids], 1.).astype('float32')
+
+    mask_final = mask_gt*mask_r
+
+    return mask_final.sum().astype('float32')/n_total
+    
+
 
 def get_costs(inps=None, outs=None, **kwargs):
     r_hat = outs['logistic']['y_hat']
