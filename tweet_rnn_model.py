@@ -88,7 +88,7 @@ def get_costs(inps=None, outs=None, **kwargs):
     # Fix here
     mask = outs['hiero_gru']['mask']
 
-    cost = (((r - r_hat[:, :, 0]) * (1 - mask))**2).sum()
+    cost = (((r - r_hat[:, :, 0]) * (1 - mask))**2).sum() / (1 - mask).sum().astype('float32')
 
     return OrderedDict(
         cost=cost,
