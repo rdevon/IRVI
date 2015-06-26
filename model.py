@@ -128,7 +128,7 @@ def get_model(**kwargs):
 
     vouts_rbm_s, vupdates_rbm_s = rbm(n_steps, n_chains=10)
     vouts[rbm.name].update(vouts_rbm_s)
-    vupdates.update(updates_rbm_s)
+    vupdates.update(vupdates_rbm_s)
 
     vq = vouts[rnn.name]['p']
     vx = vouts[rnn.name]['x']
@@ -143,7 +143,7 @@ def get_model(**kwargs):
     vreward.name = 'reward'
 
     logger.info('Pushing reward through baseline')
-    vouts_baseline, vupdates_baseline = baseline(reward, False, x0, xT)
+    vouts_baseline, vupdates_baseline = baseline(vreward, False, x0, xT)
     #outs_baseline, updates_baseline = baseline(reward)
     vouts[baseline.name] = vouts_baseline
     vupdates.update(vupdates_baseline)

@@ -20,7 +20,8 @@ floatX = theano.config.floatX
 
 def test(batch_size=20, dim_h=100, l=.01, n_inference_steps=100):
     train = mnist_iterator(batch_size=2*batch_size, mode='train',
-                           restrict_digits=[3, 8, 9])
+                           restrict_digits=[3, 8, 9],
+                           inf=True)
     dim_in = train.dim
 
     X = T.tensor3('x', dtype=floatX)
