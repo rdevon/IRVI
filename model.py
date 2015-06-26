@@ -56,7 +56,8 @@ def get_model(**kwargs):
     n_steps = 11
     n_reps = 40
 
-    train = mnist_iterator(batch_size=2 * batch_size, mode='train', repeat=n_reps)
+    train = mnist_iterator(batch_size=2*batch_size, mode='train', repeat=n_reps,
+                           restrict_digits=[3, 8])
     valid = None
     test = None
 
@@ -69,7 +70,7 @@ def get_model(**kwargs):
     dim_in = train.dim
 
     rnn = gru.CondGenGRU(dim_in, dim_r, trng=trng)
-    rbm = RBM(dim_in, dim_g, trng=trng)
+    rbm = RBM(dim_in, dim_g, trng=trng, param_file='rbm_model.yaml', learn=False)
     baseline = layers.BaselineWithInput((dim_in, dim_in), n_steps,
         name='reward_baseline')
     #baseline = layers.Baseline(name='reward_baseline')
@@ -111,10 +112,41 @@ def get_model(**kwargs):
     reward.name = 'reward'
 
     logger.info('Pushing reward through baseline')
-    outs_baseline, updates_baseline = baseline(reward, x0, xT)
+    outs_baseline, updates_baseline = baseline(reward, True, x0, xT)
     #outs_baseline, updates_baseline = baseline(reward)
     outs[baseline.name] = outs_baseline
     updates.update(updates_baseline)
+
+    logger.info('Making validation graph')
+    vouts = OrderedDict()
+    vouts_rnn, vupdates = rnn(x0, xT, reverse=True, n_steps=n_steps)
+    vouts[rnn.name] = vouts_rnn
+
+    vouts_rbm, vupdates_rbm = rbm.energy(vouts[rnn.name]['x'])
+    vouts[rbm.name] = vouts_rbm
+    vupdates.update(vupdates_rbm)
+
+    vouts_rbm_s, vupdates_rbm_s = rbm(n_steps, n_chains=10)
+    vouts[rbm.name].update(vouts_rbm_s)
+    vupdates.update(updates_rbm_s)
+
+    vq = vouts[rnn.name]['p']
+    vx = vouts[rnn.name]['x']
+
+    vouts_rnn_e, vupdates_rnn_e = rnn.energy(vx, vq)
+    vouts[rnn.name].update(vouts_rnn_e)
+    vupdates.update(vupdates_rnn_e)
+
+    vacc_log_q = vouts[rnn.name]['acc_log_p']
+    vacc_log_p = vouts[rbm.name]['acc_log_p']
+    vreward = (vacc_log_p - vacc_log_q)
+    vreward.name = 'reward'
+
+    logger.info('Pushing reward through baseline')
+    vouts_baseline, vupdates_baseline = baseline(reward, False, x0, xT)
+    #outs_baseline, updates_baseline = baseline(reward)
+    vouts[baseline.name] = vouts_baseline
+    vupdates.update(vupdates_baseline)
 
     consider_constant = [
         outs[baseline.name]['x'],
@@ -128,6 +160,9 @@ def get_model(**kwargs):
     return OrderedDict(
         inps=inps,
         outs=outs,
+        vouts=vouts,
+        vupdates=vupdates,
+        errs=OrderedDict(),
         updates=updates,
         exclude_params=exclude_params,
         consider_constant=consider_constant,

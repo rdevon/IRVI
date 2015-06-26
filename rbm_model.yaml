@@ -1,0 +1,8 @@
+{
+  model_type: 'rbm.RBM',
+  params: {
+    W: '/Users/devon/Documents/Outs/RBM_MNIST/rbm_pcd5/[rbm]w_p.npy',
+    b: '/Users/devon/Documents/Outs/RBM_MNIST/rbm_pcd5/[rbm]b_p.npy',
+    c: '/Users/devon/Documents/Outs/RBM_MNIST/rbm_pcd5/[rbm]c_p.npy',
+  },
+}

@@ -18,9 +18,9 @@ from tools import itemlist
 floatX = theano.config.floatX
 
 
-def test(batch_size=1, dim_h=100, l=.01, n_inference_steps=100):
+def test(batch_size=20, dim_h=100, l=.01, n_inference_steps=100):
     train = mnist_iterator(batch_size=2*batch_size, mode='train',
-                           restrict_digits=[3, 5, 8])
+                           restrict_digits=[3, 8, 9])
     dim_in = train.dim
 
     X = T.tensor3('x', dtype=floatX)
@@ -28,7 +28,7 @@ def test(batch_size=1, dim_h=100, l=.01, n_inference_steps=100):
     trng = RandomStreams(6 * 23 * 2015)
     rnn = SimpleInferGRU(dim_in, dim_h, trng=trng)
     tparams = rnn.set_tparams()
-    mask = T.ones_like(X).astype('float32')
+    mask = T.alloc(1., 2).astype('float32')
     (x_hats, energies), updates = rnn.inference(
         X, mask, l, n_inference_steps=n_inference_steps)
     grads = T.grad(energies[-1], wrt=itemlist(tparams))
@@ -47,7 +47,7 @@ def test(batch_size=1, dim_h=100, l=.01, n_inference_steps=100):
     learning_rate = 0.001
     for e in xrange(10000):
         x, _ = train.next()
-        x = x[:, None, :].astype(floatX)
+        x = x.reshape(2, batch_size, x.shape[1]).astype(floatX)
         rval = f_grad_shared(x)
         r = False
         for k, out in zip(['energy'], rval):
