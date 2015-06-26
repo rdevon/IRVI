@@ -18,10 +18,8 @@ from tools import itemlist
 floatX = theano.config.floatX
 
 
-def test(batch_size=20, dim_h=100, l=.01, n_inference_steps=100):
-    train = mnist_iterator(batch_size=2*batch_size, mode='train',
-                           restrict_digits=[3, 8, 9],
-                           inf=True)
+def test(batch_size=20, dim_h=200, l=.01, n_inference_steps=30):
+    train = mnist_iterator(batch_size=2*batch_size, mode='train', inf=True)
     dim_in = train.dim
 
     X = T.tensor3('x', dtype=floatX)
@@ -32,7 +30,11 @@ def test(batch_size=20, dim_h=100, l=.01, n_inference_steps=100):
     mask = T.alloc(1., 2).astype('float32')
     (x_hats, energies), updates = rnn.inference(
         X, mask, l, n_inference_steps=n_inference_steps)
-    grads = T.grad(energies[-1], wrt=itemlist(tparams))
+
+    energy = energies[-1]
+    thresholded_energy = (T.sort(energy)[:energy.shape[0] / 10]).mean()
+
+    grads = T.grad(thresholded_energy, wrt=itemlist(tparams))
 
     chain, updates_s = rnn.sample(X[0])
     updates.update(updates_s)
@@ -40,7 +42,7 @@ def test(batch_size=20, dim_h=100, l=.01, n_inference_steps=100):
     lr = T.scalar(name='lr')
     optimizer = 'rmsprop'
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
-        lr, tparams, grads, [X], energies[-1],
+        lr, tparams, grads, [X], thresholded_energy,
         extra_ups=updates,
         extra_outs=[x_hats, chain])
 

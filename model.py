@@ -54,7 +54,7 @@ def get_model(**kwargs):
     dim_g = 200
     batch_size = 5
     n_steps = 11
-    n_reps = 40
+    n_reps = 20
 
     train = mnist_iterator(batch_size=2*batch_size, mode='train', repeat=n_reps,
                            restrict_digits=[3, 8])
@@ -117,37 +117,6 @@ def get_model(**kwargs):
     outs[baseline.name] = outs_baseline
     updates.update(updates_baseline)
 
-    logger.info('Making validation graph')
-    vouts = OrderedDict()
-    vouts_rnn, vupdates = rnn(x0, xT, reverse=True, n_steps=n_steps)
-    vouts[rnn.name] = vouts_rnn
-
-    vouts_rbm, vupdates_rbm = rbm.energy(vouts[rnn.name]['x'])
-    vouts[rbm.name] = vouts_rbm
-    vupdates.update(vupdates_rbm)
-
-    vouts_rbm_s, vupdates_rbm_s = rbm(n_steps, n_chains=10)
-    vouts[rbm.name].update(vouts_rbm_s)
-    vupdates.update(vupdates_rbm_s)
-
-    vq = vouts[rnn.name]['p']
-    vx = vouts[rnn.name]['x']
-
-    vouts_rnn_e, vupdates_rnn_e = rnn.energy(vx, vq)
-    vouts[rnn.name].update(vouts_rnn_e)
-    vupdates.update(vupdates_rnn_e)
-
-    vacc_log_q = vouts[rnn.name]['acc_log_p']
-    vacc_log_p = vouts[rbm.name]['acc_log_p']
-    vreward = (vacc_log_p - vacc_log_q)
-    vreward.name = 'reward'
-
-    logger.info('Pushing reward through baseline')
-    vouts_baseline, vupdates_baseline = baseline(vreward, False, x0, xT)
-    #outs_baseline, updates_baseline = baseline(reward)
-    vouts[baseline.name] = vouts_baseline
-    vupdates.update(vupdates_baseline)
-
     consider_constant = [
         outs[baseline.name]['x'],
         outs[baseline.name]['x_centered']
@@ -160,8 +129,7 @@ def get_model(**kwargs):
     return OrderedDict(
         inps=inps,
         outs=outs,
-        vouts=vouts,
-        vupdates=vupdates,
+        vouts=None,
         errs=OrderedDict(),
         updates=updates,
         exclude_params=exclude_params,
@@ -180,9 +148,9 @@ def get_costs(inps=None, outs=None, **kwargs):
     base_cost = -(log_p + centered_reward * log_q).mean()
     #cost = -(log_p + centered_reward * log_q).mean()
     idb = outs['reward_baseline']['idb']
-    c = outs['reward_baseline']['c']
+    m = outs['reward_baseline']['m']
     var = outs['reward_baseline']['var']
-    idb_cost = (((reward0 - idb - c) / T.maximum(1., T.sqrt(var)))**2).mean()
+    idb_cost = (((reward0 - idb - m) / T.maximum(1., T.sqrt(var)))**2).mean()
     cost = base_cost + idb_cost
 
     return OrderedDict(
