@@ -29,11 +29,9 @@ def test(batch_size=20, dim_h=200, l=.01, n_inference_steps=30):
 
     trng = RandomStreams(6 * 23 * 2015)
     rnn = SimpleInferGRU(dim_in, dim_h, trng=trng)
-    exclude_params = rnn.get_excludes()
     tparams = rnn.set_tparams()
     baseline = BaselineWithInput((dim_in, dim_in), 1, name='energy_baseline')
     tparams.update(baseline.set_tparams())
-    exclude_params += baseline.get_excludes()
 
     mask = T.alloc(1., 2).astype('float32')
 
@@ -68,9 +66,9 @@ def test(batch_size=20, dim_h=200, l=.01, n_inference_steps=30):
 #    thresholded_energy = (e_sorted[:(batch_size / 20)]).mean()
 #    consider_constant = e_sorted[(batch_size / 20):]
 
-    exclude_keys = exclude_params
-    exclude_params = [tparams[ep] for ep in exclude_params]
-    tparams = OrderedDict((k, v) for k, v in tparams.iteritems() if k not in exclude_keys)
+    tparams = OrderedDict((k, v)
+        for k, v in tparams.iteritems()
+        if v not in updates.keys())
     grads = T.grad(cost, wrt=itemlist(tparams),
                    consider_constant=consider_constant)
 
