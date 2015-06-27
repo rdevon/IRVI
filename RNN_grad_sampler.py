@@ -26,6 +26,7 @@ def test(batch_size=20, dim_h=200, l=.01, n_inference_steps=30):
 
     trng = RandomStreams(6 * 23 * 2015)
     rnn = SimpleInferGRU(dim_in, dim_h, trng=trng)
+    exclude_params = rnn.get_excludes()
     tparams = rnn.set_tparams()
     mask = T.alloc(1., 2).astype('float32')
     (x_hats, energies), updates = rnn.inference(
@@ -34,6 +35,7 @@ def test(batch_size=20, dim_h=200, l=.01, n_inference_steps=30):
     energy = energies[-1]
     thresholded_energy = (T.sort(energy)[:energy.shape[0] / 10]).mean()
 
+    exclude_params = [tparams[ep] for ep in exclude_params]
     grads = T.grad(thresholded_energy, wrt=itemlist(tparams))
 
     chain, updates_s = rnn.sample(X[0])
@@ -44,7 +46,8 @@ def test(batch_size=20, dim_h=200, l=.01, n_inference_steps=30):
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [X], thresholded_energy,
         extra_ups=updates,
-        extra_outs=[x_hats, chain])
+        extra_outs=[x_hats, chain],
+        exclude_params=exclude_params)
 
     print 'Actually running'
     learning_rate = 0.001
