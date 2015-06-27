@@ -118,8 +118,11 @@ def get_model(**kwargs):
     updates.update(updates_baseline)
 
     consider_constant = [
-        outs[baseline.name]['x'],
-        outs[baseline.name]['x_centered']
+        outs[baseline.name]['x_c'],
+        outs[baseline.name]['x_centered'],
+        outs[baseline.name]['m'],
+        outs[baseline.name]['var'],
+        outs[baseline.name]['idb_c']
     ]
 
     logger.info('Done setting up model')
@@ -142,7 +145,7 @@ def get_costs(inps=None, outs=None, **kwargs):
     log_q = outs['cond_gen_gru']['log_p']
     log_p = outs['rbm']['log_p']
 
-    reward0 = outs['reward_baseline']['x']
+    reward_c = outs['reward_baseline']['x_c']
     centered_reward = outs['reward_baseline']['x_centered']
 
     base_cost = -(log_p + centered_reward * log_q).mean()
@@ -150,7 +153,7 @@ def get_costs(inps=None, outs=None, **kwargs):
     idb = outs['reward_baseline']['idb']
     m = outs['reward_baseline']['m']
     var = outs['reward_baseline']['var']
-    idb_cost = (((reward0 - idb - m) / T.maximum(1., T.sqrt(var)))**2).mean()
+    idb_cost = ((reward_c - idb - m)**2).mean()
     cost = base_cost + idb_cost
 
     return OrderedDict(
