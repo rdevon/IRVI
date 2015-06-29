@@ -43,7 +43,7 @@ def get_model(**kwargs):
     inps['x'] = X
     inps['r'] = R
 
-    rnn = HeirarchalGRU(train.dim, dim_h, dim_s, dropout=0.5)
+    rnn = HeirarchalGRU(train.dim, dim_h, dim_s, dropout=0.5, top_fb=True)
     tparams = rnn.set_tparams()
     exclude_params = rnn.get_excludes()
     logistic = Logistic()
@@ -65,15 +65,17 @@ def get_model(**kwargs):
     vouts_rnn, vupdates = rnn(X, suppress_noise=True)
     vouts[rnn.name] = vouts_rnn
 
-    top_10 = compute_top(outs['logistic']['y_hat'][:,:,0],R,outs['hiero_gru']['mask'],0.1)
-    top_20 = compute_top(outs['logistic']['y_hat'][:,:,0],R,outs['hiero_gru']['mask'],0.2)
-    errs = OrderedDict(
-        top_10_error = top_10,
-        top_20_error = top_20
-    )
-
-    vouts_l, vupdates_l = logistic(outs_rnn['o'])
+    vouts_l, vupdates_l = logistic(vouts_rnn['o'])
     vouts[logistic.name] = vouts_l
+
+    top_10 = compute_top(vouts['logistic']['y_hat'][:,:,0], R,
+                         vouts['hiero_gru']['mask'],0.1)
+    top_20 = compute_top(vouts['logistic']['y_hat'][:,:,0], R,
+                         vouts['hiero_gru']['mask'],0.2)
+    errs = OrderedDict(
+        top_10_acc = top_10,
+        top_20_acc = top_20
+    )
 
     consider_constant = []
 
@@ -83,6 +85,7 @@ def get_model(**kwargs):
         vouts=vouts,
         errs=errs,
         updates=updates,
+        vupdates=vupdates,
         exclude_params=exclude_params,
         consider_constant=consider_constant,
         tparams=tparams,
@@ -105,8 +108,6 @@ def compute_top(r_hat,R,mask,threshold):
     mask_final = mask_gt*mask_r
 
     return mask_final.sum().astype('float32')/n_total
-    
-
 
 def get_costs(inps=None, outs=None, **kwargs):
     r_hat = outs['logistic']['y_hat']
