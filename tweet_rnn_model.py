@@ -68,13 +68,13 @@ def get_model(**kwargs):
     vouts_l, vupdates_l = logistic(vouts_rnn['o'])
     vouts[logistic.name] = vouts_l
 
-    top_10 = compute_top(vouts['logistic']['y_hat'][:,:,0], R,
-                         vouts['hiero_gru']['mask'],0.1)
-    top_20 = compute_top(vouts['logistic']['y_hat'][:,:,0], R,
-                         vouts['hiero_gru']['mask'],0.2)
+    top_30 = compute_top(vouts['logistic']['y_hat'][:,:,0], R,
+                         vouts['hiero_gru']['mask'],0.3)
+    top_50 = compute_top(vouts['logistic']['y_hat'][:,:,0], R,
+                         vouts['hiero_gru']['mask'],0.5)
     errs = OrderedDict(
-        top_10_acc = top_10,
-        top_20_acc = top_20
+        top_30_acc = top_30,
+        top_50_acc = top_50
     )
 
     consider_constant = []
@@ -93,9 +93,14 @@ def get_model(**kwargs):
     )
 
 def compute_top(r_hat,R,mask,threshold):
+    mask = 1-mask[1:]
+    r_hat = r_hat[1:]
+    R = R[1:]
+
     GT_ids = T.argsort(R,axis=0)
     RH_ids = T.argsort(r_hat,axis=0)
     n_total = T.floor(threshold * mask.sum().astype('float32')).astype('int64')
+    print n_total
 
     GT_ids = GT_ids[-n_total:]
     mask_gt = T.zeros_like(mask)
