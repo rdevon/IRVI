@@ -15,6 +15,7 @@ from twitter_api import TwitterFeed
 import itertools
 import math
 logger = logger.setup_custom_logger('nmt', logging.DEBUG)
+import numpy as np
 
 default_hyperparams = OrderedDict(
     epochs=5000,
