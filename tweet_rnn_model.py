@@ -33,15 +33,18 @@ def get_model(**kwargs):
     dim_h = 500
     dim_s = 200
 
-    train = TwitterFeed()
-    valid = TwitterFeed(mode='feed')
+    train = TwitterFeed(batch_size=17)
+    valid = TwitterFeed(mode='feed', batch_size=17)
     test = None
 
     X = T.tensor3('X')
     R = T.matrix('R')
+    M = T.matrix('M')
+
     inps = OrderedDict()
     inps['x'] = X
     inps['r'] = R
+    inps['m'] = M
 
     rnn = HeirarchalGRU(train.dim, dim_h, dim_s, dropout=0.5, top_fb=True)
     tparams = rnn.set_tparams()
@@ -52,7 +55,7 @@ def get_model(**kwargs):
     outs = OrderedDict()
 
     logger.info('Pushing through heirarchal RNN')
-    outs_rnn, updates = rnn(X)
+    outs_rnn, updates = rnn(X, M)
     outs[rnn.name] = outs_rnn
 
     outs_l, updates_l = logistic(outs_rnn['o'])
@@ -62,19 +65,19 @@ def get_model(**kwargs):
     logger.info('Done setting up model')
     logger.info('Adding validation graph')
     vouts = OrderedDict()
-    vouts_rnn, vupdates = rnn(X, suppress_noise=True)
+    vouts_rnn, vupdates = rnn(X, M, suppress_noise=True)
     vouts[rnn.name] = vouts_rnn
 
     vouts_l, vupdates_l = logistic(vouts_rnn['o'])
     vouts[logistic.name] = vouts_l
 
-    top_10 = compute_top(vouts['logistic']['y_hat'][:,:,0], R,
-                         vouts['hiero_gru']['mask'],0.1)
-    top_20 = compute_top(vouts['logistic']['y_hat'][:,:,0], R,
-                         vouts['hiero_gru']['mask'],0.2)
+    top_30 = compute_top(vouts['logistic']['y_hat'][:, :, 0], R,
+                         vouts['hiero_gru']['mask'], 0.3)
+    top_50 = compute_top(vouts['logistic']['y_hat'][:, :, 0], R,
+                         vouts['hiero_gru']['mask'], 0.5)
     errs = OrderedDict(
-        top_10_acc = top_10,
-        top_20_acc = top_20
+        top_30_acc = top_30,
+        top_50_acc = top_50
     )
 
     consider_constant = []
@@ -92,29 +95,47 @@ def get_model(**kwargs):
         data=dict(train=train, valid=valid, test=test)
     )
 
-def compute_top(r_hat,R,mask,threshold):
-    GT_ids = T.argsort(R,axis=0)
-    RH_ids = T.argsort(r_hat,axis=0)
-    n_total = T.floor(threshold * mask.sum().astype('float32')).astype('int64')
+def compute_top(r_hat, R, mask, threshold):
+    mask = 1 - mask[1:]
+    r_hat = r_hat[1:]
+    R_ = R[1:]
 
-    GT_ids = GT_ids[-n_total:]
-    mask_gt = T.zeros_like(mask)
-    mask_gt = T.set_subtensor(mask_gt[GT_ids], 1.).astype('float32')
+    n_total = T.floor(threshold * mask.sum(axis=0).astype('float32')).astype('int64')
+    GT_ids = T.argsort(R_ * mask, axis=0)
+    RH_ids = T.argsort(r_hat * mask, axis=0)
 
-    RH_ids = RH_ids[-n_total:]
-    mask_r = T.zeros_like(mask)
-    mask_r = T.set_subtensor(mask_r[RH_ids], 1.).astype('float32')
+    def step(a, idx, n):
+        b = T.zeros_like(a)
+        idx = idx[-n:]
+        return T.set_subtensor(b[idx], 1.)
 
-    mask_final = mask_gt*mask_r
+    mask_gt, _ = theano.scan(
+        step,
+        sequences=[mask.T, GT_ids.T, n_total],
+        outputs_info=[None],
+        non_sequences=[],
+        name='top_step',
+        strict=True)
 
-    return mask_final.sum().astype('float32')/n_total
+    mask_r, _ = theano.scan(
+        step,
+        sequences=[mask.T, RH_ids.T, n_total],
+        outputs_info=[None],
+        non_sequences=[],
+        name='top_step',
+        strict=True)
+
+    mask_final = mask_gt * mask_r
+    acc = (mask_final.sum(axis=1).astype('float32') / n_total.astype('float32')).mean()
+
+    return acc
 
 def get_costs(inps=None, outs=None, **kwargs):
-    r_hat = outs['logistic']['y_hat']
+    r_hat = outs['logistic']['y_hat'][:, :, 0]
     r = inps['r']
     mask = outs['hiero_gru']['mask']
 
-    cost = (((r - r_hat[:, :, 0]) * (1 - mask))**2).sum() / (1 - mask).sum().astype('float32')
+    cost = ((((r - r_hat) * (1 - mask))**2).sum(axis=0) / (1 - mask).sum(axis=0).astype('float32')).mean()
 
     return OrderedDict(
         cost=cost,
