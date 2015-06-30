@@ -15,6 +15,7 @@ from twitter_api import TwitterFeed
 import itertools
 import math
 logger = logger.setup_custom_logger('nmt', logging.DEBUG)
+import numpy as np
 
 default_hyperparams = OrderedDict(
     epochs=5000,
@@ -94,25 +95,24 @@ def get_model(**kwargs):
 
 def compute_top(r_hat,R,mask,threshold):
     mask = 1-mask[1:]
-    r_hat = r_hat[1:]
-    R = R[1:]
+    r_hat = r_hat[1:]*mask
+    R = R[1:]*mask
 
     GT_ids = T.argsort(R,axis=0)
     RH_ids = T.argsort(r_hat,axis=0)
-    n_total = T.floor(threshold * mask.sum().astype('float32')).astype('int64')
-    print n_total
+    n_total = T.floor(np.float32(threshold) * mask.sum().astype('float32')).astype('int64')
+
 
     GT_ids = GT_ids[-n_total:]
     mask_gt = T.zeros_like(mask)
-    mask_gt = T.set_subtensor(mask_gt[GT_ids], 1.).astype('float32')
+    mask_gt = T.set_subtensor(mask_gt[GT_ids], 1).astype('float32')
 
     RH_ids = RH_ids[-n_total:]
     mask_r = T.zeros_like(mask)
-    mask_r = T.set_subtensor(mask_r[RH_ids], 1.).astype('float32')
+    mask_r = T.set_subtensor(mask_r[RH_ids], 1).astype('float32')
 
     mask_final = mask_gt*mask_r
-
-    return mask_final.sum().astype('float32')/n_total
+    return mask_final.sum().astype('float32')/n_total.astype('float32')
 
 def get_costs(inps=None, outs=None, **kwargs):
     r_hat = outs['logistic']['y_hat']
