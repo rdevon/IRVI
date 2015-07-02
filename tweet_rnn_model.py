@@ -73,12 +73,13 @@ def get_model(**kwargs):
     vouts[logistic.name] = vouts_l
 
     top_30 = compute_top(vouts['logistic']['y_hat'][:, :, 0], R,
-                         vouts['hiero_gru']['mask'], 0.3)
+                         vouts['hiero_gru']['mask_n'], 0.3)
     top_50 = compute_top(vouts['logistic']['y_hat'][:, :, 0], R,
-                         vouts['hiero_gru']['mask'], 0.5)
+                         vouts['hiero_gru']['mask_n'], 0.5)
     errs = OrderedDict(
         top_30_acc = top_30,
-        top_50_acc = top_50
+        top_50_acc = top_50,
+        perc_unks = T.eq(X[:, :, 1], 1).mean()
     )
 
     consider_constant = []
@@ -96,8 +97,17 @@ def get_model(**kwargs):
         data=dict(train=train, valid=valid, test=test)
     )
 
+def get_samplers(inps=None, outs=None):
+    mask = outs['hiero_gru']['mask_n'][1:, 0]
+    r = mask.compress(inps['r'][1:, 0], axis=0)
+    r_hat = mask.compress(outs['logistic']['y_hat'][1:, 0, 0], axis=0)
+    return OrderedDict(
+        gt=r.T,
+        es=r_hat.T
+    )
+
 def compute_top(r_hat, R, mask, threshold):
-    mask = 1 - mask[1:]
+    mask = mask[1:]
     r_hat = r_hat[1:]
     R_ = R[1:]
 
@@ -132,9 +142,9 @@ def compute_top(r_hat, R, mask, threshold):
     return acc
 
 def get_costs(inps=None, outs=None, **kwargs):
-    r_hat = outs['logistic']['y_hat'][:, :, 0]
-    r = inps['r']
-    mask = outs['hiero_gru']['mask']
+    r_hat = outs['logistic']['y_hat'][:, :, 0][1:]
+    r = inps['r'][1:]
+    mask = outs['hiero_gru']['mask'][1:]
 
     cost = ((((r - r_hat) * (1 - mask))**2).sum(axis=0) / (1 - mask).sum(axis=0).astype('float32')).mean()
 
