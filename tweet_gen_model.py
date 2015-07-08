@@ -52,10 +52,13 @@ class DataIter():
 def get_model(**kwargs):
     dim_h = 512
     dim_emb = 512
+    sampling_steps = 20
 
-    train = TwitterFeed(batch_size=17, n_tweets=1)
-    valid = TwitterFeed(mode='feed', batch_size=17)
+    train = TwitterFeed(batch_size=32, n_tweets=1, limit_unks=0.2)
+    valid = TwitterFeed(mode='feed', batch_size=8, n_tweets=1)
     test = None
+
+    trng = RandomStreams(7 * 2 * 2015)
 
     X = T.tensor3('X')
     M = T.matrix('M')
@@ -119,6 +122,53 @@ def get_model(**kwargs):
     vouts_softmax, _ = softmax(vouts_logit['z'])
     vouts[softmax.name] = vouts_softmax
 
+    def step_sample(x_, h_,
+                    U, W, b, Ux, Wx, bx, Wo, bo,
+                    E, be, EL, bel, L, bl):
+
+        preact = T.dot(h_, U) + T.dot(x_, W) + b
+        r, u = rnn.get_gates(preact)
+        preactx = T.dot(h_, Ux) * r + T.dot(x_, Wx) + bx
+        h = T.tanh(preactx)
+        h = u * h_ + (1. - u) * h
+        o = T.dot(h, Wo) + bo
+
+        x_l = T.dot(x_, EL) + bel
+        l = T.dot(T.tanh(x_l + o), L) + bl
+        p = T.nnet.softmax(l)
+        x = trng.multinomial(pvals=p).argmax(axis=1)
+        y = T.zeros_like(p)
+        y = T.set_subtensor(y[:, x], 1.)
+        x_e = (T.dot(y, E) + be).astype('float32')
+
+        return x_e, h, o, x
+
+    seqs = []
+    outputs_info = [T.alloc(0., 2, rnn.dim_h).astype('float32'),
+        T.alloc(0., 2, rnn.dim_in).astype('float32'), None, None]
+    non_seqs = [rnn.U, rnn.W, rnn.b, rnn.Ux, rnn.Wx, rnn.bx, rnn.Wo, rnn.bo,
+                embedding.W, embedding.b, emb_logit.W, emb_logit.b,
+                logit_ffn.W, logit_ffn.b]
+
+    (x_e, h, o, x), updates_sampler = theano.scan(step_sample,
+                                        sequences=seqs,
+                                        outputs_info=outputs_info,
+                                        non_sequences=non_seqs,
+                                        name='sampling',
+                                        n_steps=sampling_steps,
+                                        profile=False,
+                                        strict=True)
+    vupdates.update(updates_sampler)
+
+    vouts.update(
+        sampler=OrderedDict(
+            x_e=x_e,
+            h=h,
+            o=o,
+            x=x
+        )
+    )
+
     errs = OrderedDict(
         perc_unks = T.eq(X[:, :, 1], 1).mean()
     )
@@ -126,6 +176,7 @@ def get_model(**kwargs):
     consider_constant = []
 
     return OrderedDict(
+        name='tweet_gen',
         inps=inps,
         outs=outs,
         vouts=vouts,
@@ -135,17 +186,29 @@ def get_model(**kwargs):
         exclude_params=exclude_params,
         consider_constant=consider_constant,
         tparams=tparams,
-        data=dict(train=DataIter(train), valid=None, test=None)
+        data=dict(train=DataIter(train), valid=DataIter(valid), test=None)
     )
 
-def get_samplers(inps=None, outs=None):
-    return OrderedDict()
+def get_samplers(inps=None, outs=None, dataset=None):
+    trng = RandomStreams(7 * 2 * 2015)
+    probs = outs['softmax']['y_hat'][:, 0]
+    gt = inps['x'][:, 0]
+    gt_prob = (probs * gt).max(axis=1)
+    gt_sample = trng.multinomial(pvals=probs).argmax(axis=1)
+
+    sampler = outs['sampler']
+
+    return OrderedDict(
+        es=gt_sample,
+        gt=gt.argmax(axis=1),
+        pr=gt_prob,
+        xs=sampler['x'][:, 0]
+    )
 
 def get_costs(inps=None, outs=None, **kwargs):
     mask = inps['m']
     cost = costs.categorical_cross_entropy(outs['softmax']['y_hat'],
-                                           inps['x'])
-
+                                           inps['x'], mask)
     return OrderedDict(
         cost=cost,
         known_grads=OrderedDict()

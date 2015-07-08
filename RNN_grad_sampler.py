@@ -4,6 +4,7 @@ Sampling and inference with LSTM models
 
 from collections import OrderedDict
 import numpy as np
+import os
 import theano
 from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
@@ -20,47 +21,24 @@ from tools import itemlist
 floatX = theano.config.floatX
 
 
-def test(batch_size=20, dim_h=200, l=.01, n_inference_steps=30):
-    train = mnist_iterator(batch_size=2*batch_size, mode='train', inf=True,
+def test(batch_size=10, dim_h=500, l=.01, n_inference_steps=30,
+         save_graphs=False):
+    train = mnist_iterator(batch_size=batch_size, mode='train', inf=True,
                            restrict_digits=[3, 8, 9])
 
     dim_in = train.dim
     X = T.tensor3('x', dtype=floatX)
 
     trng = RandomStreams(6 * 23 * 2015)
-    rnn = SimpleInferGRU(dim_in, dim_h, trng=trng)
+    rnn = SimpleInferGRU(dim_in, dim_h, trng=trng, h0_mode='ffn')
     tparams = rnn.set_tparams()
-    #baseline = BaselineWithInput((dim_in, dim_in), 1, name='energy_baseline')
-    #tparams.update(baseline.set_tparams())
 
     mask = T.alloc(1., 2).astype('float32')
 
-    (x_hats, energy), updates = rnn.inference(
+    (x_hats, h0s, energy), updates = rnn.inference(
         X, mask, l, n_inference_steps=n_inference_steps)
 
-    (x_hats_r, energy_r), updates_r = rnn.inference(
-        X[::-1, :, :], mask, l, n_inference_steps=n_inference_steps)
-    print updates_r
-    updates_r = theano.OrderedUpdates((k, v)
-        for k, v in updates_r.iteritems()
-        if k not in updates.keys())
-    updates.update(updates_r)
-
-    #outs_baseline, updates_baseline = baseline(energy, True, X[0], X[1])
-    #updates.update(updates_baseline)
-    #centered_energy = outs_baseline['x_centered']
-    #energy_c = outs_baseline['x_c']
-    #idb = outs_baseline['idb']
-    #idb_c = outs_baseline['idb_c']
-    #m = outs_baseline['m']
-    #var = outs_baseline['var']
-
-    consider_constant = [
-        #energy_c,
-        #idb_c,
-        #m,
-        #var
-    ]
+    consider_constant = [h0s]
 
     def reg_step(e_, e_accum, e):
         e_accum = e_accum + ((e - e_)**2).sum()
@@ -76,21 +54,25 @@ def test(batch_size=20, dim_h=200, l=.01, n_inference_steps=30):
     )
 
     reg_term = reg_terms[-1]
+    cost = energy.mean()
 
-    #cost = -(log_p + centered_reward * log_q).mean()
-    #idb_cost = (((energy_c - idb - m))**2).mean()
-    #cost = centered_energy.mean() + idb_cost
-    cost = ((energy - energy_r)**2).mean()# + 0.01 * reg_term
+    if rnn.h0_mode == 'ffn':
+        print 'Using a ffn h0 with inputs x1 x2'
+        h0 = h0s[0]
+        ht = h0s[-1]
+        ht_c = T.zeros_like(ht) + ht
+        h0_cost = ((ht_c - h0)**2).sum(axis=1).mean()
+        cost += h0_cost
+        consider_constant.append(ht_c)
 
-#    e_idx = T.argsort(energy)
-#    threshold = energy[e_idx[batch_size / 20]]
-#    energy = T.switch(T.lt(energy, threshold), energy, 0.).mean()
-#    thresholded_energy = (e_sorted[:(batch_size / 20)]).mean()
-#    consider_constant = e_sorted[(batch_size / 20):]
+    E = T.scalar('E', dtype='int64')
+    new_k = T.min([10, T.floor(E / 100)]).astype('int64')
+    k_update = theano.OrderedUpdates([(rnn.k, new_k)])
+    updates.update(k_update)
 
     tparams = OrderedDict((k, v)
         for k, v in tparams.iteritems()
-        if v not in updates.keys())
+        if (v not in updates.keys()))
 
     grads = T.grad(cost, wrt=itemlist(tparams),
                    consider_constant=consider_constant)
@@ -98,22 +80,39 @@ def test(batch_size=20, dim_h=200, l=.01, n_inference_steps=30):
     (chain, p_chain), updates_s = rnn.sample(X[0])
     updates.update(updates_s)
 
+    if save_graphs:
+        print 'Saving graphs'
+        theano.printing.pydotprint(
+            cost,
+            outfile='/Users/devon/tmp/rnn_grad_cost_graph.png',
+            var_with_name_simple=True)
+        theano.printing.pydotprint(
+            grads,
+            outfile='/Users/devon/tmp/rnn_grad_grad_graph.png',
+            var_with_name_simple=True)
+
+    print 'Building optimizer'
     lr = T.scalar(name='lr')
     optimizer = 'rmsprop'
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
-        lr, tparams, grads, [X], cost,
+        lr, tparams, grads, [X, E], cost,
         extra_ups=updates,
-        extra_outs=[x_hats, chain, energy.mean(), ((energy - energy_r)**2).mean()])
+        extra_outs=[x_hats, chain, energy.mean(), reg_term, h0_cost, rnn.k])
 
     print 'Actually running'
     learning_rate = 0.001
-    for e in xrange(10000):
-        try:
-            x, _ = train.next()
-            x = x.reshape(2, batch_size, x.shape[1]).astype(floatX)
-            rval = f_grad_shared(x)
+
+    try:
+        for e in xrange(10000):
+            data, _ = train.next()
+            x = np.zeros((2, batch_size * batch_size, data.shape[1])).astype('float32')
+            for i in xrange(batch_size):
+                for j in xrange(batch_size):
+                    batch = np.concatenate([data[i][None, :], data[j][None, :]])
+                    x[:, batch_size * j + i] = batch
+            rval = f_grad_shared(x, e)
             r = False
-            for k, out in zip(['cost', 'x_hats', 'chain', 'energy', 'reg_term'], rval):
+            for k, out in zip(['cost', 'x_hats', 'chain', 'energy', 'reg_term', 'h0_cost'], rval):
                 if np.any(np.isnan(out)):
                     print k, 'nan'
                     r = True
@@ -123,22 +122,27 @@ def test(batch_size=20, dim_h=200, l=.01, n_inference_steps=30):
             if r:
                 return
             if e % 10 == 0:
-                #print ('%d: cost: %.5f | prob: %.5f | c_energy: %.5f | idb_cost: %.5f | energy: %.5f' %
-                #       (e, rval[0], np.exp(-rval[0]), rval[3], rval[4], rval[5]))
-                print ('%d: cost: %.5f | prob: %.5f | energy: %.5f | reg_term: %.5f'
-                       % (e, rval[0], np.exp(-rval[0]), rval[3], rval[4]))
-            if e % 100 == 0:
-                sample = rval[1][:, :, 0]
-                sample[0] = x[:, 0, :]
+                print ('%d: cost: %.5f | prob: %.5f | energy: %.5f | reg_term: %.5f | h0_cost: %.5f | k: %d'
+                       % (e, rval[0], np.exp(-rval[0]), rval[3], rval[4], rval[5], rval[6]))
+            if e % 10 == 0:
+                idx = np.random.randint(rval[1].shape[2])
+                sample = rval[1][:, :, idx]
                 train.save_images(sample, '/Users/devon/tmp/grad_sampler2.png')
-                sample_chain = rval[2]
+                sample_chain = rval[2][:, :batch_size]
                 train.save_images(sample_chain, '/Users/devon/tmp/grad_chain2.png')
                 #prob_chain = rval[3]
                 #train.save_images(prob_chain, '/Users/devon/tmp/grad_probs.png')
 
             f_grad_updates(learning_rate)
-        except KeyboardInterrupt:
-            exit()
+    except KeyboardInterrupt:
+        print 'Training interrupted'
+
+    outfile = os.path.join('/Users/devon/tmp/',
+                           'rnn_grad_model_{}.npz'.format(int(time.time())))
+
+    print 'Saving'
+    np.savez(outfile, **dict((k, v.get_value()) for k, v in tparams.items()))
+    print 'Done saving. Bye bye.'
 
 if __name__ == '__main__':
     test()
