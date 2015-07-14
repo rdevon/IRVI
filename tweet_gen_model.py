@@ -54,7 +54,7 @@ def get_model(**kwargs):
     dim_emb = 512
     sampling_steps = 20
 
-    train = TwitterFeed(mode='microsoft', batch_size=32, n_tweets=1, limit_unks=0.2)
+    train = TwitterFeed(mode='microsoft', batch_size=32, n_tweets=1, limit_unks=False)
     valid = TwitterFeed(mode='ds', batch_size=8, n_tweets=1)
     test = None
 
