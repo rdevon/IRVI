@@ -5,6 +5,7 @@ SFFN experiment
 from collections import OrderedDict
 import numpy as np
 import os
+from os import path
 import theano
 from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
@@ -19,7 +20,7 @@ from tools import itemlist
 
 floatX = theano.config.floatX
 
-def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30):
+def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
 
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
@@ -107,24 +108,25 @@ def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30):
 
                 idx = np.random.randint(rval[3].shape[1])
                 inference = rval[3][:, idx]
-                train.save_images(inference, '/Users/devon/tmp/sffn_inference.png')
+                train.save_images(inference, path.join(out_path, 'sffn_inference.png'))
 
                 samples = np.concatenate([d_v[None, :, :],
                                           samples[None, :, :],
                                           p_samples[None, :, :]], axis=0)
                 samples = samples[:, :min(10, samples.shape[1] - 1)]
-                train.save_images(samples, '/Users/devon/tmp/sffn_samples.png')
+                train.save_images(samples, path.join(out_path, '/sffn_samples.png'))
 
             f_grad_updates(learning_rate)
     except KeyboardInterrupt:
         print 'Training interrupted'
 
-    outfile = os.path.join('/Users/devon/tmp/',
-                           'rnn_grad_model_{}.npz'.format(int(time.time())))
+    outfile = path.join(out_path,
+                        'rnn_grad_model_{}.npz'.format(int(time.time())))
 
     print 'Saving'
     np.savez(outfile, **dict((k, v.get_value()) for k, v in tparams.items()))
     print 'Done saving. Bye bye.'
 
 if __name__ == '__main__':
-    test()
+    out_path = sys.argv[1]
+    test(out_path=out_path)
