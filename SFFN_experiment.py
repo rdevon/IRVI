@@ -33,7 +33,7 @@ def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
     Y = D[:, dim_in:]
 
     trng = RandomStreams(6 * 23 * 2015)
-    sffn = SFFN_2Layer(dim_in, dim_h, dim_out, trng=trng, h_mode='noise', noise=0.1)
+    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, h_mode='noise', noise=0.1)
     tparams = sffn.set_tparams()
 
     (y_hats, d_hats, ps, dps, zs, energy), updates = sffn.inference(
