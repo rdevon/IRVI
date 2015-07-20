@@ -33,29 +33,25 @@ def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
     Y = D[:, dim_in:]
 
     trng = RandomStreams(6 * 23 * 2015)
-    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, h_mode='noise', noise=0.1)
+    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, z_init=None, noise=0.1)
     tparams = sffn.set_tparams()
 
-    (y_hats, d_hats, ps, dps, zs, energy), updates = sffn.inference(
+    (zs, y_hats, d_hats, pds, h_energy, y_energy), updates = sffn.inference(
         X, Y, l, n_inference_steps=n_inference_steps, m=100, noise_mode='noise_all')
 
-    y_hat, y_energy, dp, d_hat = sffn(X, Y)
-    f_d_hat = theano.function([X, Y], [dp, d_hat, y_energy])
+    y_hat_s, y_energy_s, pd_s, d_hat_s = sffn(X, Y)
+    f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
     consider_constant = [zs, y_hats]
+    cost = h_energy + y_energy
 
-    cost = energy.mean()
-
-    if sffn.h_mode == 'ffn':
-        raise NotImplementedError('There\'s a problem! h is constant!')
-        print 'Using a ffn h with inputs x0 x1'
-        h = zs[0]
-        ht = zs[-1]
-        ht_c = T.zeros_like(ht) + ht
-        h_cost = ((ht_c - h)**2).sum(axis=1).mean()
-        cost += h_cost
-        consider_constant.append(ht_c)
-    elif sffn.h_mode == 'x':
+    if sffn.z_init == 'xy':
+        print 'Using a ffn h with inputs x y'
+        z0 = T.dot(X, sffn.W0) + T.dot(Y, sffn.U0) + sffn.b0
+        zt = zs[-1]
+        z_cost = ((ht - z0)**2).sum(axis=1).mean()
+        cost += z_cost
+    elif sffn.z_init == 'x':
         z0 = T.dot(X, sffn.W0) + sffn.b0
         zt = zs[-1]
         z_cost = ((zt - z0)**2).sum(axis=1).mean()
@@ -76,7 +72,7 @@ def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [D], cost,
         extra_ups=updates,
-        extra_outs=[energy.mean(), z_cost, dps])
+        extra_outs=[h_energy, y_energy, z_cost, pds, d_hats])
 
     print 'Actually running'
     learning_rate = 0.001
@@ -86,7 +82,8 @@ def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
             x, _ = train.next()
             rval = f_grad_shared(x)
             r = False
-            for k, out in zip(['cost', 'energy', 'z_cost', 'ps', 'd_hats'], rval):
+            for k, out in zip(['cost', 'h_energy', 'y_energy', 'z_cost', 'pds',
+                               'd_hats'], rval):
                 if np.any(np.isnan(out)):
                     print k, 'nan'
                     r = True
@@ -99,21 +96,24 @@ def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
                 d_v, _ = valid.next()
                 x_v = d_v[:, :dim_in]
                 y_v = d_v[:, dim_in:]
-                p_samples, samples, y_en = f_d_hat(x_v, y_v)
+                ye_v, pd_v, d_hat_v = f_d_hat(x_v, y_v)
 
-                print ('%d: cost: %.5f | energy: %.5f | v_energy: %.5f | prob: %.5f | z_cost: %.5f '
-                       % (e, rval[0], rval[1],
-                          y_en,
-                          np.exp(-rval[1]),
-                          rval[2]))
+                print ('%d: cost: %.5f | h_energy: %.5f | train y_energy: %.5f '
+                       '| train y_prob: %.5f | valid y_energy: %.5f '
+                       '| valid y_prob: %.5f | z_cost: %.5f '
+                       % (e, rval[0], rval[1], rval[2], np.exp(-rval[2]),
+                          ye_v, np.exp(-ye_v), rval[3]))
 
-                idx = np.random.randint(rval[3].shape[1])
-                inference = rval[3][:, idx]
+                idx = np.random.randint(rval[4].shape[1])
+                inference = rval[4][:, idx]
+                i_samples = rval[5][:, idx]
+                inference = np.concatenate([inference[None, :, :],
+                                            i_samples[None, :, :]], axis=0)
                 train.save_images(inference, path.join(out_path, 'sffn_inference.png'))
 
                 samples = np.concatenate([d_v[None, :, :],
-                                          samples[None, :, :],
-                                          p_samples[None, :, :]], axis=0)
+                                          pd_v[None, :, :],
+                                          d_hat_v[None, :, :]], axis=0)
                 samples = samples[:, :min(10, samples.shape[1] - 1)]
                 train.save_images(samples, path.join(out_path, 'sffn_samples.png'))
 
