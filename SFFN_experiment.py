@@ -3,6 +3,7 @@ SFFN experiment
 '''
 
 from collections import OrderedDict
+from monitor import SimpleMonitor
 import numpy as np
 import os
 from os import path
@@ -74,6 +75,8 @@ def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
         extra_ups=updates,
         extra_outs=[h_energy, y_energy, z_cost, pds, d_hats])
 
+    monitor = SimpleMonitor()
+
     print 'Actually running'
     learning_rate = 0.001
 
@@ -92,23 +95,32 @@ def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
                     r = True
             if r:
                 return
+
             if e % 10 == 0:
                 d_v, _ = valid.next()
                 x_v = d_v[:, :dim_in]
                 y_v = d_v[:, dim_in:]
                 ye_v, pd_v, d_hat_v = f_d_hat(x_v, y_v)
 
-                print ('%d: cost: %.5f | h_energy: %.5f | train y_energy: %.5f '
-                       '| train y_prob: %.5f | valid y_energy: %.5f '
-                       '| valid y_prob: %.5f | z_cost: %.5f '
-                       % (e, rval[0], rval[1], rval[2], np.exp(-rval[2]),
-                          ye_v, np.exp(-ye_v), rval[3]))
+                monitor.update(
+                    **{
+                        'cost': rval[0],
+                        'h energy': rval[1],
+                        'train y energy': rval[2],
+                        'train y prob': np.exp(-rval[2]),
+                        'valid y energy': ye_v,
+                        'valid y prob': np.exp(-ye_v),
+                        'z cost': rval[3]
+                    }
+                )
+                monitor.display(e * batch_size)
+                monitor.save(path.join(out_path, 'sffn_monitor.png'))
 
                 idx = np.random.randint(rval[4].shape[1])
                 inference = rval[4][:, idx]
                 i_samples = rval[5][:, idx]
-                inference = np.concatenate([inference[None, :, :],
-                                            i_samples[None, :, :]], axis=0)
+                inference = np.concatenate([inference[:, None, :],
+                                            i_samples[:, None, :]], axis=1)
                 train.save_images(inference, path.join(out_path, 'sffn_inference.png'))
 
                 samples = np.concatenate([d_v[None, :, :],
