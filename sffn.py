@@ -270,7 +270,7 @@ class SFFN_2Layer(SFFN):
         hh = self.trng.binomial(p=phh, size=phh.shape, n=1, dtype=phh.dtype)
         p = T.nnet.sigmoid(T.dot(hh, HY) + by)
 
-        energy = (self.energy(h, ph) + self.energy(y, p)).mean()
+        energy = (self.energy(h, ph) + self.energy(hh, phh) + self.energy(y, p)).mean()
         return energy
 
     def IS_energy(self, x, y, z, n_samples=10):

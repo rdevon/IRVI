@@ -6,6 +6,7 @@ from collections import OrderedDict
 import numpy as np
 import os
 from os import path
+import sys
 import theano
 from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
@@ -114,7 +115,7 @@ def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
                                           samples[None, :, :],
                                           p_samples[None, :, :]], axis=0)
                 samples = samples[:, :min(10, samples.shape[1] - 1)]
-                train.save_images(samples, path.join(out_path, '/sffn_samples.png'))
+                train.save_images(samples, path.join(out_path, 'sffn_samples.png'))
 
             f_grad_updates(learning_rate)
     except KeyboardInterrupt:
