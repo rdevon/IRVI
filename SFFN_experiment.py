@@ -22,9 +22,9 @@ from tools import itemlist
 
 floatX = theano.config.floatX
 
-def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
+def test(batch_size=16, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
 
-    train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
+    train = mnist_iterator(batch_size=1, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
 
     dim_in = train.dim / 2
@@ -34,23 +34,24 @@ def test(batch_size=10, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
     Y = D[:, dim_in:]
 
     trng = RandomStreams(6 * 23 * 2015)
-    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, z_init=None, noise=0.1)
+    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, z_init='noise', noise=0.2,
+                noise_mode='sample')
     tparams = sffn.set_tparams()
 
     (zs, y_hats, d_hats, pds, h_energy, y_energy), updates = sffn.inference(
-        X, Y, l, n_inference_steps=n_inference_steps, m=100, noise_mode='noise_all')
+        X, Y, l, n_inference_steps=n_inference_steps, m=100)
 
     y_hat_s, y_energy_s, pd_s, d_hat_s = sffn(X, Y)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
-    consider_constant = [zs, y_hats]
+    consider_constant = [X, Y, zs, y_hats]
     cost = h_energy + y_energy
 
     if sffn.z_init == 'xy':
         print 'Using a ffn h with inputs x y'
         z0 = T.dot(X, sffn.W0) + T.dot(Y, sffn.U0) + sffn.b0
         zt = zs[-1]
-        z_cost = ((ht - z0)**2).sum(axis=1).mean()
+        z_cost = ((zt - z0)**2).sum(axis=1).mean()
         cost += z_cost
     elif sffn.z_init == 'x':
         z0 = T.dot(X, sffn.W0) + sffn.b0

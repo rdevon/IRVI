@@ -19,8 +19,8 @@ floatX = 'float32' # theano.config.floatX
 
 class SFFN(Layer):
     def __init__(self, dim_in, dim_h, dim_out, rng=None, trng=None,
-                 weight_scale=0.1, weight_noise=False, noise=0.1, z_init=None,
-                 name='sffn'):
+                 weight_scale=0.1, weight_noise=False, noise=False, z_init=None,
+                 noise_mode=None, name='sffn'):
         if trng is None:
             self.trng = RandomStreams(6 * 10 * 2015)
         else:
@@ -33,6 +33,7 @@ class SFFN(Layer):
         self.weight_noise = weight_noise
         self.weight_scale = weight_scale
         self.noise = noise
+        self.noise_mode = noise_mode
         self.z_init = z_init
 
         if rng is None:
@@ -74,10 +75,10 @@ class SFFN(Layer):
             z += self.trng.normal(avg=0, std=0.1, size=(x.shape[0], self.dim_h), dtype=x.dtype)
         elif self.z_init == 'xy':
             z = T.dot(x, self.W0) + T.dot(y, self.U0) + self.b0
-            z += self.trng.normal(avg=0, std=0.1, size=(x.shape[0], self.dim_h), dtype=x.dtype)
+            #z += self.trng.normal(avg=0, std=0.1, size=(x.shape[0], self.dim_h), dtype=x.dtype)
         elif self.z_init == 'x':
             z = T.dot(x, self.W0) + self.b0
-            z += self.trng.normal(avg=0, std=0.1, size=(x.shape[0], self.dim_h), dtype=x.dtype)
+            #z += self.trng.normal(avg=0, std=0.1, size=(x.shape[0], self.dim_h), dtype=x.dtype)
         elif self.z_init == 'y':
             z = T.dot(y, self.W0) + self.b0
         elif self.z_init == 'noise':
@@ -99,6 +100,9 @@ class SFFN(Layer):
                                               dtype=x.dtype))
             y_n = y * (1 - self.trng.binomial(p=self.noise, size=y.shape, n=1,
                                               dtype=y.dtype))
+        elif noise_mode == 'sample':
+            x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
+            y_n = self.trng.binomial(p=y, size=y.shape, n=1, dtype=y.dtype)
         elif noise_mode is None:
             x_n = T.zeros_like(x) + x
             y_n = T.zeros_like(y) + y
@@ -107,15 +111,19 @@ class SFFN(Layer):
 
         return x_n, y_n
 
-    def energy_sample(self, x, y, z, XH, bh, HY, by):
-        pz = T.nnet.sigmoid(z)
-        h = self.trng.binomial(p=pz, size=pz.shape, n=1, dtype=pz.dtype)
+    def energy(self, x, p):
+        return -(x * T.log(p + 1e-7) +
+                (1 - x) * T.log(1 - p + 1e-7)).sum(axis=1)
 
-        p = T.nnet.sigmoid(T.dot(h, HY) + by)
+    def energy_step(self, x, y, z, XH, bh, HY, by):
+        mu = T.nnet.sigmoid(z)
+        h = self.trng.binomial(p=mu, size=mu.shape, n=1, dtype=mu.dtype)
+
         ph = T.nnet.sigmoid(T.dot(x, XH) + bh)
+        py = T.nnet.sigmoid(T.dot(h, HY) + by)
 
-        h_energy = self.energy(h, ph).mean()
-        y_energy = self.energy(y, p).mean()
+        h_energy = self.energy(h, ph)
+        y_energy = self.energy(y, py)
         return h_energy, y_energy
 
     def sample_energy(self, x, y, z, n_samples=10):
@@ -124,7 +132,7 @@ class SFFN(Layer):
         non_seqs = [x, y, z, self.XH, self.bh, self.HY, self.by]
 
         (h_energies, y_energies), updates = theano.scan(
-            self.energy_sample,
+            self.energy_step,
             sequences=seqs,
             outputs_info=outputs_info,
             non_sequences=non_seqs,
@@ -134,13 +142,9 @@ class SFFN(Layer):
             strict=True
         )
 
-        h_energy = h_energies.mean()
-        y_energy = y_energies.mean()
+        h_energy = h_energies.mean(axis=0).mean(axis=0)
+        y_energy = y_energies.mean(axis=0).mean(axis=0)
         return (h_energy, y_energy), updates
-
-    def energy(self, x, p):
-        return -(x * T.log(p + 1e-7) +
-                (1 - x) * T.log(1 - p + 1e-7)).sum(axis=1)
 
     def grad_step(self, z, x, y, l, XH, bh, HY, by):
         ph = T.nnet.sigmoid(T.dot(x, XH) + bh)
@@ -149,17 +153,22 @@ class SFFN(Layer):
         py = T.nnet.sigmoid(T.dot(mu, HY) + by)
 
         energy = (self.energy(y, py) + self.energy(mu, ph)).sum()
-        grad = theano.grad(energy, wrt=z, consider_constant=[x, y])
+        entropy = -(mu * T.log(mu)).sum()
+        cost = energy# + entropy
+        grad = theano.grad(cost, wrt=z, consider_constant=[x, y])
 
         z = z - l * grad
         return z
 
     def step_infer(self, z, x, y, l, XH, bh, HY, by):
-        if self.noise:
+        if self.noise_mode in ['x', 'noise_all']:
             x_n = x * (1 - self.trng.binomial(p=self.noise, size=x.shape, n=1,
                                             dtype=x.dtype))
             y_n = y * (1 - self.trng.binomial(p=self.noise, size=y.shape, n=1,
                                             dtype=y.dtype))
+        elif self.noise_mode == 'sample':
+            x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
+            y_n = self.trng.binomial(p=y, size=y.shape, n=1, dtype=y.dtype)
         else:
             x_n = T.zeros_like(x) + x
             y_n = T.zeros_like(y) + y
@@ -176,14 +185,14 @@ class SFFN(Layer):
 
         return z, y_hat, pd, d_hat
 
-    def inference(self, x, y, l, n_inference_steps=1, noise_mode='noise_all', m=20):
+    def inference(self, x, y, l, n_inference_steps=1, m=20):
         updates = theano.OrderedUpdates()
 
-        x_n, y_n = self.init_inputs(x, y, noise_mode)
+        x_n, y_n = self.init_inputs(x, y, self.noise_mode)
         z = self.init_z(x, y)
         mu = T.nnet.sigmoid(z)
-        p = T.nnet.sigmoid(T.dot(mu, self.HY) + self.by)
-        y_hat = self.trng.binomial(p=p, size=p.shape, n=1, dtype=p.dtype)
+        py = T.nnet.sigmoid(T.dot(mu, self.HY) + self.by)
+        y_hat = self.trng.binomial(p=py, size=py.shape, n=1, dtype=py.dtype)
 
         seqs = []
         outputs_info = [z, None, None, None]
