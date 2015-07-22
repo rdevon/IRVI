@@ -17,6 +17,7 @@ from mnist import mnist_iterator
 import op
 from sffn import SFFN
 from sffn import SFFN_2Layer
+from sffn import SFFN_2Layer2
 from tools import itemlist
 
 
@@ -24,7 +25,7 @@ floatX = theano.config.floatX
 
 def test(batch_size=16, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
 
-    train = mnist_iterator(batch_size=1, mode='train', inf=True, repeat=1)
+    train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
 
     dim_in = train.dim / 2
@@ -34,17 +35,22 @@ def test(batch_size=16, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
     Y = D[:, dim_in:]
 
     trng = RandomStreams(6 * 23 * 2015)
-    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, z_init='noise', noise=0.2,
-                noise_mode='sample')
+    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, z_init=None,
+                        noise=0.2, learn_z=True, noise_mode='sample')
     tparams = sffn.set_tparams()
 
     (zs, y_hats, d_hats, pds, h_energy, y_energy), updates = sffn.inference(
         X, Y, l, n_inference_steps=n_inference_steps, m=100)
 
-    y_hat_s, y_energy_s, pd_s, d_hat_s = sffn(X, Y)
+    (y_energy_s, pd_s, d_hat_s), updates_s1 = sffn(X, Y, from_z=True)
+    updates.update(updates_s1)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
-    consider_constant = [X, Y, zs, y_hats]
+    (y_energy_t, pd_t, d_hat_t), updates_s2 = sffn(X, Y, from_z=False)
+    updates.update(updates_s2)
+    f_d_hat2 = theano.function([X, Y], [y_energy_t, pd_t, d_hat_t])
+
+    consider_constant = [X, Y, zs, zs[-1], y_hats]
     cost = h_energy + y_energy
 
     if sffn.z_init == 'xy':
@@ -55,6 +61,13 @@ def test(batch_size=16, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
         cost += z_cost
     elif sffn.z_init == 'x':
         z0 = T.dot(X, sffn.W0) + sffn.b0
+        zt = zs[-1]
+        z_cost = ((zt - z0)**2).sum(axis=1).mean()
+        cost += z_cost
+    elif sffn.learn_z:
+        print 'Learning z with a ffn'
+        zh = T.tanh(T.dot(X, sffn.W0) + sffn.b0)
+        z0 = T.dot(zh, sffn.W1) + sffn.b1
         zt = zs[-1]
         z_cost = ((zt - z0)**2).sum(axis=1).mean()
         cost += z_cost
@@ -70,7 +83,7 @@ def test(batch_size=16, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
 
     print 'Building optimizer'
     lr = T.scalar(name='lr')
-    optimizer = 'rmsprop'
+    optimizer = 'adam'
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [D], cost,
         extra_ups=updates,
@@ -79,7 +92,9 @@ def test(batch_size=16, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
     monitor = SimpleMonitor()
 
     print 'Actually running'
-    learning_rate = 0.001
+    learning_rate = 0.0001
+    min_lr = 0.00001
+    lr_decay = 0.99
 
     try:
         for e in xrange(100000):
@@ -102,17 +117,21 @@ def test(batch_size=16, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
                 x_v = d_v[:, :dim_in]
                 y_v = d_v[:, dim_in:]
                 ye_v, pd_v, d_hat_v = f_d_hat(x_v, y_v)
+                ye_u, pd_u, d_hat_u = f_d_hat2(x_v, y_v)
 
                 monitor.update(
-                    **{
+                    **OrderedDict({
                         'cost': rval[0],
                         'h energy': rval[1],
                         'train y energy': rval[2],
                         'train y prob': np.exp(-rval[2]),
                         'valid y energy': ye_v,
                         'valid y prob': np.exp(-ye_v),
-                        'z cost': rval[3]
-                    }
+                        'valid y energy 2': ye_u,
+                        'valid y prob 2': np.exp(-ye_u),
+                        'z cost': rval[3],
+                        'learning rate': learning_rate
+                    })
                 )
                 monitor.display(e * batch_size)
                 monitor.save(path.join(out_path, 'sffn_monitor.png'))
@@ -125,12 +144,15 @@ def test(batch_size=16, dim_h=256, l=0.1, n_inference_steps=30, out_path=''):
                 train.save_images(inference, path.join(out_path, 'sffn_inference.png'))
 
                 samples = np.concatenate([d_v[None, :, :],
-                                          pd_v[None, :, :],
+                                          pd_v,
                                           d_hat_v[None, :, :]], axis=0)
                 samples = samples[:, :min(10, samples.shape[1] - 1)]
                 train.save_images(samples, path.join(out_path, 'sffn_samples.png'))
 
             f_grad_updates(learning_rate)
+
+            learning_rate = max(learning_rate * lr_decay, min_lr)
+
     except KeyboardInterrupt:
         print 'Training interrupted'
 
