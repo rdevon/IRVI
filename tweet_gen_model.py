@@ -49,12 +49,51 @@ class DataIter():
         return x, m
 
 
-def get_model(**kwargs):
+def load_model(model_file, train, dim_h, dim_emb):
+    pretrained_model = np.load(model_file)
+
+    embedding = FFN(train.dim, dim_emb, ortho=False, name='embedding')
+    rnn = GRUWithOutput(dim_emb, dim_h, dim_emb)
+    emb_logit = FFN(dim_emb, dim_emb, ortho=False, name='emb_logit')
+    logit_ffn = FFN(dim_emb, train.dim, ortho=False, name='logit_ffn')
+    softmax = Softmax()
+
+    pretrained_model = np.load(model_file)
+
+    tparams = OrderedDict()
+    for model in [embedding, rnn, emb_logit, logit_ffn, softmax]:
+        try:
+            for k, v in model.params.iteritems():
+                try:
+                    pretrained_v = pretrained_model[
+                        '{name}_{key}'.format(name=model.name, key=k)]
+                    model.params[k] = pretrained_v
+                except KeyError:
+                    print '{} not found'.format(k)
+            tparams.update(model.set_tparams())
+        except AttributeError:
+            print '{} has no params (make sure this is OK!)'.format(model.name)
+
+    exclude_params = rnn.get_excludes()
+
+    return OrderedDict(
+        models=OrderedDict(
+            embedding=embedding,
+            rnn=rnn,
+            emb_logit=emb_logit,
+            logit_ffn=logit_ffn,
+            softmax=softmax
+        ),
+        tparams=tparams,
+        exclude_params=exclude_params
+    )
+
+def get_model(pretrained_file=None, limit_unks=0.2, **kwargs):
     dim_h = 512
     dim_emb = 512
     sampling_steps = 20
 
-    train = TwitterFeed(mode='microsoft', batch_size=32, n_tweets=1, limit_unks=0.2)
+    train = TwitterFeed(mode='microsoft', batch_size=32, n_tweets=1, limit_unks=limit_unks)
     valid = TwitterFeed(mode='ds', batch_size=8, n_tweets=1)
     test = None
 
@@ -67,18 +106,29 @@ def get_model(**kwargs):
     inps['x'] = X
     inps['m'] = M
 
-    embedding = FFN(train.dim, dim_emb, ortho=False, name='embedding')
-    tparams = embedding.set_tparams()
-    rnn = GRUWithOutput(dim_emb, dim_h, dim_emb)
-    tparams.update(rnn.set_tparams())
-    exclude_params = rnn.get_excludes()
+    if pretrained_model is None:
+        embedding = FFN(train.dim, dim_emb, ortho=False, name='embedding')
+        tparams = embedding.set_tparams()
+        rnn = GRUWithOutput(dim_emb, dim_h, dim_emb)
+        tparams.update(rnn.set_tparams())
+        exclude_params = rnn.get_excludes()
 
-    emb_logit = FFN(dim_emb, dim_emb, ortho=False, name='emb_logit')
-    tparams.update(emb_logit.set_tparams())
-    logit_ffn = FFN(dim_emb, train.dim, ortho=False, name='logit_ffn')
-    tparams.update(logit_ffn.set_tparams())
+        emb_logit = FFN(dim_emb, dim_emb, ortho=False, name='emb_logit')
+        tparams.update(emb_logit.set_tparams())
+        logit_ffn = FFN(dim_emb, train.dim, ortho=False, name='logit_ffn')
+        tparams.update(logit_ffn.set_tparams())
 
-    softmax = Softmax()
+        softmax = Softmax()
+    else:
+        model_dict = load_model(model_file, train, dim_h, dim_emb)
+        embedding = model_dict['embedding']
+        rnn = model_dict['rnn']
+        emb_logit = model_dict['emb_logit']
+        logit_ffn = model_dict['logit_ffn']
+        softmax = model_dict['softmax']
+
+        tparams = model_dict['tparams']
+        exclude_params = model_dict['exclude_params']
 
     outs = OrderedDict()
     logger.info('Enbedding words')
