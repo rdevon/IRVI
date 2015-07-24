@@ -118,6 +118,7 @@ def get_model(**kwargs):
     updates.update(updates_baseline)
 
     consider_constant = [
+        reward,
         outs[baseline.name]['x_c'],
         outs[baseline.name]['x_centered'],
         outs[baseline.name]['m'],
