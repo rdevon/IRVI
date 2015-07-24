@@ -88,13 +88,13 @@ def load_model(model_file, train, dim_h, dim_emb):
         exclude_params=exclude_params
     )
 
-def get_model(pretrained_file=None, limit_unks=0.2, **kwargs):
+def get_model(pretrained_model=None, limit_unks=0.2, **kwargs):
     dim_h = 512
     dim_emb = 512
     sampling_steps = 20
 
     train = TwitterFeed(mode='microsoft', batch_size=32, n_tweets=1, limit_unks=limit_unks)
-    valid = TwitterFeed(mode='ds', batch_size=8, n_tweets=1)
+    valid = TwitterFeed(mode='feed', batch_size=8, n_tweets=1)
     test = None
 
     trng = RandomStreams(7 * 2 * 2015)
@@ -120,7 +120,7 @@ def get_model(pretrained_file=None, limit_unks=0.2, **kwargs):
 
         softmax = Softmax()
     else:
-        model_dict = load_model(model_file, train, dim_h, dim_emb)
+        model_dict = load_model(pretrained_model, train, dim_h, dim_emb)
         embedding = model_dict['embedding']
         rnn = model_dict['rnn']
         emb_logit = model_dict['emb_logit']
