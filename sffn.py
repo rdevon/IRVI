@@ -185,13 +185,13 @@ class SFFN(Layer):
         py = self.p_y_given_h(mu, *params)
 
         cost = (self.energy(y, py)
-                - mu * T.log(ph)
-                - (1 - mu) * T.log(1 - ph)
-                + mu * T.log(mu)
-                + (1 - mu) * T.log(1 - mu)).sum()
+                - (mu * T.log(ph)
+                   + (1 - mu) * T.log(1 - ph)).sum(axis=1)
+                + (mu * T.log(mu)
+                   + (1 - mu) * T.log(1 - mu)).sum(axis=1)
+                ).sum()
 
         grad = theano.grad(cost, wrt=z, consider_constant=[x, y])
-
         z = z - l * grad
         return z
 
@@ -263,9 +263,9 @@ class SFFN(Layer):
 
         return (zs, y_hats, d_hats, pds, h_energy, y_energy), updates
 
-    def step_sample(self, p, x):
+    def step_sample(self, p, x, *params):
         h = self.trng.binomial(p=p, size=p.shape, n=1, dtype=p.dtype)
-        py = self.cond_from_h(h)
+        py = self.p_y_given_h(h, *params)
         pd = T.concatenate([x, py], axis=1)
 
         return py, pd
@@ -285,7 +285,7 @@ class SFFN(Layer):
 
         seqs = []
         outputs_info = [None, None]
-        non_seqs = [ph, x]
+        non_seqs = [ph, x] + self.get_params()
 
         (pys, pds), updates = theano.scan(
             self.step_sample,

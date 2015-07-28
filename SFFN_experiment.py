@@ -13,9 +13,9 @@ from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import time
 
+from layers import MLP
 from mnist import mnist_iterator
 import op
-from sffn import DSFFN
 from sffn import SFFN
 from sffn import SFFN_2Layer
 from sffn import SFFN_2Layer2
@@ -24,7 +24,7 @@ from tools import itemlist
 
 floatX = theano.config.floatX
 
-def test(batch_size=64, dim_h=256, l=0.01, n_inference_steps=30, second_sffn=False, out_path=''):
+def test(batch_size=64, dim_h=256, l=0.1, n_inference_steps=30, second_sffn=False, out_path=''):
 
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=2 * batch_size, mode='valid', inf=True, repeat=1)
@@ -36,14 +36,20 @@ def test(batch_size=64, dim_h=256, l=0.01, n_inference_steps=30, second_sffn=Fal
     Y = D[:, dim_in:]
 
     trng = RandomStreams(6 * 23 * 2015)
+
+    cond_to_h = MLP(dim_in, dim_h, dim_h, 2,
+                    h_act='lambda x: x * (x > 0)',
+                    out_act='T.nnet.sigmoid')
+
     sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, z_init=None,
-                learn_z=False, noise_mode='sample')
+                cond_to_h=cond_to_h, learn_z=False, noise_mode='sample')
     tparams = sffn.set_tparams()
+
 
     (zs, y_hats, d_hats, pds, h_energy, y_energy), updates = sffn.inference(
         X, Y, l, n_inference_steps=n_inference_steps, m=100)
 
-    (y_energy_s, pd_s, d_hat_s), updates_s1 = sffn(X, Y, from_z=False)
+    (y_hat_s, y_energy_s, pd_s, d_hat_s), updates_s1 = sffn(X, Y, from_z=False)
     updates.update(updates_s1)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
