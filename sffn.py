@@ -185,10 +185,10 @@ class SFFN(Layer):
         py = self.p_y_given_h(mu, *params)
 
         cost = (self.energy(y, py)
-                  - mu * T.log(ph)
-                  - (1 - mu) * T.log(1 - ph)
-                  + mu * T.log(mu)
-                  + (1 - mu) * T.log(1 - mu)).sum()
+                - mu * T.log(ph)
+                - (1 - mu) * T.log(1 - ph)
+                + mu * T.log(mu)
+                + (1 - mu) * T.log(1 - mu)).sum()
 
         grad = theano.grad(cost, wrt=z, consider_constant=[x, y])
 
@@ -275,7 +275,7 @@ class SFFN(Layer):
 
         if ph is not None:
             pass
-        if from_z:
+        elif from_z:
             assert self.learn_z
             zh = T.tanh(T.dot(x_n, self.W0) + self.b0)
             z = T.dot(zh, self.W1) + self.b1
