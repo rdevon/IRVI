@@ -37,7 +37,7 @@ def test(batch_size=64, dim_h=256, l=0.1, n_inference_steps=30, second_sffn=Fals
 
     trng = RandomStreams(6 * 23 * 2015)
 
-    cond_to_h = MLP(dim_in, dim_h, dim_h, 2,
+    cond_to_h = MLP(dim_in, dim_h, dim_h, 3,
                     h_act='lambda x: x * (x > 0)',
                     out_act='T.nnet.sigmoid')
 
@@ -45,12 +45,10 @@ def test(batch_size=64, dim_h=256, l=0.1, n_inference_steps=30, second_sffn=Fals
                 cond_to_h=cond_to_h, learn_z=False, noise_mode='sample')
     tparams = sffn.set_tparams()
 
-
     (zs, y_hats, d_hats, pds, h_energy, y_energy), updates = sffn.inference(
         X, Y, l, n_inference_steps=n_inference_steps, m=100)
 
-    (y_hat_s, y_energy_s, pd_s, d_hat_s), updates_s1 = sffn(X, Y, from_z=False)
-    updates.update(updates_s1)
+    y_hat_s, y_energy_s, pd_s, d_hat_s = sffn(X, Y, from_z=False)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
     consider_constant = [X, Y, zs, zs[-1], y_hats]

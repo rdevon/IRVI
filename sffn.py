@@ -146,38 +146,22 @@ class SFFN(Layer):
         return self.cond_from_h.step_call(h, *ps)
 
     def energy(self, x, p):
-        return -(x * T.log(p + 1e-8) +
-                (1 - x) * T.log(1 - p + 1e-8)).sum(axis=1)
-
-    def energy_step(self, x, y, z, *params):
-        mu = T.nnet.sigmoid(z)
-        h = self.trng.binomial(p=mu, size=mu.shape, n=1, dtype=mu.dtype)
-        ph = self.p_h_given_x(x, *params)
-        py = self.p_y_given_h(h, *params)
-
-        h_energy = self.energy(h, ph)
-        y_energy = self.energy(y, py)
-        return h_energy, y_energy
+        energy = -(x * T.log(p + 1e-8) +
+                   (1 - x) * T.log(1 - p + 1e-8))
+        energy = energy.sum(axis=energy.ndim-1)
+        return energy
 
     def sample_energy(self, x, y, z, n_samples=10):
-        seqs = []
-        outputs_info = [None, None]
-        non_seqs = [x, y, z] + self.get_params()
+        mu = T.nnet.sigmoid(z)
+        h = self.trng.binomial(p=mu, size=(n_samples, mu.shape[0], mu.shape[1]),
+                               n=1, dtype=mu.dtype)
+        ph = self.cond_to_h(x)
+        py = self.cond_from_h(h)
 
-        (h_energies, y_energies), updates = theano.scan(
-            self.energy_step,
-            sequences=seqs,
-            outputs_info=outputs_info,
-            non_sequences=non_seqs,
-            name=tools._p(self.name, 'energy'),
-            n_steps=n_samples,
-            profile=tools.profile,
-            strict=True
-        )
+        h_energy = self.energy(h, ph[None, :, :]).sum(axis=0).mean()
+        y_energy = self.energy(y[None, :, :], py).sum(axis=0).mean()
 
-        h_energy = h_energies.mean()
-        y_energy = y_energies.mean()
-        return (h_energy, y_energy), updates
+        return (h_energy, y_energy)
 
     def grad_step(self, z, x, y, l, *params):
         ph = self.p_h_given_x(x, *params)
@@ -210,7 +194,7 @@ class SFFN(Layer):
 
         return z, y_hat, pd, d_hat
 
-    def inference(self, x, y, l, n_inference_steps=1, m=20):
+    def inference(self, x, y, l, n_inference_steps=1, m=100):
         updates = theano.OrderedUpdates()
 
         x_n, y_n = self.noise_inputs(x, y, self.noise_mode)
@@ -253,8 +237,7 @@ class SFFN(Layer):
                              d_hat[None, :, :],
                              pds], axis=0)
 
-        (h_energy, y_energy), updates_3 = self.sample_energy(x_n, y, zs[-1], n_samples=m)
-        updates.update(updates_3)
+        h_energy, y_energy = self.sample_energy(x_n, y, zs[-1], n_samples=m)
 
         if self.z_init == 'average':
             z_mean = zs[-1].mean(axis=0)
@@ -262,13 +245,6 @@ class SFFN(Layer):
             updates += [(self.z, new_z)]
 
         return (zs, y_hats, d_hats, pds, h_energy, y_energy), updates
-
-    def step_sample(self, p, x, *params):
-        h = self.trng.binomial(p=p, size=p.shape, n=1, dtype=p.dtype)
-        py = self.p_y_given_h(h, *params)
-        pd = T.concatenate([x, py], axis=1)
-
-        return py, pd
 
     def __call__(self, x, y, ph=None, n_samples=100, from_z=False):
         x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
@@ -283,21 +259,13 @@ class SFFN(Layer):
         else:
             ph = self.cond_to_h(x)
 
-        seqs = []
-        outputs_info = [None, None]
-        non_seqs = [ph, x] + self.get_params()
+        h = self.trng.binomial(p=ph, size=(n_samples, ph.shape[0], ph.shape[1]),
+                               n=1, dtype=ph.dtype)
+        py = self.cond_from_h(h)
+        x_e = T.zeros_like(py) + x[None, :, :]
+        pd = T.concatenate([x_e, py], axis=2)
 
-        (pys, pds), updates = theano.scan(
-            self.step_sample,
-            sequences=seqs,
-            outputs_info=outputs_info,
-            non_sequences=non_seqs,
-            name=tools._p(self.name, 'samples'),
-            n_steps=n_samples,
-            profile=tools.profile,
-            strict=True
-        )
-        log_py = T.log(pys).mean(axis=0)
+        log_py = T.log(py).mean(axis=0)
         py = T.exp(log_py)
 
         y_hat = self.trng.binomial(p=py, size=py.shape, n=1, dtype=py.dtype)
@@ -305,9 +273,9 @@ class SFFN(Layer):
 
         y_energy = self.energy(y, py).mean()
 
-        pds = pds[:10]
+        pd = pd[:10]
 
-        return (y_hat, y_energy, pds, d_hat), updates
+        return y_hat, y_energy, pd, d_hat
 
 
 class DSFFN(Layer):
