@@ -17,14 +17,13 @@ from layers import MLP
 from mnist import mnist_iterator
 import op
 from sffn import SFFN
-from sffn import SFFN_2Layer
-from sffn import SFFN_2Layer2
 from tools import itemlist
 
 
 floatX = theano.config.floatX
 
-def test(batch_size=64, dim_h=256, l=0.1, n_inference_steps=30, second_sffn=False, out_path=''):
+def test(batch_size=100, dim_h=200, l=.1, n_inference_steps=30,
+         second_sffn=True, out_path=''):
 
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=2 * batch_size, mode='valid', inf=True, repeat=1)
@@ -37,42 +36,45 @@ def test(batch_size=64, dim_h=256, l=0.1, n_inference_steps=30, second_sffn=Fals
 
     trng = RandomStreams(6 * 23 * 2015)
 
-    cond_to_h = MLP(dim_in, dim_h, dim_h, 3,
+    cond_to_h = MLP(dim_in, dim_h, dim_h, 2,
                     h_act='lambda x: x * (x > 0)',
                     out_act='T.nnet.sigmoid')
 
-    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, z_init=None,
-                cond_to_h=cond_to_h, learn_z=False, noise_mode='sample')
+    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, cond_to_h=cond_to_h,
+                x_init='sample', inference_noise='x', noise_amount=0.1)
     tparams = sffn.set_tparams()
 
-    (zs, y_hats, d_hats, pds, h_energy, y_energy), updates = sffn.inference(
-        X, Y, l, n_inference_steps=n_inference_steps, m=100)
+    (zs, y_hats, d_hats, pds, h_energy, y_energy, i_energy), updates = sffn.inference(
+        X, Y, l, n_inference_steps=n_inference_steps, m=20)
 
-    y_hat_s, y_energy_s, pd_s, d_hat_s = sffn(X, Y, from_z=False)
+    y_hat_s, _, y_energy_s, pd_s, d_hat_s = sffn(X, Y, from_z=False)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
-    consider_constant = [X, Y, zs, zs[-1], y_hats]
+    consider_constant = [X, Y, zs, y_hats]
     cost = h_energy + y_energy
 
+    i_energy_2 = None
+
     if second_sffn:
-        sffn2 = SFFN(dim_in, dim_h, dim_h, trng=trng, z_init=None,
-                     noise=0.2, learn_z=False, noise_mode='sample', name='sffn2')
+        sffn2 = SFFN(dim_in, dim_h, dim_h, trng=trng,
+                     x_init='sample_x', inference_noise='x', name='sffn2')
         tparams.update(sffn2.set_tparams())
 
         mu = T.nnet.sigmoid(zs[-1])
-        (z2s, z_hats, _, _, h2_energy, z_energy), updates2 = sffn2.inference(
-            X, mu, l, n_inference_steps=n_inference_steps, m=100)
+        (z2s, z_hats, _, _, h2_energy, mu_energy, i_energy_2), updates2 = sffn2.inference(
+            X, mu, l, n_inference_steps=20, m=20)
         updates.update(updates2)
-        z_cost = h2_energy + z_energy
+
+        z_cost = h2_energy + mu_energy
         cost += z_cost
-        consider_constant += [z2s, z_hats]
+        consider_constant += [z2s, mu, z_hats]
+        _, mu_hat, _, _, _ = sffn2(X, mu, from_z=False)
 
-        (mu_hat, _, _, _), updates_s2 = sffn2(X, mu, from_z=False)
-        updates.update(updates_s2)
+        _, _, y_energy_t, _, _ = sffn(X, Y, ph=mu_hat, from_z=False)
+        f_d_hat2 = theano.function([X, Y], y_energy_t)
 
-        (y_energy_t, pd_t, d_hat_t), updates_s3 = sffn(X, Y, ph=mu_hat, from_z=False)
-        updates.update(updates_s3)
-        f_d_hat2 = theano.function([X, Y], [y_energy_t, pd_t, d_hat_t])
+        #z_i = T.log(mu / (1. - mu))
+        #sffn.initialize_z(z_i)
 
     elif sffn.z_init == 'xy':
         print 'Using a ffn h with inputs x y'
@@ -100,6 +102,21 @@ def test(batch_size=64, dim_h=256, l=0.1, n_inference_steps=30, second_sffn=Fals
         z_cost = T.constant(0.)
         f_d_hat2 = None
 
+    extra_outs = [h_energy, y_energy, z_cost, pds, d_hats, i_energy]
+    if second_sffn:
+        extra_outs.append(i_energy_2)
+
+    mlp = MLP(dim_in, dim_h, dim_out, 3,
+              h_act='T.nnet.sigmoid',
+              out_act='T.nnet.sigmoid', name='deterministic')
+    tparams.update(mlp.set_tparams())
+
+    py_d = mlp(X)
+    cost_d = mlp.neg_log_prob(Y, py_d).mean()
+    cost += cost_d
+    extra_outs.append(cost_d)
+    f_det_cost = theano.function([X, Y], cost_d)
+
     tparams = OrderedDict((k, v)
         for k, v in tparams.iteritems()
         if (v not in updates.keys()))
@@ -113,7 +130,7 @@ def test(batch_size=64, dim_h=256, l=0.1, n_inference_steps=30, second_sffn=Fals
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [D], cost,
         extra_ups=updates,
-        extra_outs=[h_energy, y_energy, z_cost, pds, d_hats])
+        extra_outs=extra_outs)
 
     monitor = SimpleMonitor()
 
@@ -144,6 +161,7 @@ def test(batch_size=64, dim_h=256, l=0.1, n_inference_steps=30, second_sffn=Fals
                 y_v = d_v[:, dim_in:]
                 ye_v, pd_v, d_hat_v = f_d_hat(x_v, y_v)
                 ytt, _, _ = f_d_hat(x[:, :dim_in], x[:, dim_in:])
+                d_c = f_det_cost(x_v, y_v)
                 monitor.update(
                     **OrderedDict({
                         'cost': rval[0],
@@ -151,13 +169,17 @@ def test(batch_size=64, dim_h=256, l=0.1, n_inference_steps=30, second_sffn=Fals
                         'train y energy': rval[2],
                         'train energy at test': ytt,
                         'valid y energy': ye_v,
-                        'z cost': rval[3]
+                        'z cost': rval[3],
+                        'inference energy': rval[6],
+                        'cost mlp': rval[8],
+                        'valid cost mlp': d_c
                     })
                 )
 
                 if f_d_hat2 is not None:
-                    ye_u, pd_u, d_hat_u = f_d_hat2(x_v, y_v)
-                    monitor.update(**{'valid y energy 2': ye_u})
+                    ye_u = f_d_hat2(x_v, y_v)
+                    monitor.update(**{'valid y energy 2': ye_u,
+                                      'inference energy 2': rval[7]})
 
                 monitor.display(e * batch_size)
                 monitor.save(path.join(out_path, 'sffn_monitor.png'))
