@@ -352,7 +352,8 @@ class SFFN_2Layer_2Mus(SFFN):
         ph2 = self.cond_to_h2(h1)
         py = self.cond_from_h2(h2)
 
-        h1_energy = self.cond_to_h1.neg_log_prob(h1, ph1[None, :, :]).mean()
+        h1_energy = self.cond_to_h1.neg_log_prob(h1, ph1[None, :, :])
+        h1_energy = -log_mean_exp(-h1_energy, axis=0).mean()
         h2_energy = self.cond_to_h2.neg_log_prob(h2, ph2[None, :, :])
         h2_energy = -log_mean_exp(-h2_energy, axis=0).mean()
         y_energy = self.cond_from_h2.neg_log_prob(y[None, :, :], py)
@@ -455,3 +456,38 @@ class SFFN_2Layer_2Mus(SFFN):
             updates += [(self.z, new_z)]
 
         return (z1s, z2s, y_hats, d_hats, pds, h_energy, y_energy, i_costs[-1]), updates
+
+    def __call__(self, x, y, ph1=None, n_samples=100, from_z=False):
+        x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
+
+        if ph1 is not None:
+            pass
+        elif from_z:
+            assert self.learn_z
+            zh = T.tanh(T.dot(x_n, self.W0) + self.b0)
+            z1 = T.dot(zh, self.W1) + self.b1
+            ph1 = T.nnet.sigmoid(z1)
+        else:
+            ph1 = self.cond_to_h1(x)
+
+        h1 = self.cond_to_h1.sample(ph1, size=(n_samples, ph1.shape[0], ph1.shape[1]))
+
+        ph2 = self.cond_to_h2(h1)
+        h2 = self.cond_to_h1.sample(ph1, size=(n_samples*ph.shape[0], ph2.shape[0], ph1.shape[1]))
+
+        py = self.cond_from_h(h)
+        x_e = T.zeros_like(py) + x[None, :, :]
+        pd = T.concatenate([x_e, py], axis=2)
+
+        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
+        y_energy = -log_mean_exp(-y_energy, axis=0).mean()
+
+        log_py = T.log(py).mean(axis=0)
+        py = T.exp(log_py)
+
+        y_hat = self.cond_from_h.sample(py)
+        d_hat = T.concatenate([x, y_hat], axis=1)
+
+        pd = pd[:10]
+
+        return y_hat, py, y_energy, pd, d_hat

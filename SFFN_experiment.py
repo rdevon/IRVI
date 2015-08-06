@@ -35,7 +35,8 @@ def train_model(batch_size=100,
           inference_decay=.99,
           second_sffn=True,
           out_path='',
-          load_last=False):
+          load_last=False,
+          load_model=None):
 
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
@@ -57,7 +58,10 @@ def train_model(batch_size=100,
                 x_init='sample', inference_noise=None, noise_amount=0.,
                 inference_rate=l, n_inference_steps=n_inference_steps,
                 inference_decay=inference_decay)
-    if load_last:
+    if load_model is not None:
+        sffn.cond_to_h = load_model(sffn.cond_to_h, load_model)
+        sffn.cond_from_h = load_model(sffn.cond_from_h, load_model)
+    elif load_last:
         model_file = glob(path.join(out_path, '*.npz'))[-1]
         sffn.cond_to_h = load_model(sffn.cond_to_h, model_file)
         sffn.cond_from_h = load_model(sffn.cond_from_h, model_file)
@@ -253,6 +257,7 @@ def make_argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-o', '--out_path', default=None)
     parser.add_argument('-l', '--load_last', action='store_true')
+    parser.add_argument('-r', '--load_model', default=None)
     return parser
 
 if __name__ == '__main__':
@@ -265,4 +270,5 @@ if __name__ == '__main__':
     elif not path.isdir(out_path):
         os.mkdir(path.abspath(out_path))
 
-    train_model(out_path=args.out_path, load_last=args.load_last)
+    train_model(out_path=args.out_path, load_last=args.load_last,
+                load_model=args.load_model)
