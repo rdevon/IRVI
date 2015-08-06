@@ -24,8 +24,8 @@ class SFFN(Layer):
                  cond_to_h=None, cond_from_h=None,
                  weight_scale=0.1, weight_noise=False, inference_noise=False,
                  noise_amount=0.1, z_init=None, x_init='sample', learn_z=False,
-                 noise_mode=None,
-                 name='sffn'):
+                 noise_mode=None, inference_rate=0.1, inference_decay=0.99,
+                 n_inference_steps=30, name='sffn'):
         if trng is None:
             self.trng = RandomStreams(6 * 10 * 2015)
         else:
@@ -44,6 +44,9 @@ class SFFN(Layer):
         self.learn_z = learn_z
         self.cond_to_h = cond_to_h
         self.cond_from_h = cond_from_h
+        self.inference_rate = inference_rate
+        self.inference_decay = inference_decay
+        self.n_inference_steps = n_inference_steps
 
         if rng is None:
             rng = tools.rng_
@@ -177,17 +180,17 @@ class SFFN(Layer):
         py = self.p_y_given_h(mu, *params)
 
         cost = (self.cond_from_h.neg_log_prob(y, py)
-                - (mu * T.log(ph)
-                   + (1 - mu) * T.log(1 - ph)).sum(axis=1)
-                + (mu * T.log(mu)
-                   + (1 - mu) * T.log(1 - mu)).sum(axis=1)
+                - (mu * T.log(ph + 1e-7)
+                   + (1 - mu) * T.log(1 - ph) + 1e-7).sum(axis=1)
+                + (mu * T.log(mu + 1e-7)
+                   + (1 - mu) * T.log(1 - mu) + 1e-7).sum(axis=1)
                 ).mean(axis=0)
 
         grad = theano.grad(cost, wrt=z, consider_constant=[x, y])
         z = (z - x.shape[0] * l * grad).astype(floatX)
         return z, cost
 
-    def step_infer(self, z, x, y, l, *params):
+    def step_infer(self, z, l, x, y, *params):
         x_n, y_n = self.noise_inputs(x, y, self.inference_noise)
 
         z, i_cost = self.grad_step(z, x_n, y_n, l, *params)
@@ -200,9 +203,10 @@ class SFFN(Layer):
         pd = T.concatenate([x, py], axis=1)
         d_hat = T.concatenate([x, y_hat], axis=1)
 
-        return z, y_hat, pd, d_hat, i_cost
+        l *= self.inference_decay
+        return z, l, y_hat, pd, d_hat, i_cost
 
-    def inference(self, x, y, l, n_inference_steps=1, m=100):
+    def inference(self, x, y, m=100):
         updates = theano.OrderedUpdates()
 
         x_n, y_n = self.noise_inputs(x, y, self.x_init)
@@ -211,17 +215,18 @@ class SFFN(Layer):
         py = self.cond_from_h(mu)
         y_hat = self.cond_from_h.sample(py)
 
+        l = self.inference_rate
         seqs = []
-        outputs_info = [z0, None, None, None, None]
-        non_seqs = [x, y, l] + self.get_params()
+        outputs_info = [z0, l, None, None, None, None]
+        non_seqs = [x, y] + self.get_params()
 
-        (zs, y_hats, pds, d_hats, i_costs), updates_2 = theano.scan(
+        (zs, ls, y_hats, pds, d_hats, i_costs), updates_2 = theano.scan(
             self.step_infer,
             sequences=seqs,
             outputs_info=outputs_info,
             non_sequences=non_seqs,
             name=tools._p(self.name, 'infer'),
-            n_steps=n_inference_steps,
+            n_steps=self.n_inference_steps,
             profile=tools.profile,
             strict=True
         )

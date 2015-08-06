@@ -2,7 +2,9 @@
 SFFN experiment
 '''
 
+import argparse
 from collections import OrderedDict
+from glob import glob
 from monitor import SimpleMonitor
 import numpy as np
 import os
@@ -18,15 +20,26 @@ from mnist import mnist_iterator
 import op
 from sffn import SFFN
 from tools import itemlist
+from tools import load_model
 
 
 floatX = theano.config.floatX
 
-def test(batch_size=100, dim_h=200, l=.1, n_inference_steps=30,
-         second_sffn=True, out_path=''):
+def train_model(batch_size=100,
+          dim_h=200,
+          l=.5,
+          learning_rate = 0.0001,
+          min_lr = 0.00001,
+          lr_decay = False,
+          n_inference_steps=500,
+          inference_decay=.99,
+          second_sffn=True,
+          out_path='',
+          load_last=False):
 
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
-    valid = mnist_iterator(batch_size=2 * batch_size, mode='valid', inf=True, repeat=1)
+    valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
+    test = mnist_iterator(batch_size=20000, mode='test', inf=True, repeat=1)
 
     dim_in = train.dim / 2
     dim_out = train.dim / 2
@@ -37,15 +50,22 @@ def test(batch_size=100, dim_h=200, l=.1, n_inference_steps=30,
     trng = RandomStreams(6 * 23 * 2015)
 
     cond_to_h = MLP(dim_in, dim_h, dim_h, 2,
-                    h_act='lambda x: x * (x > 0)',
+                    h_act='T.nnet.softplus',
                     out_act='T.nnet.sigmoid')
 
     sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, cond_to_h=cond_to_h,
-                x_init='sample', inference_noise='x', noise_amount=0.1)
+                x_init='sample', inference_noise=None, noise_amount=0.,
+                inference_rate=l, n_inference_steps=n_inference_steps,
+                inference_decay=inference_decay)
+    if load_last:
+        model_file = glob(path.join(out_path, '*.npz'))[-1]
+        sffn.cond_to_h = load_model(sffn.cond_to_h, model_file)
+        sffn.cond_from_h = load_model(sffn.cond_from_h, model_file)
+
     tparams = sffn.set_tparams()
 
     (zs, y_hats, d_hats, pds, h_energy, y_energy, i_energy), updates = sffn.inference(
-        X, Y, l, n_inference_steps=n_inference_steps, m=20)
+        X, Y, m=20)
 
     y_hat_s, _, y_energy_s, pd_s, d_hat_s = sffn(X, Y, from_z=False)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
@@ -57,17 +77,18 @@ def test(batch_size=100, dim_h=200, l=.1, n_inference_steps=30,
 
     if second_sffn:
         sffn2 = SFFN(dim_in, dim_h, dim_h, trng=trng,
-                     x_init='sample_x', inference_noise='x', name='sffn2')
+                     x_init='sample_x', inference_noise='x', name='sffn2',
+                     inference_rate=0.5, n_inference_steps=50, inference_decay=0.99)
         tparams.update(sffn2.set_tparams())
 
         mu = T.nnet.sigmoid(zs[-1])
-        (z2s, z_hats, _, _, h2_energy, mu_energy, i_energy_2), updates2 = sffn2.inference(
-            X, mu, l, n_inference_steps=20, m=20)
+        (z2s, mu_hats, _, _, h2_energy, mu_energy, i_energy_2), updates2 = sffn2.inference(
+            X, mu, m=20)
         updates.update(updates2)
 
         z_cost = h2_energy + mu_energy
         cost += z_cost
-        consider_constant += [z2s, mu, z_hats]
+        consider_constant += [z2s, mu, mu_hats]
         _, mu_hat, _, _, _ = sffn2(X, mu, from_z=False)
 
         _, _, y_energy_t, _, _ = sffn(X, Y, ph=mu_hat, from_z=False)
@@ -102,7 +123,7 @@ def test(batch_size=100, dim_h=200, l=.1, n_inference_steps=30,
         z_cost = T.constant(0.)
         f_d_hat2 = None
 
-    extra_outs = [h_energy, y_energy, z_cost, pds, d_hats, i_energy]
+    extra_outs = [h_energy, y_energy, z_cost, i_energy, pds, d_hats]
     if second_sffn:
         extra_outs.append(i_energy_2)
 
@@ -135,16 +156,22 @@ def test(batch_size=100, dim_h=200, l=.1, n_inference_steps=30,
     monitor = SimpleMonitor()
 
     print 'Actually running'
-    learning_rate = 0.0001
-    min_lr = 0.00001
-    lr_decay = False
+
+    best_cost = float('inf')
+    bestfile = path.join(out_path,
+                        'rnn_grad_model_best.npz')
 
     try:
         for e in xrange(100000):
             x, _ = train.next()
             rval = f_grad_shared(x)
             r = False
-            for k, out in zip(['cost', 'h_energy', 'y_energy', 'z_cost', 'pds',
+            for k, out in zip(['cost',
+                               'h_energy',
+                               'y_energy',
+                               'z_cost',
+                               'inference energy',
+                               'pds',
                                'd_hats'], rval):
                 if np.any(np.isnan(out)):
                     print k, 'nan'
@@ -170,7 +197,7 @@ def test(batch_size=100, dim_h=200, l=.1, n_inference_steps=30,
                         'train energy at test': ytt,
                         'valid y energy': ye_v,
                         'z cost': rval[3],
-                        'inference energy': rval[6],
+                        'inference energy': rval[4],
                         'cost mlp': rval[8],
                         'valid cost mlp': d_c
                     })
@@ -181,12 +208,16 @@ def test(batch_size=100, dim_h=200, l=.1, n_inference_steps=30,
                     monitor.update(**{'valid y energy 2': ye_u,
                                       'inference energy 2': rval[7]})
 
+                if ye_v < best_cost:
+                    best_cost = ye_v
+                    np.savez(bestfile, **dict((k, v.get_value()) for k, v in tparams.items()))
+
                 monitor.display(e * batch_size)
                 monitor.save(path.join(out_path, 'sffn_monitor.png'))
 
-                idx = np.random.randint(rval[4].shape[1])
-                inference = rval[4][:, idx]
-                i_samples = rval[5][:, idx]
+                idx = np.random.randint(rval[5].shape[1])
+                inference = rval[5][:, idx]
+                i_samples = rval[6][:, idx]
                 inference = np.concatenate([inference[:, None, :],
                                             i_samples[:, None, :]], axis=1)
                 train.save_images(inference, path.join(out_path, 'sffn_inference.png'))
@@ -205,13 +236,33 @@ def test(batch_size=100, dim_h=200, l=.1, n_inference_steps=30,
     except KeyboardInterrupt:
         print 'Training interrupted'
 
+    d_t, _ = test.next()
+    x_t = d_t[:, :dim_in]
+    y_t = d_t[:, dim_in:]
+    ye_t, _, _ = f_d_hat(x_t, y_t)
+    print 'End test: %.5f' % ye_t
+
     outfile = path.join(out_path,
-                        'rnn_grad_model_{}.npz'.format(int(time.time())))
+                        'sffn_{}.npz'.format(int(time.time())))
 
     print 'Saving'
     np.savez(outfile, **dict((k, v.get_value()) for k, v in tparams.items()))
     print 'Done saving. Bye bye.'
 
+def make_argument_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-o', '--out_path', default=None)
+    parser.add_argument('-l', '--load_last', action='store_true')
+    return parser
+
 if __name__ == '__main__':
-    out_path = sys.argv[1]
-    test(out_path=out_path)
+    parser = make_argument_parser()
+    args = parser.parse_args()
+
+    out_path = args.out_path
+    if path.isfile(out_path):
+        raise ValueError()
+    elif not path.isdir(out_path):
+        os.mkdir(path.abspath(out_path))
+
+    train_model(out_path=args.out_path, load_last=args.load_last)
