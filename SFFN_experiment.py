@@ -36,7 +36,7 @@ def train_model(batch_size=100,
           second_sffn=True,
           out_path='',
           load_last=False,
-          load_model=None):
+          model_to_load=None):
 
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
@@ -59,8 +59,8 @@ def train_model(batch_size=100,
                 inference_rate=l, n_inference_steps=n_inference_steps,
                 inference_decay=inference_decay)
     if load_model is not None:
-        sffn.cond_to_h = load_model(sffn.cond_to_h, load_model)
-        sffn.cond_from_h = load_model(sffn.cond_from_h, load_model)
+        sffn.cond_to_h = load_model(sffn.cond_to_h, model_to_load)
+        sffn.cond_from_h = load_model(sffn.cond_from_h, model_to_load)
     elif load_last:
         model_file = glob(path.join(out_path, '*.npz'))[-1]
         sffn.cond_to_h = load_model(sffn.cond_to_h, model_file)
@@ -271,4 +271,4 @@ if __name__ == '__main__':
         os.mkdir(path.abspath(out_path))
 
     train_model(out_path=args.out_path, load_last=args.load_last,
-                load_model=args.load_model)
+                model_to_load=args.load_model)
