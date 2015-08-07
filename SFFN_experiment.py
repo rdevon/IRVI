@@ -83,6 +83,15 @@ def train_model(batch_size=100,
         sffn2 = SFFN(dim_in, dim_h, dim_h, trng=trng,
                      x_init='sample_x', inference_noise='x', name='sffn2',
                      inference_rate=0.5, n_inference_steps=50, inference_decay=0.99)
+
+        if load_model is not None:
+            sffn2.cond_to_h = load_model(sffn2.cond_to_h, model_to_load)
+            sffn2.cond_from_h = load_model(sffn2.cond_from_h, model_to_load)
+        elif load_last:
+            model_file = glob(path.join(out_path, '*.npz'))[-1]
+            sffn2.cond_to_h = load_model(sffn2.cond_to_h, model_file)
+            sffn2.cond_from_h = load_model(sffn2.cond_from_h, model_file)
+
         tparams.update(sffn2.set_tparams())
 
         mu = T.nnet.sigmoid(zs[-1])
@@ -100,7 +109,6 @@ def train_model(batch_size=100,
 
         #z_i = T.log(mu / (1. - mu))
         #sffn.initialize_z(z_i)
-
     elif sffn.z_init == 'xy':
         print 'Using a ffn h with inputs x y'
         z0 = T.dot(X, sffn.W0) + T.dot(Y, sffn.U0) + sffn.b0
