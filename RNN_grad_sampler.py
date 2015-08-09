@@ -5,6 +5,9 @@ Sampling and inference with LSTM models
 from collections import OrderedDict
 import numpy as np
 import os
+from scipy.cluster.vq import vq
+from scipy.cluster.vq import kmeans
+from scipy.cluster.vq import whiten
 import theano
 from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
@@ -18,9 +21,6 @@ from mnist import mnist_iterator
 import op
 from rnn import SimpleInferRNN
 from rnn import OneStepInferRNN
-from scipy.cluster.vq import vq
-from scipy.cluster.vq import kmeans
-from scipy.cluster.vq import whiten
 from tools import itemlist
 
 floatX = theano.config.floatX
@@ -81,29 +81,13 @@ def test(batch_size=100, dim_h=256, l=.01, n_inference_steps=30,
     rnn = OneStepInferRNN(dim_in, dim_h, trng=trng, h0_mode='ffn', x_init='run')
     tparams = rnn.set_tparams()
 
-    mask = T.alloc(1., 3).astype('float32')
-
-    (x_hats, ps, h0s, energy), updates = rnn.inference(
-        X, mask, l, n_inference_steps=n_inference_steps, mode='noise_all')
+    (x_hats, ps, h0s, energy, entropy), updates = rnn.inference(
+        X, l, n_inference_steps=n_inference_steps, noise_mode=None)
 
     consider_constant = [h0s, x_hats]
 
-    def reg_step(e_, e_accum, e):
-        e_accum = e_accum + ((e - e_)**2).sum()
-        return e_accum
-
-    reg_terms, _ = theano.scan(
-        reg_step,
-        sequences=[energy],
-        outputs_info=[T.constant(0.).astype(floatX)],
-        non_sequences=[energy],
-        name='reg_term',
-        strict=True
-    )
-
-    reg_term = reg_terms[-1]
-
     cost = energy.mean()
+    cost -= (h0s[-1] * T.log(h0s[-1])).sum(1).mean()
 
     if rnn.h0_mode == 'ffn':
         print 'Using a ffn h0 with inputs x0 x1'
@@ -155,17 +139,17 @@ def test(batch_size=100, dim_h=256, l=.01, n_inference_steps=30,
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [X, E], cost,
         extra_ups=updates,
-        extra_outs=[ps, p_chain, energy.mean(), reg_term, h0_cost, rnn.k])
+        extra_outs=[ps, p_chain, energy.mean(), h0_cost, rnn.k])
 
     print 'Actually running'
-    learning_rate = 0.0001
+    learning_rate = 0.01
 
     try:
         for e in xrange(100000):
             x, _ = train.next()
             rval = f_grad_shared(x, e)
             r = False
-            for k, out in zip(['cost', 'x_hats', 'chain', 'energy', 'reg_term', 'h0_cost'], rval):
+            for k, out in zip(['cost', 'x_hats', 'chain', 'energy', 'h0_cost'], rval):
                 if np.any(np.isnan(out)):
                     print k, 'nan'
                     r = True
@@ -176,8 +160,8 @@ def test(batch_size=100, dim_h=256, l=.01, n_inference_steps=30,
                 return
             if e % 10 == 0:
                 print ('%d: cost: %.5f | prob: %.5f | energy: %.5f | '
-                       'reg_term: %.5f | h0_cost: %.5f | k: %d'
-                       % (e, rval[0], np.exp(-rval[0]), rval[3], rval[4], rval[5], rval[6]))
+                       'h0_cost: %.5f | k: %d'
+                       % (e, rval[0], np.exp(-rval[0]), rval[3], rval[4], rval[5]))
             if e % 10 == 0:
                 idx = np.random.randint(rval[1].shape[2])
                 sample = rval[1][:, :, idx]
