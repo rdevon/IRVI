@@ -233,6 +233,7 @@ class SFFN(Layer):
         z = (z - ph.shape[0] * l * grad).astype(floatX)
         return z, cost
 
+    # SGD
     def _init_sgd(self, z):
         return []
 
@@ -242,6 +243,7 @@ class SFFN(Layer):
     def _params_sgd(self):
         return []
 
+    # Momentum
     def _step_momentum(self, ph, y, l, z, dz_, m, *params):
         cost, grad = self.inference_cost(ph, y, z, *params)
         dz = ph.shape[0] * l * grad - m * dz_
@@ -258,6 +260,7 @@ class SFFN(Layer):
     def _params_momentum(self):
         return [self.momentum]
 
+    # Inference
     def inference(self, x, y, n_samples=100):
         updates = theano.OrderedUpdates()
 

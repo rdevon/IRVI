@@ -42,11 +42,11 @@ def concatenate_inputs(model, x, y, py):
 def train_model(batch_size=101,
           dim_h=200,
           l=.1,
-          learning_rate = 0.001,
-          min_lr = 0.0001,
+          learning_rate = 0.01,
+          min_lr = 0.001,
           lr_decay = False,
-          n_inference_steps=19,
-          inference_decay=.99,
+          n_inference_steps=50,
+          inference_decay=1.0,
           inference_samples=20,
           second_sffn=True,
           out_path='',
@@ -67,7 +67,7 @@ def train_model(batch_size=101,
     trng = RandomStreams(6 * 23 * 2015)
 
     cond_to_h = MLP(dim_in, dim_h, dim_h, 2,
-                    h_act='T.nnet.softplus',
+                    h_act='T.nnet.sigmoid',
                     out_act='T.nnet.sigmoid')
 
     sffn = SFFN(dim_in, dim_h, dim_out, trng=trng,
