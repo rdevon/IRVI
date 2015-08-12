@@ -51,6 +51,7 @@ class SFFN(Layer):
         if inference_method == 'sgd':
             self.step_infer = self._step_sgd
             self.init_infer = self._init_sgd
+            self.unpack_infer = self._unpack_sgd
         else:
             raise ValueError()
 
@@ -186,6 +187,9 @@ class SFFN(Layer):
     def init_infer(self):
         raise NotImplementedError()
 
+    def unpack_infer(self, outs):
+        raise NotImplementedError()
+
     def inference_cost(self, x, y, z):
         ph = self.p_h_given_x(x, *params)
         mu = T.nnet.sigmoid(z)
@@ -230,6 +234,10 @@ class SFFN(Layer):
         # For other methods this is where you might return a 0 tensor for momentum
         return []
 
+    def _unpack_sgd(self, outs):
+        (zs, ls, y_hats, pds, d_hats, i_costs) = outs
+        return zs, y_hats, pds, d_hats, i_costs
+
     def inference(self, x, y, m=100):
         updates = theano.OrderedUpdates()
 
@@ -244,7 +252,7 @@ class SFFN(Layer):
         outputs_info = [z0, l] + self.init_infer() + [None, None, None, None]
         non_seqs = [x, y] + self.get_params()
 
-        (zs, ls, y_hats, pds, d_hats, i_costs), updates_2 = theano.scan(
+        outs, updates_2 = theano.scan(
             self.step_infer,
             sequences=seqs,
             outputs_info=outputs_info,
@@ -255,6 +263,8 @@ class SFFN(Layer):
             strict=True
         )
         updates.update(updates_2)
+
+        zs, y_hats, pds, d_hats, i_costs = self.unpack_infer(outs)
 
         zs = T.concatenate([z0[None, :, :], zs], axis=0)
 
