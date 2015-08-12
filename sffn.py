@@ -50,7 +50,8 @@ class SFFN(Layer):
 
         self.inference_rate = inference_rate
         self.inference_decay = inference_decay
-        self.n_inference_steps = n_inference_steps
+        self.n_inference_steps = T.constant(n_inference_steps).astype('int64')
+
         if inference_method == 'sgd':
             self.step_infer = self._step_sgd
             self.init_infer = self._init_sgd
@@ -228,33 +229,36 @@ class SFFN(Layer):
 
         return cost, grad
 
-    def _step_sgd(self, ph, y, l, z, *params):
+    def _step_sgd(self, ph, y, z, l, *params):
         cost, grad = self.inference_cost(ph, y, z, *params)
         z = (z - ph.shape[0] * l * grad).astype(floatX)
-        return z, cost
+        l *= self.inference_decay
+        return z, l, cost
 
     # SGD
     def _init_sgd(self, z):
         return []
 
     def _unpack_sgd(self, outs):
-        return outs
+        zs, ls, costs = outs
+        return zs, costs
 
     def _params_sgd(self):
         return []
 
     # Momentum
-    def _step_momentum(self, ph, y, l, z, dz_, m, *params):
+    def _step_momentum(self, ph, y, z, l, dz_, m, *params):
         cost, grad = self.inference_cost(ph, y, z, *params)
         dz = ph.shape[0] * l * grad - m * dz_
         z = (z - dz).astype(floatX)
-        return z, dz_, cost
+        l *= self.inference_decay
+        return z, l, dz_, cost
 
     def _init_momentum(self, z):
         return [T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
-        zs, dzs, costs = outs
+        zs, ls, dzs, costs = outs
         return zs, costs
 
     def _params_momentum(self):
@@ -268,11 +272,8 @@ class SFFN(Layer):
         ph = self.cond_to_h(xs)
         z0 = self.init_z(xs[0], ys[0])
 
-        l = theano.shared(np.array([self.inference_rate * self.inference_decay**n
-             for n in xrange(self.n_inference_steps)]).astype(floatX))
-
-        seqs = [ph, ys, l]
-        outputs_info = [z0] + self.init_infer(z0) + [None]
+        seqs = [ph, ys]
+        outputs_info = [z0, self.inference_rate] + self.init_infer(z0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
         outs, updates_2 = theano.scan(

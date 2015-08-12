@@ -42,8 +42,8 @@ def concatenate_inputs(model, x, y, py):
 def train_model(batch_size=101,
           dim_h=200,
           l=.1,
-          learning_rate = 0.01,
-          min_lr = 0.001,
+          learning_rate = 0.1,
+          min_lr = 0.01,
           lr_decay = False,
           n_inference_steps=50,
           inference_decay=1.0,
@@ -53,6 +53,7 @@ def train_model(batch_size=101,
           load_last=False,
           model_to_load=None,
           inference_method='momentum'):
+    out_path = path.abspath(out_path)
 
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
