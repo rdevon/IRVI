@@ -47,10 +47,12 @@ def train_model(batch_size=101,
           lr_decay = False,
           n_inference_steps=19,
           inference_decay=.99,
+          inference_samples=20,
           second_sffn=True,
           out_path='',
           load_last=False,
-          model_to_load=None):
+          model_to_load=None,
+          inference_method='momentum'):
 
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
@@ -72,7 +74,8 @@ def train_model(batch_size=101,
                 cond_to_h=cond_to_h,
                 noise_amount=0.,
                 inference_rate=l, n_inference_steps=n_inference_steps,
-                inference_decay=inference_decay)
+                inference_decay=inference_decay,
+                inference_method=inference_method)
 
     if model_to_load is not None:
         sffn.cond_to_h = load_model(sffn.cond_to_h, model_to_load)
@@ -85,7 +88,7 @@ def train_model(batch_size=101,
     tparams = sffn.set_tparams()
 
     (xs, ys, zs, h_energy, y_energy, i_energy), updates = sffn.inference(
-        X, Y, m=20)
+        X, Y, n_samples=inference_samples)
 
     mu = T.nnet.sigmoid(zs)
     py = sffn.cond_from_h(mu)

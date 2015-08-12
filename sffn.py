@@ -25,6 +25,7 @@ class SFFN(Layer):
                  weight_scale=0.1, weight_noise=False,
                  z_init=None, learn_z=False,
                  x_noise_mode=None, y_noise_mode=None, noise_amount=0.1,
+                 momentum=0.9,
                  inference_rate=0.1, inference_decay=0.99, n_inference_steps=30,
                  inference_method='sgd', name='sffn'):
 
@@ -37,6 +38,8 @@ class SFFN(Layer):
 
         self.weight_noise = weight_noise
         self.weight_scale = weight_scale
+
+        self.momentum = momentum
 
         self.z_init = z_init
         self.learn_z = learn_z
@@ -52,6 +55,12 @@ class SFFN(Layer):
             self.step_infer = self._step_sgd
             self.init_infer = self._init_sgd
             self.unpack_infer = self._unpack_sgd
+            self.params_infer = self._params_sgd
+        elif inference_method == 'momentum':
+            self.step_infer = self._step_momentum
+            self.init_infer = self._init_momentum
+            self.unpack_infer = self._unpack_momentum
+            self.params_infer = self._params_momentum
         else:
             raise ValueError()
 
@@ -178,7 +187,13 @@ class SFFN(Layer):
 
     def sample_energy(self, x, y, z, n_samples=10):
         mu = T.nnet.sigmoid(z)
-        h = self.cond_to_h.sample(mu, size=(n_samples, mu.shape[0], mu.shape[1]))
+
+        if n_samples == 0:
+            h = mu
+        else:
+            h = self.cond_to_h.sample(mu, size=(n_samples,
+                                                mu.shape[0], mu.shape[1]))
+
         ph = self.cond_to_h(x)
         py = self.cond_from_h(h)
 
@@ -192,10 +207,13 @@ class SFFN(Layer):
     def step_infer(self, *params):
         raise NotImplementedError()
 
-    def init_infer(self):
+    def init_infer(self, z):
         raise NotImplementedError()
 
     def unpack_infer(self, outs):
+        raise NotImplementedError()
+
+    def params_infer(self):
         raise NotImplementedError()
 
     def inference_cost(self, ph, y, z, *params):
@@ -215,13 +233,32 @@ class SFFN(Layer):
         z = (z - ph.shape[0] * l * grad).astype(floatX)
         return z, cost
 
-    def _init_sgd(self):
+    def _init_sgd(self, z):
         return []
 
     def _unpack_sgd(self, outs):
         return outs
 
-    def inference(self, x, y, m=100):
+    def _params_sgd(self):
+        return []
+
+    def _step_momentum(self, ph, y, l, z, dz_, m, *params):
+        cost, grad = self.inference_cost(ph, y, z, *params)
+        dz = ph.shape[0] * l * grad - m * dz_
+        z = (z - dz).astype(floatX)
+        return z, dz_, cost
+
+    def _init_momentum(self, z):
+        return [T.zeros_like(z)]
+
+    def _unpack_momentum(self, outs):
+        zs, dzs, costs = outs
+        return zs, costs
+
+    def _params_momentum(self):
+        return [self.momentum]
+
+    def inference(self, x, y, n_samples=100):
         updates = theano.OrderedUpdates()
 
         xs, ys = self.init_inputs(x, y, steps=self.n_inference_steps)
@@ -232,8 +269,8 @@ class SFFN(Layer):
              for n in xrange(self.n_inference_steps)]).astype(floatX))
 
         seqs = [ph, ys, l]
-        outputs_info = [z0] + self.init_infer() + [None]
-        non_seqs = self.get_params()
+        outputs_info = [z0] + self.init_infer(z0) + [None]
+        non_seqs = self.params_infer() + self.get_params()
 
         outs, updates_2 = theano.scan(
             self.step_infer,
@@ -248,7 +285,8 @@ class SFFN(Layer):
         updates.update(updates_2)
 
         zs, i_costs = self.unpack_infer(outs)
-        h_energy, y_energy = self.sample_energy(xs[0], ys[0], zs[-1], n_samples=m)
+        h_energy, y_energy = self.sample_energy(xs[0], ys[0], zs[-1],
+                                                n_samples=n_samples)
 
         return (xs, ys, zs, h_energy, y_energy, i_costs[-1]), updates
 
