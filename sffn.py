@@ -25,7 +25,7 @@ class SFFN(Layer):
                  weight_scale=0.1, weight_noise=False, inference_noise=False,
                  noise_amount=0.1, z_init=None, x_init='sample', learn_z=False,
                  noise_mode=None, inference_rate=0.1, inference_decay=0.99,
-                 n_inference_steps=30, name='sffn'):
+                 n_inference_steps=30, inference_method='sgd', name='sffn'):
         if trng is None:
             self.trng = RandomStreams(6 * 10 * 2015)
         else:
@@ -47,6 +47,10 @@ class SFFN(Layer):
         self.inference_rate = inference_rate
         self.inference_decay = inference_decay
         self.n_inference_steps = n_inference_steps
+
+        if inference_method == 'sgd':
+            self.step_infer = self._step_sgd
+            self.init_infer = self._init_sgd
 
         if rng is None:
             rng = tools.rng_
@@ -174,7 +178,13 @@ class SFFN(Layer):
 
         return (h_energy, y_energy)
 
-    def grad_step(self, z, x, y, l, *params):
+    def step_infer(self, *params):
+        raise NotImplementedError()
+
+    def init_infer(self):
+        raise NotImplementedError()
+
+    def inference_cost(self, x, y, z):
         ph = self.p_h_given_x(x, *params)
         mu = T.nnet.sigmoid(z)
         py = self.p_y_given_h(mu, *params)
@@ -185,26 +195,38 @@ class SFFN(Layer):
                 + (mu * T.log(mu + 1e-7)
                    + (1 - mu) * T.log(1 - mu) + 1e-7).sum(axis=1)
                 ).mean(axis=0)
-
         grad = theano.grad(cost, wrt=z, consider_constant=[x, y])
-        z = (z - x.shape[0] * l * grad).astype(floatX)
-        return z, cost
 
-    def step_infer(self, z, l, x, y, *params):
-        x_n, y_n = self.noise_inputs(x, y, self.inference_noise)
+        return cost, grad
 
-        z, i_cost = self.grad_step(z, x_n, y_n, l, *params)
+    def finish_inference_step(self, x, mu, z):
         mu = T.nnet.sigmoid(z)
-
-        ph = self.p_h_given_x(x_n, *params)
+        ph = self.p_h_given_x(x, *params)
         py = self.p_y_given_h(mu, *params)
         y_hat = self.cond_from_h.sample(py)
-
         pd = T.concatenate([x, py], axis=1)
         d_hat = T.concatenate([x, y_hat], axis=1)
 
+        return y_hat, pd, d_hat
+
+    def _step_sgd(self, z, l, x, y, *params):
+        x_n, y_n = self.noise_inputs(x, y, self.inference_noise)
+        # cost and gradient found here.
+        cost, grad = self.inference_cost(x, y, z)
+
+        # sgd.
+        z = (z - x.shape[0] * l * grad).astype(floatX)
+
+        # extra stuff that could be refactored but let's say everyone does this.
+        y_hat, pd, d_hat = self.finish_inference_step(x_n, mu, z)
+
+        # inference lr decay
         l *= self.inference_decay
         return z, l, y_hat, pd, d_hat, i_cost
+
+    def _init_sgd(self):
+        # For other methods this is where you might return a 0 tensor for momentum
+        return []
 
     def inference(self, x, y, m=100):
         updates = theano.OrderedUpdates()
@@ -217,7 +239,7 @@ class SFFN(Layer):
 
         l = self.inference_rate
         seqs = []
-        outputs_info = [z0, l, None, None, None, None]
+        outputs_info = [z0, l] + self.init_infer() + [None, None, None, None]
         non_seqs = [x, y] + self.get_params()
 
         (zs, ls, y_hats, pds, d_hats, i_costs), updates_2 = theano.scan(
@@ -313,6 +335,7 @@ class SFFN_2Layer(SFFN):
 
         if self.cond_to_h2 is None:
             self.cond_to_h2 = MLP(self.dim_h, self.dim_h, self.dim_h, 1,
+                                  rng=self.rng, trng=self.trng,
                                   h_act='T.nnet.sigmoid',
                                   out_act='T.nnet.sigmoid')
         self.cond_to_h2.name = 'cond_to_h2'
@@ -340,11 +363,11 @@ class SFFN_2Layer(SFFN):
             len(self.cond_to_h2.get_params())]
         return self.cond_to_h1.step_call(h1, *ps)
 
-    def logit_h1_to_h2(self, h1, *params):
+    def preact_h1_to_h2(self, h1, *params):
         ps = params[len(self.cond_to_h1.get_params()):
             len(self.cond_to_h1.get_params())+
             len(self.cond_to_h2.get_params())]
-        return self.cond_to_h1.logit(h1, *ps)
+        return self.cond_to_h1.preact(h1, *ps)
 
     def p_y_given_h2(self, h2, *params):
         ps = params[-len(self.cond_from_h2.get_params()):]
@@ -353,18 +376,17 @@ class SFFN_2Layer(SFFN):
     def sample_energy(self, x, y, z1, z2, n_samples=10):
         mu1 = T.nnet.sigmoid(z1)
         h1 = self.cond_to_h1.sample(p=mu1, size=(n_samples, mu1.shape[0], mu1.shape[1]))
-        ph1 = self.cond_to_h1(x)
-
         mu2 = eval(self.cond_to_h2.out_act)(
-            self.cond_to_h2(h1, return_logit=True) + z2[None, :, :])
+            self.cond_to_h2(h1, return_preact=True) + z2[None, :, :])
         h2 = self.cond_to_h2.sample(p=mu2)
-        ph2 = self.cond_to_h2(h1)
 
+        ph1 = self.cond_to_h1(x)
+        ph2 = self.cond_to_h2(h1)
         py = self.cond_from_h2(h2)
 
-        h1_energy = self.cond_to_h1.neg_log_prob(h1, ph1[None, :, :])
+        h1_energy = self.cond_to_h1.neg_log_prob(h1, ph1[None, :, :])#.mean()
         h1_energy = -log_mean_exp(-h1_energy, axis=0).mean()
-        h2_energy = self.cond_to_h2.neg_log_prob(h2, ph2)
+        h2_energy = self.cond_to_h2.neg_log_prob(h2, ph2)#.mean()
         h2_energy = -log_mean_exp(-h2_energy, axis=0).mean()
         y_energy = self.cond_from_h2.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
@@ -374,26 +396,23 @@ class SFFN_2Layer(SFFN):
     def grad_step(self, z1, z2, x, y, l, *params):
         ph1 = self.p_h1_given_x(x, *params)
         mu1 = T.nnet.sigmoid(z1)
+        #h1 = self.trng.binomial(p=mu1, size=mu1.shape, n=1, dtype=mu1.dtype)
         ph2 = self.p_h2_given_h1(mu1, *params)
         mu2 = eval(self.cond_to_h2.out_act)(
-            self.logit_h1_to_h2(mu1, *params) + z2)
-        mu2_e = T.nnet.sigmoid(z2)
-        py = self.p_y_given_h2(mu2_e, *params)
+            self.preact_h1_to_h2(mu1, *params) + z2)
+        #mu2 = T.nnet.sigmoid(z2)
+        py = self.p_y_given_h2(mu2, *params)
 
-        cost = (self.cond_from_h2.neg_log_prob(y, py)
-                - (mu1 * T.log(ph1)
-                   + (1 - mu1) * T.log(1 - ph1)).sum(axis=1)
-                + (mu1 * T.log(mu1)
-                   + (1 - mu1) * T.log(1 - mu1)).sum(axis=1)
-                #- (mu2 * T.log(ph2)
-                #   + (1 - mu2) * T.log(1 - ph2)).sum(axis=1)
-                #+ (mu2_e * T.log(mu2_e)
-                #   + (1 - mu2_e) * T.log(1 - mu2_e)).sum(axis=1)
+        cost = (self.cond_to_h1.neg_log_prob(mu1, ph1)
+                + self.cond_to_h2.neg_log_prob(mu2, ph2)
+                + self.cond_from_h2.neg_log_prob(y, py)
+                - self.cond_to_h1.entropy(mu1)
+                - self.cond_to_h2.entropy(mu2)
                 ).mean()
 
         grad1, grad2 = theano.grad(cost, wrt=[z1, z2], consider_constant=[x, y])
-        z1 = z1 - l * grad1
-        z2 = z2 - l * grad2
+        z1 = (z1 - x.shape[0] * l * grad1).astype(floatX)
+        z2 = (z2 - x.shape[0] * l * grad2).astype(floatX)
         return z1, z2, cost
 
     def step_infer(self, z1, z2, l, x, y, *params):
@@ -402,7 +421,7 @@ class SFFN_2Layer(SFFN):
         z1, z2, i_cost = self.grad_step(z1, z2, x_n, y_n, l, *params)
         mu1 = T.nnet.sigmoid(z1)
         mu2 = eval(self.cond_to_h2.out_act)(
-            self.logit_h1_to_h2(mu1, *params) + z2)
+            self.preact_h1_to_h2(mu1, *params) + z2)
 
         ph1 = self.p_h1_given_x(x_n, *params)
         ph2 = self.p_h2_given_h1(mu1, *params)
@@ -423,7 +442,7 @@ class SFFN_2Layer(SFFN):
         z2 = self.init_z(x, y)
         mu1 = T.nnet.sigmoid(z1)
         mu2 = eval(self.cond_to_h2.out_act)(
-            self.cond_to_h2(mu1, return_logit=True) + z2)
+            self.cond_to_h2(mu1, return_preact=True) + z2)
         py = self.cond_from_h2(mu2)
         y_hat = self.cond_from_h2.sample(py)
 
