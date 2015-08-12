@@ -19,19 +19,33 @@ from layers import MLP
 from mnist import mnist_iterator
 import op
 from sffn import SFFN
+from tools import check_bad_nums
 from tools import itemlist
 from tools import load_model
 
 
 floatX = theano.config.floatX
 
-def train_model(batch_size=100,
+def concatenate_inputs(model, x, y, py):
+    y_hat = model.cond_from_h.sample(py)
+
+    py = T.concatenate([y[None, :, :], py], axis=0)
+    y = T.concatenate([y[None, :, :], y_hat], axis=0)
+
+    x = T.alloc(0, py.shape[0], x.shape[0], x.shape[1]) + x[None, :, :]
+
+    pd = T.concatenate([x, py], axis=2)
+    d_hat = T.concatenate([x, y], axis=2)
+
+    return pd, d_hat
+
+def train_model(batch_size=101,
           dim_h=200,
-          l=.5,
-          learning_rate = 0.0001,
-          min_lr = 0.00001,
+          l=.1,
+          learning_rate = 0.001,
+          min_lr = 0.0001,
           lr_decay = False,
-          n_inference_steps=500,
+          n_inference_steps=19,
           inference_decay=.99,
           second_sffn=True,
           out_path='',
@@ -54,11 +68,13 @@ def train_model(batch_size=100,
                     h_act='T.nnet.softplus',
                     out_act='T.nnet.sigmoid')
 
-    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng, cond_to_h=cond_to_h,
-                x_init='sample', inference_noise=None, noise_amount=0.,
+    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng,
+                cond_to_h=cond_to_h,
+                noise_amount=0.,
                 inference_rate=l, n_inference_steps=n_inference_steps,
                 inference_decay=inference_decay)
-    if load_model is not None:
+
+    if model_to_load is not None:
         sffn.cond_to_h = load_model(sffn.cond_to_h, model_to_load)
         sffn.cond_from_h = load_model(sffn.cond_from_h, model_to_load)
     elif load_last:
@@ -68,17 +84,29 @@ def train_model(batch_size=100,
 
     tparams = sffn.set_tparams()
 
-    (zs, y_hats, d_hats, pds, h_energy, y_energy, i_energy), updates = sffn.inference(
+    (xs, ys, zs, h_energy, y_energy, i_energy), updates = sffn.inference(
         X, Y, m=20)
 
-    y_hat_s, _, y_energy_s, pd_s, d_hat_s = sffn(X, Y, from_z=False)
+    mu = T.nnet.sigmoid(zs)
+    py = sffn.cond_from_h(mu)
+
+    pd_i, d_hat_i = concatenate_inputs(sffn, xs[0], ys[0], py)
+
+    py_s, y_energy_s = sffn(X, Y, from_z=False)
+    pd_s, d_hat_s = concatenate_inputs(sffn, X, Y, py_s)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
-    consider_constant = [X, Y, zs, y_hats]
+    consider_constant = [xs, ys, zs]
     cost = h_energy + y_energy
 
-    i_energy_2 = None
+    extra_outs = [h_energy, y_energy, i_energy]
+    vis_outs = [pd_i, d_hat_i]
 
+    extra_outs_names = ['cost', 'h_energy', 'train y energy', 'inference energy']
+    vis_outs_names = ['pds', 'd_hats']
+
+    '''
+    i_energy_2 = None
     if second_sffn:
         sffn2 = SFFN(dim_in, dim_h, dim_h, trng=trng,
                      x_init='sample_x', inference_noise='x', name='sffn2',
@@ -135,20 +163,9 @@ def train_model(batch_size=100,
         z_cost = T.constant(0.)
         f_d_hat2 = None
 
-    extra_outs = [h_energy, y_energy, z_cost, i_energy, pds, d_hats]
     if second_sffn:
         extra_outs.append(i_energy_2)
-
-    mlp = MLP(dim_in, dim_h, dim_out, 3,
-              h_act='T.nnet.sigmoid',
-              out_act='T.nnet.sigmoid', name='deterministic')
-    tparams.update(mlp.set_tparams())
-
-    py_d = mlp(X)
-    cost_d = mlp.neg_log_prob(Y, py_d).mean()
-    cost += cost_d
-    extra_outs.append(cost_d)
-    f_det_cost = theano.function([X, Y], cost_d)
+    '''
 
     tparams = OrderedDict((k, v)
         for k, v in tparams.iteritems()
@@ -163,62 +180,37 @@ def train_model(batch_size=100,
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [D], cost,
         extra_ups=updates,
-        extra_outs=extra_outs)
+        extra_outs=extra_outs+vis_outs)
 
     monitor = SimpleMonitor()
 
     print 'Actually running'
 
     best_cost = float('inf')
-    bestfile = path.join(out_path,
-                        'rnn_grad_model_best.npz')
+    bestfile = path.join(out_path, 'sffn_best.npz')
 
     try:
         for e in xrange(100000):
             x, _ = train.next()
             rval = f_grad_shared(x)
-            r = False
-            for k, out in zip(['cost',
-                               'h_energy',
-                               'y_energy',
-                               'z_cost',
-                               'inference energy',
-                               'pds',
-                               'd_hats'], rval):
-                if np.any(np.isnan(out)):
-                    print k, 'nan'
-                    r = True
-                elif np.any(np.isinf(out)):
-                    print k, 'inf'
-                    r = True
-            if r:
+            if check_bad_nums(rval, extra_outs_names+vis_outs_names):
                 return
 
             if e % 10 == 0:
                 d_v, _ = valid.next()
-                x_v = d_v[:, :dim_in]
-                y_v = d_v[:, dim_in:]
-                ye_v, pd_v, d_hat_v = f_d_hat(x_v, y_v)
-                ytt, _, _ = f_d_hat(x[:, :dim_in], x[:, dim_in:])
-                d_c = f_det_cost(x_v, y_v)
-                monitor.update(
-                    **OrderedDict({
-                        'cost': rval[0],
-                        'h energy': rval[1],
-                        'train y energy': rval[2],
-                        'train energy at test': ytt,
-                        'valid y energy': ye_v,
-                        'z cost': rval[3],
-                        'inference energy': rval[4],
-                        'cost mlp': rval[8],
-                        'valid cost mlp': d_c
-                    })
-                )
+                x_v, y_v = d_v[:, :dim_in], d_v[:, dim_in:]
 
-                if f_d_hat2 is not None:
-                    ye_u = f_d_hat2(x_v, y_v)
-                    monitor.update(**{'valid y energy 2': ye_u,
-                                      'inference energy 2': rval[7]})
+                ye_v, pd_v, d_hat_v = f_d_hat(x_v, y_v)
+                ye_t, _, _ = f_d_hat(x[:, :dim_in], x[:, dim_in:])
+
+                outs = OrderedDict((k, v)
+                    for k, v in zip(extra_outs_names,
+                                    rval[:len(extra_outs_names)]))
+                outs.update(**{
+                    'train energy at test': ye_t,
+                    'valid y energy': ye_v}
+                )
+                monitor.update(**outs)
 
                 if ye_v < best_cost:
                     best_cost = ye_v
@@ -227,18 +219,18 @@ def train_model(batch_size=100,
                 monitor.display(e * batch_size)
                 monitor.save(path.join(out_path, 'sffn_monitor.png'))
 
-                idx = np.random.randint(rval[5].shape[1])
-                inference = rval[5][:, idx]
-                i_samples = rval[6][:, idx]
-                inference = np.concatenate([inference[:, None, :],
-                                            i_samples[:, None, :]], axis=1)
-                train.save_images(inference, path.join(out_path, 'sffn_inference.png'))
+                pd_i, d_hat_i = rval[len(extra_outs_names):]
 
-                samples = np.concatenate([d_v[None, :, :],
-                                          pd_v,
-                                          d_hat_v[None, :, :]], axis=0)
-                samples = samples[:, :min(10, samples.shape[1] - 1)]
-                train.save_images(samples, path.join(out_path, 'sffn_samples.png'))
+                idx = np.random.randint(pd_i.shape[1])
+                pd_i = pd_i[:, idx]
+                d_hat_i = d_hat_i[:, idx]
+                d_hat_i = np.concatenate([pd_i[:, None, :],
+                                          d_hat_i[:, None, :]], axis=1)
+                train.save_images(d_hat_i, path.join(out_path, 'sffn_inference.png'))
+                d_hat_s = np.concatenate([pd_v[:10],
+                                          d_hat_v[1][None, :, :]], axis=0)
+                d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]
+                train.save_images(d_hat_s, path.join(out_path, 'sffn_samples.png'))
 
             f_grad_updates(learning_rate)
 

@@ -22,32 +22,32 @@ floatX = 'float32' # theano.config.floatX
 class SFFN(Layer):
     def __init__(self, dim_in, dim_h, dim_out, rng=None, trng=None,
                  cond_to_h=None, cond_from_h=None,
-                 weight_scale=0.1, weight_noise=False, inference_noise=False,
-                 noise_amount=0.1, z_init=None, x_init='sample', learn_z=False,
-                 noise_mode=None, inference_rate=0.1, inference_decay=0.99,
-                 n_inference_steps=30, inference_method='sgd', name='sffn'):
-        if trng is None:
-            self.trng = RandomStreams(6 * 10 * 2015)
-        else:
-            self.trng = trng
+                 weight_scale=0.1, weight_noise=False,
+                 z_init=None, learn_z=False,
+                 x_noise_mode=None, y_noise_mode=None, noise_amount=0.1,
+                 inference_rate=0.1, inference_decay=0.99, n_inference_steps=30,
+                 inference_method='sgd', name='sffn'):
 
         self.dim_in = dim_in
         self.dim_h = dim_h
         self.dim_out = dim_out
 
-        self.weight_noise = weight_noise
-        self.weight_scale = weight_scale
-        self.inference_noise = inference_noise
-        self.noise_amount = noise_amount
-        self.x_init = x_init
-        self.z_init = z_init
-        self.learn_z = learn_z
         self.cond_to_h = cond_to_h
         self.cond_from_h = cond_from_h
+
+        self.weight_noise = weight_noise
+        self.weight_scale = weight_scale
+
+        self.z_init = z_init
+        self.learn_z = learn_z
+
+        self.x_mode = x_noise_mode
+        self.y_mode = y_noise_mode
+        self.noise_amount = noise_amount
+
         self.inference_rate = inference_rate
         self.inference_decay = inference_decay
         self.n_inference_steps = n_inference_steps
-
         if inference_method == 'sgd':
             self.step_infer = self._step_sgd
             self.init_infer = self._init_sgd
@@ -58,6 +58,11 @@ class SFFN(Layer):
         if rng is None:
             rng = tools.rng_
         self.rng = rng
+
+        if trng is None:
+            self.trng = RandomStreams(6 * 10 * 2015)
+        else:
+            self.trng = trng
 
         super(SFFN, self).__init__(name=name)
         self.set_params()
@@ -111,15 +116,15 @@ class SFFN(Layer):
         self.z0 = Z
 
     def init_z(self, x, y):
+        # This needs to be factored out as it's a general intialization of
+        # tensor problem.
         if self.z_init == 'average':
             z = T.alloc(0., x.shape[0], self.dim_h).astype(floatX) + self.z[None, :]
             z += self.trng.normal(avg=0, std=0.1, size=(x.shape[0], self.dim_h), dtype=x.dtype)
         elif self.z_init == 'xy':
             z = T.dot(x, self.W0) + T.dot(y, self.U0) + self.b0
-            #z += self.trng.normal(avg=0, std=0.1, size=(x.shape[0], self.dim_h), dtype=x.dtype)
         elif self.z_init == 'x':
             z = T.dot(x, self.W0) + self.b0
-            #z += self.trng.normal(avg=0, std=0.1, size=(x.shape[0], self.dim_h), dtype=x.dtype)
         elif self.z_init == 'y':
             z = T.dot(y, self.W0) + self.b0
         elif self.z_init == 'noise':
@@ -133,40 +138,43 @@ class SFFN(Layer):
 
         return z
 
-    def noise_inputs(self, x, y, noise_mode):
-        if noise_mode == 'x':
-            x_n = x * (1 - self.trng.binomial(p=self.noise_amount, size=x.shape, n=1,
-                                            dtype=x.dtype))
-            y_n = T.zeros_like(y) + y
-        elif noise_mode == 'noise_all':
-            x_n = x * (1 - self.trng.binomial(p=self.noise_amount, size=x.shape, n=1,
-                                              dtype=x.dtype))
-            y_n = y * (1 - self.trng.binomial(p=self.noise_amount, size=y.shape, n=1,
-                                              dtype=y.dtype))
-        elif noise_mode == 'sample_x':
-            x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
-            y_n = T.zeros_like(y) + y
-        elif noise_mode == 'sample':
-            x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
-            y_n = self.trng.binomial(p=y, size=y.shape, n=1, dtype=y.dtype)
-        elif noise_mode is None or not noise_mode:
-            x_n = T.zeros_like(x) + x
-            y_n = T.zeros_like(y) + y
-        else:
-            raise ValueError(noise_mode)
+    def _sample(self, p, size):
+        return self.trng.binomial(p=p, size=size, n=1, dtype=p.dtype)
 
-        return x_n, y_n
+    def _noise(self, x, amount, size):
+        return x * (1 - self.trng.binomial(p=amount, size=size, n=1,
+                                           dtype=x.dtype))
+
+    def set_input(self, x, mode, size=None):
+        if size is None:
+            size = x.shape
+        if mode == 'sample':
+            x = self._sample(x[None, :, :], size=size)
+        elif mode == 'noise':
+            x = self._sample(x)
+            x = self._noise(x[None, :, :], size=size)
+        elif mode == None:
+            x = self._sample(x, size=x.shape)
+            x = T.alloc(0., *size) + x[None, :, :]
+        else:
+            raise ValueError()
+
+        return x
+
+    def init_inputs(self, x, y, steps=1):
+        x_size = (steps, x.shape[0], x.shape[1])
+        y_size = (steps, y.shape[0], y.shape[1])
+
+        x = self.set_input(x, self.x_mode, size=x_size)
+        y = self.set_input(y, self.y_mode, size=y_size)
+
+        return x, y
 
     def get_params(self):
-        return self.cond_to_h.get_params() + self.cond_from_h.get_params()
-
-    def p_h_given_x(self, x, *params):
-        ps = params[:len(self.cond_to_h.get_params())]
-        return self.cond_to_h.step_call(x, *ps)
+        return self.cond_from_h.get_params()
 
     def p_y_given_h(self, h, *params):
-        ps = params[len(self.cond_to_h.get_params()):]
-        return self.cond_from_h.step_call(h, *ps)
+        return self.cond_from_h.step_call(h, *params)
 
     def sample_energy(self, x, y, z, n_samples=10):
         mu = T.nnet.sigmoid(z)
@@ -174,7 +182,7 @@ class SFFN(Layer):
         ph = self.cond_to_h(x)
         py = self.cond_from_h(h)
 
-        h_energy = self.cond_to_h.neg_log_prob(h, ph[None, :, :])#.mean()
+        h_energy = self.cond_to_h.neg_log_prob(h, ph[None, :, :])
         h_energy = -log_mean_exp(-h_energy, axis=0).mean()
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
@@ -190,67 +198,42 @@ class SFFN(Layer):
     def unpack_infer(self, outs):
         raise NotImplementedError()
 
-    def inference_cost(self, x, y, z):
-        ph = self.p_h_given_x(x, *params)
+    def inference_cost(self, ph, y, z, *params):
         mu = T.nnet.sigmoid(z)
         py = self.p_y_given_h(mu, *params)
 
         cost = (self.cond_from_h.neg_log_prob(y, py)
-                - (mu * T.log(ph + 1e-7)
-                   + (1 - mu) * T.log(1 - ph) + 1e-7).sum(axis=1)
-                + (mu * T.log(mu + 1e-7)
-                   + (1 - mu) * T.log(1 - mu) + 1e-7).sum(axis=1)
+                + self.cond_to_h.neg_log_prob(mu, ph)
+                - self.cond_to_h.entropy(mu)
                 ).mean(axis=0)
-        grad = theano.grad(cost, wrt=z, consider_constant=[x, y])
+        grad = theano.grad(cost, wrt=z, consider_constant=[ph, y])
 
         return cost, grad
 
-    def finish_inference_step(self, x, mu, z):
-        mu = T.nnet.sigmoid(z)
-        ph = self.p_h_given_x(x, *params)
-        py = self.p_y_given_h(mu, *params)
-        y_hat = self.cond_from_h.sample(py)
-        pd = T.concatenate([x, py], axis=1)
-        d_hat = T.concatenate([x, y_hat], axis=1)
-
-        return y_hat, pd, d_hat
-
-    def _step_sgd(self, z, l, x, y, *params):
-        x_n, y_n = self.noise_inputs(x, y, self.inference_noise)
-        # cost and gradient found here.
-        cost, grad = self.inference_cost(x, y, z)
-
-        # sgd.
-        z = (z - x.shape[0] * l * grad).astype(floatX)
-
-        # extra stuff that could be refactored but let's say everyone does this.
-        y_hat, pd, d_hat = self.finish_inference_step(x_n, mu, z)
-
-        # inference lr decay
-        l *= self.inference_decay
-        return z, l, y_hat, pd, d_hat, i_cost
+    def _step_sgd(self, ph, y, l, z, *params):
+        cost, grad = self.inference_cost(ph, y, z, *params)
+        z = (z - ph.shape[0] * l * grad).astype(floatX)
+        return z, cost
 
     def _init_sgd(self):
-        # For other methods this is where you might return a 0 tensor for momentum
         return []
 
     def _unpack_sgd(self, outs):
-        (zs, ls, y_hats, pds, d_hats, i_costs) = outs
-        return zs, y_hats, pds, d_hats, i_costs
+        return outs
 
     def inference(self, x, y, m=100):
         updates = theano.OrderedUpdates()
 
-        x_n, y_n = self.noise_inputs(x, y, self.x_init)
-        z0 = self.init_z(x, y)
-        mu = T.nnet.sigmoid(z0)
-        py = self.cond_from_h(mu)
-        y_hat = self.cond_from_h.sample(py)
+        xs, ys = self.init_inputs(x, y, steps=self.n_inference_steps)
+        ph = self.cond_to_h(xs)
+        z0 = self.init_z(xs[0], ys[0])
 
-        l = self.inference_rate
-        seqs = []
-        outputs_info = [z0, l] + self.init_infer() + [None, None, None, None]
-        non_seqs = [x, y] + self.get_params()
+        l = theano.shared(np.array([self.inference_rate * self.inference_decay**n
+             for n in xrange(self.n_inference_steps)]).astype(floatX))
+
+        seqs = [ph, ys, l]
+        outputs_info = [z0] + self.init_infer() + [None]
+        non_seqs = self.get_params()
 
         outs, updates_2 = theano.scan(
             self.step_infer,
@@ -264,34 +247,10 @@ class SFFN(Layer):
         )
         updates.update(updates_2)
 
-        zs, y_hats, pds, d_hats, i_costs = self.unpack_infer(outs)
+        zs, i_costs = self.unpack_infer(outs)
+        h_energy, y_energy = self.sample_energy(xs[0], ys[0], zs[-1], n_samples=m)
 
-        zs = T.concatenate([z0[None, :, :], zs], axis=0)
-
-        y_hats = T.concatenate([y[None, :, :],
-                                y_n[None, :, :],
-                                y_hat[None, :, :],
-                                y_hats], axis=0)
-
-        d = T.concatenate([x, y], axis=1)
-        d_hat = T.concatenate([x, py], axis=1)
-
-        d_hats = T.concatenate([d[None, :, :],
-                                d_hat[None, :, :],
-                                d_hats], axis=0)
-
-        pds = T.concatenate([d[None, :, :],
-                             d_hat[None, :, :],
-                             pds], axis=0)
-
-        h_energy, y_energy = self.sample_energy(x_n, y, zs[-1], n_samples=m)
-
-        if self.z_init == 'average':
-            z_mean = zs[-1].mean(axis=0)
-            new_z = (1. - self.rate) * self.z + self.rate * z_mean
-            updates += [(self.z, new_z)]
-
-        return (zs, y_hats, d_hats, pds, h_energy, y_energy, i_costs[-1]), updates
+        return (xs, ys, zs, h_energy, y_energy, i_costs[-1]), updates
 
     def __call__(self, x, y, ph=None, n_samples=100, from_z=False):
         x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
@@ -307,23 +266,12 @@ class SFFN(Layer):
             ph = self.cond_to_h(x)
 
         h = self.cond_to_h.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
-
         py = self.cond_from_h(h)
-        x_e = T.zeros_like(py) + x[None, :, :]
-        pd = T.concatenate([x_e, py], axis=2)
 
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
 
-        log_py = T.log(py).mean(axis=0)
-        py = T.exp(log_py)
-
-        y_hat = self.cond_from_h.sample(py)
-        d_hat = T.concatenate([x, y_hat], axis=1)
-
-        pd = pd[:10]
-
-        return y_hat, py, y_energy, pd, d_hat
+        return py, y_energy
 
 
 class SFFN_2Layer(SFFN):
