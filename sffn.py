@@ -51,6 +51,8 @@ class SFFN(Layer):
         if inference_method == 'sgd':
             self.step_infer = self._step_sgd
             self.init_infer = self._init_sgd
+        else:
+            raise ValueError()
 
         if rng is None:
             rng = tools.rng_
