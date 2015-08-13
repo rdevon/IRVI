@@ -539,7 +539,7 @@ class SFFN_2Layer(SFFN):
         return z1_t, z2_t, m1_t, v1_t, m2_t, v2_t, cnt, cost
 
     def _init_adam(self, ph, y, z):
-        return [T.zeros_like(z), T.zeros_like(z), T.zeros_like(z), T.zeros_like(z), T.zeros()]
+        return [T.zeros_like(z), T.zeros_like(z), T.zeros_like(z), T.zeros_like(z), 0]
 
     def _unpack_adam(self, outs):
         z1s, z2s, m1s, v1s, m2s, v2s, cnts, costs = outs
