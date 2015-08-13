@@ -25,7 +25,7 @@ class SFFN(Layer):
                  weight_scale=0.1, weight_noise=False,
                  z_init=None, learn_z=False,
                  x_noise_mode=None, y_noise_mode=None, noise_amount=0.1,
-                 momentum=0.9,
+                 momentum=0.9, b1=0.9, b2=0.999,
                  inference_rate=0.1, inference_decay=0.99, n_inference_steps=30,
                  inference_step_scheduler=None,
                  inference_method='sgd', name='sffn'):
@@ -41,6 +41,8 @@ class SFFN(Layer):
         self.weight_scale = weight_scale
 
         self.momentum = momentum
+        self.b1 = b1
+        self.b2 = b2
 
         self.z_init = z_init
         self.learn_z = learn_z
@@ -65,6 +67,11 @@ class SFFN(Layer):
             self.init_infer = self._init_momentum
             self.unpack_infer = self._unpack_momentum
             self.params_infer = self._params_momentum
+        elif inference_method == 'adam':
+            self.step_infer = self._step_adam
+            self.init_infer = self._init_adam
+            self.unpack_infer = self._unpack_adam
+            self.params_infer = self._params_adam
         elif inference_method == 'cg':
             self.step_infer = self._step_cg
             self.init_infer = self._init_cg
@@ -267,6 +274,33 @@ class SFFN(Layer):
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
 
+    # Adam
+    def _step_adam(self, ph, y, z, m_tm1, v_tm1, cnt, b1, b2, lr, *params):
+
+        b1 = b1 * (1 - 1e-8)**cnt
+        cost, grad = self.inference_cost(ph, y, z, *params)
+        m_t = b1 * m_tm1 + (1 - b1) * grad
+        v_t = b2 * v_tm1 + (1 - b2) * grad**2
+        m_t_hat = m_t / (1. - b1**(cnt + 1))
+        v_t_hat = v_t / (1. - b2**(cnt + 1))
+        grad_t = m_t_hat / (T.sqrt(v_t_hat) + 1e-8)
+        z_t = (z - lr * grad_t).astype(floatX)
+        cnt += 1
+
+        return z_t, m_t, v_t, cnt, cost
+
+    def _init_adam(self, ph, y, z):
+        return [T.zeros_like(z), T.zeros_like(z), 0]
+
+    def _unpack_adam(self, outs):
+        zs, ms, vs, cnts, costs = outs
+        return zs, costs
+
+    def _params_adam(self):
+        return [T.constant(self.b1).astype('float32'),
+                T.constant(self.b2).astype('float32'),
+                T.constant(self.inference_rate).astype('float32')]
+
     # Conjugate gradient with line search
     def _step_cg(self, ph, y, z, r_, p_, rold, *params):
         cost, grad = self.inference_cost(ph, y, z, *params)
@@ -310,6 +344,8 @@ class SFFN(Layer):
             n_inference_steps, updates_c = self.inference_step_scheduler(n_inference_steps)
             updates.update(updates_c)
 
+        #import ipdb; ipdb.set_trace()
+        #l = T.cumprod([1] + [self.inference_decay] * n_inference_steps)
         seqs = [ph, ys]
         outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None]
         non_seqs = self.params_infer() + self.get_params()
@@ -464,6 +500,7 @@ class SFFN_2Layer(SFFN):
         z1s, z2s, ls, costs = outs
         return z1s, z2s, costs
 
+    # Adam
     def _step_momentum(self, ph1, y, z1, z2, l, dz1_, dz2_, m, *params):
         cost, (grad1, grad2) = self.inference_cost(ph1, y, z1, z2, *params)
         dz1 = (-ph1.shape[0] * l * grad1 + m * dz1_).astype(floatX)
@@ -478,6 +515,34 @@ class SFFN_2Layer(SFFN):
 
     def _unpack_momentum(self, outs):
         z1s, z2s, ls, dzs, costs = outs
+        return z1s, z2s, costs
+
+    # Adam
+    def _step_adam(self, ph, y, z1, z2, m1_tm1, v1_tm1, m2_tm1, v2_tm1, cnt, b1, b2, lr, *params):
+
+        b1 = b1 * (1 - 1e-8)**cnt
+        cost, (grad1, grad2) = self.inference_cost(ph, y, z1, z2, *params)
+        m1_t = b1 * m1_tm1 + (1 - b1) * grad1
+        v1_t = b2 * v1_tm1 + (1 - b2) * grad1**2
+        m2_t = b1 * m2_tm1 + (1 - b1) * grad2
+        v2_t = b2 * v2_tm1 + (1 - b2) * grad2**2
+        m1_t_hat = m1_t / (1. - b1**(cnt + 1))
+        v1_t_hat = v1_t / (1. - b2**(cnt + 1))
+        m2_t_hat = m2_t / (1. - b1**(cnt + 1))
+        v2_t_hat = v2_t / (1. - b2**(cnt + 1))
+        grad1_t = m1_t_hat / (T.sqrt(v1_t_hat) + 1e-8)
+        grad2_t = m2_t_hat / (T.sqrt(v2_t_hat) + 1e-8)
+        z1_t = (z1 - lr * grad1_t).astype(floatX)
+        z2_t = (z2 - lr * grad2_t).astype(floatX)
+        cnt += 1
+
+        return z1_t, z2_t, m1_t, v1_t, m2_t, v2_t, cnt, cost
+
+    def _init_adam(self, ph, y, z):
+        return [T.zeros_like(z), T.zeros_like(z), T.zeros_like(z), T.zeros_like(z), T.zeros()]
+
+    def _unpack_adam(self, outs):
+        z1s, z2s, m1s, v1s, m2s, v2s, cnts, costs = outs
         return z1s, z2s, costs
 
     def inference(self, x, y, n_samples=20):
