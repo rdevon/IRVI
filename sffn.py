@@ -191,7 +191,7 @@ class SFFN(Layer):
     def p_y_given_h(self, h, *params):
         return self.cond_from_h.step_call(h, *params)
 
-    def sample_energy(self, x, y, z, n_samples=10):
+    def sample_energy(self, ph, y, z, n_samples=10):
         mu = T.nnet.sigmoid(z)
 
         if n_samples == 0:
@@ -200,7 +200,6 @@ class SFFN(Layer):
             h = self.cond_to_h.sample(mu, size=(n_samples,
                                                 mu.shape[0], mu.shape[1]))
 
-        ph = self.cond_to_h(x)
         py = self.cond_from_h(h)
 
         h_energy = self.cond_to_h.neg_log_prob(h, ph[None, :, :])
@@ -259,15 +258,14 @@ class SFFN(Layer):
         return z, l, dz, cost
 
     def _init_momentum(self, ph, y, z):
-        return [T.zeros_like(z)]
+        return [self.inference_rate, T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
         zs, ls, dzs, costs = outs
         return zs, costs
 
     def _params_momentum(self):
-        return [self.inference_rate,
-                T.constant(self.momentum).astype('float32')]
+        return [T.constant(self.momentum).astype('float32')]
 
     # Conjugate gradient with line search
     def _step_cg(self, ph, y, z, r_, p_, rold, *params):
@@ -329,7 +327,7 @@ class SFFN(Layer):
         updates.update(updates_2)
 
         zs, i_costs = self.unpack_infer(outs)
-        h_energy, y_energy = self.sample_energy(xs[0], ys[0], zs[-1],
+        h_energy, y_energy = self.sample_energy(ph[0], ys[0], zs[-1],
                                                 n_samples=n_samples)
         return (xs, ys, zs, h_energy, y_energy, i_costs[-1]), updates
 
@@ -388,38 +386,38 @@ class SFFN_2Layer(SFFN):
         return tparams
 
     def get_params(self):
-        return (self.cond_to_h1.get_params()
-                + self.cond_to_h2.get_params()
+        return (self.cond_to_h2.get_params()
                 + self.cond_from_h2.get_params())
 
-    def p_h1_given_x(self, x, *params):
-        ps = params[:len(self.cond_to_h1.get_params())]
-        return self.cond_to_h1.step_call(x, *ps)
-
     def p_h2_given_h1(self, h1, *params):
-        ps = params[len(self.cond_to_h1.get_params()):
-            len(self.cond_to_h1.get_params())+
-            len(self.cond_to_h2.get_params())]
+        ps = params[:len(self.cond_to_h2.get_params())]
         return self.cond_to_h1.step_call(h1, *ps)
 
     def preact_h1_to_h2(self, h1, *params):
-        ps = params[len(self.cond_to_h1.get_params()):
-            len(self.cond_to_h1.get_params())+
-            len(self.cond_to_h2.get_params())]
+        ps = params[:len(self.cond_to_h2.get_params())]
         return self.cond_to_h1.preact(h1, *ps)
 
     def p_y_given_h2(self, h2, *params):
-        ps = params[-len(self.cond_from_h2.get_params()):]
+        ps = params[len(self.cond_to_h2.get_params()):]
         return self.cond_from_h2.step_call(h2, *ps)
 
-    def sample_energy(self, x, y, z1, z2, n_samples=10):
+    def sample_energy(self, ph1, y, z1, z2, n_samples=10):
         mu1 = T.nnet.sigmoid(z1)
-        h1 = self.cond_to_h1.sample(p=mu1, size=(n_samples, mu1.shape[0], mu1.shape[1]))
+
+        if n_samples == 0:
+            h1 = mu1
+        else:
+            h1 = self.cond_to_h1.sample(p=mu1, size=(n_samples,
+                                                     mu1.shape[0], mu1.shape[1]))
+
         mu2 = eval(self.cond_to_h2.out_act)(
             self.cond_to_h2(h1, return_preact=True) + z2[None, :, :])
-        h2 = self.cond_to_h2.sample(p=mu2)
 
-        ph1 = self.cond_to_h1(x)
+        if n_samples == 0:
+            h2 = mu2
+        else:
+            h2 = self.cond_to_h2.sample(p=mu2)
+
         ph2 = self.cond_to_h2(h1)
         py = self.cond_from_h2(h2)
 
@@ -432,14 +430,11 @@ class SFFN_2Layer(SFFN):
 
         return (h1_energy, h2_energy, y_energy)
 
-    def grad_step(self, z1, z2, x, y, l, *params):
-        ph1 = self.p_h1_given_x(x, *params)
+    def inference_cost(self, ph1, y, z1, z2,  *params):
         mu1 = T.nnet.sigmoid(z1)
-        #h1 = self.trng.binomial(p=mu1, size=mu1.shape, n=1, dtype=mu1.dtype)
         ph2 = self.p_h2_given_h1(mu1, *params)
         mu2 = eval(self.cond_to_h2.out_act)(
             self.preact_h1_to_h2(mu1, *params) + z2)
-        #mu2 = T.nnet.sigmoid(z2)
         py = self.p_y_given_h2(mu2, *params)
 
         cost = (self.cond_to_h1.neg_log_prob(mu1, ph1)
@@ -447,90 +442,79 @@ class SFFN_2Layer(SFFN):
                 + self.cond_from_h2.neg_log_prob(y, py)
                 - self.cond_to_h1.entropy(mu1)
                 - self.cond_to_h2.entropy(mu2)
-                ).mean()
+                ).mean(axis=0)
+        grad1, grad2 = theano.grad(cost, wrt=[z1, z2],
+                                   consider_constant=[ph1, y])
+        return cost, (grad1, grad2)
 
-        grad1, grad2 = theano.grad(cost, wrt=[z1, z2], consider_constant=[x, y])
+    def grad_step(self, z1, z2, x, y, l, *params):
         z1 = (z1 - x.shape[0] * l * grad1).astype(floatX)
         z2 = (z2 - x.shape[0] * l * grad2).astype(floatX)
         return z1, z2, cost
 
-    def step_infer(self, z1, z2, l, x, y, *params):
-        x_n, y_n = self.noise_inputs(x, y, self.inference_noise)
-
-        z1, z2, i_cost = self.grad_step(z1, z2, x_n, y_n, l, *params)
-        mu1 = T.nnet.sigmoid(z1)
-        mu2 = eval(self.cond_to_h2.out_act)(
-            self.preact_h1_to_h2(mu1, *params) + z2)
-
-        ph1 = self.p_h1_given_x(x_n, *params)
-        ph2 = self.p_h2_given_h1(mu1, *params)
-        py = self.p_y_given_h2(mu2, *params)
-        y_hat = self.cond_from_h2.sample(py)
-
-        pd = T.concatenate([x, py], axis=1)
-        d_hat = T.concatenate([x, y_hat], axis=1)
+    def _step_sgd(self, ph1, y, z1, z2, l, *params):
+        cost, (grad1, grad2) = self.inference_cost(ph1, y, z1, z2, *params)
+        z1 = (z1 - ph1.shape[0] * l * grad1).astype(floatX)
+        z2 = (z2 - ph1.shape[0] * l * grad2).astype(floatX)
 
         l *= self.inference_decay
-        return z1, z2, l, y_hat, pd, d_hat, i_cost
+        return z1, z2, l, cost
 
-    def inference(self, x, y, m=20):
+    def _unpack_sgd(self, outs):
+        z1s, z2s, ls, costs = outs
+        return z1s, z2s, costs
+
+    def _step_momentum(self, ph1, y, z1, z2, l, dz1_, dz2_, m, *params):
+        cost, (grad1, grad2) = self.inference_cost(ph1, y, z1, z2, *params)
+        dz1 = (-ph1.shape[0] * l * grad1 + m * dz1_).astype(floatX)
+        dz2 = (-ph1.shape[0] * l * grad2 + m * dz2_).astype(floatX)
+        z1 = (z1 + dz1).astype(floatX)
+        z2 = (z2 + dz2).astype(floatX)
+        l *= self.inference_decay
+        return z1, z2, l, dz1, dz2, cost
+
+    def _init_momentum(self, ph, y, z):
+        return [self.inference_rate, T.zeros_like(z), T.zeros_like(z)]
+
+    def _unpack_momentum(self, outs):
+        z1s, z2s, ls, dzs, costs = outs
+        return z1s, z2s, costs
+
+    def inference(self, x, y, n_samples=20):
         updates = theano.OrderedUpdates()
 
-        x_n, y_n = self.noise_inputs(x, y, self.x_init)
-        z1 = self.init_z(x, y)
-        z2 = self.init_z(x, y)
-        mu1 = T.nnet.sigmoid(z1)
-        mu2 = eval(self.cond_to_h2.out_act)(
-            self.cond_to_h2(mu1, return_preact=True) + z2)
-        py = self.cond_from_h2(mu2)
-        y_hat = self.cond_from_h2.sample(py)
+        xs, ys = self.init_inputs(x, y, steps=self.n_inference_steps)
+        ph1 = self.cond_to_h1(xs)
+        z10 = self.init_z(xs[0], ys[0])
+        z20 = self.init_z(xs[0], ys[0])
 
-        l = self.inference_rate
-        seqs = []
-        outputs_info = [z1, z2, l, None, None, None, None]
-        non_seqs = [x, y] + self.get_params()
+        if self.inference_step_scheduler is None:
+            n_inference_steps = self.n_inference_steps
+        else:
+            n_inference_steps, updates_c = self.inference_step_scheduler(n_inference_steps)
+            updates.update(updates_c)
 
-        (z1s, z2s, ls, y_hats, pds, d_hats, i_costs), updates_2 = theano.scan(
+        seqs = [ph1, ys]
+        outputs_info = [z10, z20] + self.init_infer(ph1[0], ys[0], z10) + [None]
+        non_seqs = self.params_infer() + self.get_params()
+
+        outs, updates_2 = theano.scan(
             self.step_infer,
             sequences=seqs,
             outputs_info=outputs_info,
             non_sequences=non_seqs,
             name=tools._p(self.name, 'infer'),
-            n_steps=self.n_inference_steps,
+            n_steps=n_inference_steps,
             profile=tools.profile,
             strict=True
         )
         updates.update(updates_2)
 
-        z1s = T.concatenate([z1[None, :, :], z1s], axis=0)
-        z2s = T.concatenate([z2[None, :, :], z2s], axis=0)
-
-        y_hats = T.concatenate([y[None, :, :],
-                                y_n[None, :, :],
-                                y_hat[None, :, :],
-                                y_hats], axis=0)
-
-        d = T.concatenate([x, y], axis=1)
-        d_hat = T.concatenate([x, py], axis=1)
-
-        d_hats = T.concatenate([d[None, :, :],
-                                d_hat[None, :, :],
-                                d_hats], axis=0)
-
-        pds = T.concatenate([d[None, :, :],
-                             d_hat[None, :, :],
-                             pds], axis=0)
-
-        h1_energy, h2_energy, y_energy = self.sample_energy(x_n, y, z1s[-1],
-                                                            z2s[-1],
-                                                            n_samples=m)
-
-        if self.z_init == 'average':
-            z_mean = zs[-1].mean(axis=0)
-            new_z = (1. - self.rate) * self.z + self.rate * z_mean
-            updates += [(self.z, new_z)]
-
-        return (z1s, z2s, y_hats, d_hats, pds, h1_energy, h2_energy, y_energy, i_costs[-1]), updates
+        z1s, z2s, i_costs = self.unpack_infer(outs)
+        h1_energy, h2_energy, y_energy = self.sample_energy(ph1[0], ys[0],
+                                                            z1s[-1], z2s[-1],
+                                                            n_samples=n_samples)
+        return (xs, ys, z1s, z2s, h1_energy, h2_energy, y_energy, i_costs[-1]), updates
 
     def __call__(self, x, y, ph1=None, n_samples=100, from_z=False):
         x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
@@ -546,23 +530,9 @@ class SFFN_2Layer(SFFN):
             ph1 = self.cond_to_h1(x)
 
         h1 = self.cond_to_h1.sample(ph1, size=(n_samples, ph1.shape[0], ph1.shape[1]))
-
         ph2 = self.cond_to_h2(h1)
-        h2 = self.cond_to_h1.sample(ph2)
-
+        h1 = self.cond_to_h2.sample(ph2)
         py = self.cond_from_h2(h2)
-        x_e = T.zeros_like(py) + x[None, :, :]
-        pd = T.concatenate([x_e, py], axis=2)
-
-        y_energy = self.cond_from_h2.neg_log_prob(y[None, :, :], py)
+        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
-
-        log_py = T.log(py).mean(axis=0)
-        py = T.exp(log_py)
-
-        y_hat = self.cond_from_h2.sample(py)
-        d_hat = T.concatenate([x, y_hat], axis=1)
-
-        pd = pd[:10]
-
-        return y_hat, py, y_energy, pd, d_hat
+        return py, y_energy
