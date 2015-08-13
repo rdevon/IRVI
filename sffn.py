@@ -27,6 +27,7 @@ class SFFN(Layer):
                  x_noise_mode=None, y_noise_mode=None, noise_amount=0.1,
                  momentum=0.9,
                  inference_rate=0.1, inference_decay=0.99, n_inference_steps=30,
+                 inference_step_scheduler=None,
                  inference_method='sgd', name='sffn'):
 
         self.dim_in = dim_in
@@ -50,7 +51,9 @@ class SFFN(Layer):
 
         self.inference_rate = inference_rate
         self.inference_decay = inference_decay
+
         self.n_inference_steps = T.constant(n_inference_steps).astype('int64')
+        self.inference_step_scheduler = inference_step_scheduler
 
         if inference_method == 'sgd':
             self.step_infer = self._step_sgd
@@ -145,7 +148,6 @@ class SFFN(Layer):
             z = self.z0
         else:
             raise ValueError(self.z_init)
-
         return z
 
     def _sample(self, p, size):
@@ -168,7 +170,6 @@ class SFFN(Layer):
             x = T.alloc(0., *size) + x[None, :, :]
         else:
             raise ValueError()
-
         return x
 
     def init_inputs(self, x, y, steps=1):
@@ -177,7 +178,6 @@ class SFFN(Layer):
 
         x = self.set_input(x, self.x_mode, size=x_size)
         y = self.set_input(y, self.y_mode, size=y_size)
-
         return x, y
 
     def get_params(self):
@@ -226,16 +226,15 @@ class SFFN(Layer):
                 - self.cond_to_h.entropy(mu)
                 ).mean(axis=0)
         grad = theano.grad(cost, wrt=z, consider_constant=[ph, y])
-
         return cost, grad
 
+    # SGD
     def _step_sgd(self, ph, y, z, l, *params):
         cost, grad = self.inference_cost(ph, y, z, *params)
         z = (z - ph.shape[0] * l * grad).astype(floatX)
         l *= self.inference_decay
         return z, l, cost
 
-    # SGD
     def _init_sgd(self, z):
         return []
 
@@ -249,10 +248,10 @@ class SFFN(Layer):
     # Momentum
     def _step_momentum(self, ph, y, z, l, dz_, m, *params):
         cost, grad = self.inference_cost(ph, y, z, *params)
-        dz = ph.shape[0] * l * grad - m * dz_
-        z = (z - dz).astype(floatX)
+        dz = (-ph.shape[0] * l * grad + m * dz_).astype(floatX)
+        z = (z + dz).astype(floatX)
         l *= self.inference_decay
-        return z, l, dz_, cost
+        return z, l, dz, cost
 
     def _init_momentum(self, z):
         return [T.zeros_like(z)]
@@ -262,7 +261,7 @@ class SFFN(Layer):
         return zs, costs
 
     def _params_momentum(self):
-        return [self.momentum]
+        return [T.constant(self.momentum).astype('float32')]
 
     # Inference
     def inference(self, x, y, n_samples=100):
@@ -271,6 +270,12 @@ class SFFN(Layer):
         xs, ys = self.init_inputs(x, y, steps=self.n_inference_steps)
         ph = self.cond_to_h(xs)
         z0 = self.init_z(xs[0], ys[0])
+
+        if self.inference_step_scheduler is None:
+            n_inference_steps = self.n_inference_steps
+        else:
+            n_inference_steps, updates_c = self.inference_step_scheduler(n_inference_steps)
+            updates.update(updates_c)
 
         seqs = [ph, ys]
         outputs_info = [z0, self.inference_rate] + self.init_infer(z0) + [None]
@@ -282,7 +287,7 @@ class SFFN(Layer):
             outputs_info=outputs_info,
             non_sequences=non_seqs,
             name=tools._p(self.name, 'infer'),
-            n_steps=self.n_inference_steps,
+            n_steps=n_inference_steps,
             profile=tools.profile,
             strict=True
         )
@@ -291,7 +296,6 @@ class SFFN(Layer):
         zs, i_costs = self.unpack_infer(outs)
         h_energy, y_energy = self.sample_energy(xs[0], ys[0], zs[-1],
                                                 n_samples=n_samples)
-
         return (xs, ys, zs, h_energy, y_energy, i_costs[-1]), updates
 
     def __call__(self, x, y, ph=None, n_samples=100, from_z=False):
@@ -309,10 +313,8 @@ class SFFN(Layer):
 
         h = self.cond_to_h.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
         py = self.cond_from_h(h)
-
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
-
         return py, y_energy
 
 

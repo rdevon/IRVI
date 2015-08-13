@@ -52,7 +52,8 @@ def train_model(batch_size=101,
           out_path='',
           load_last=False,
           model_to_load=None,
-          inference_method='momentum'):
+          inference_method='momentum',
+          save_images=False):
     out_path = path.abspath(out_path)
 
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
@@ -221,20 +222,22 @@ def train_model(batch_size=101,
                     np.savez(bestfile, **dict((k, v.get_value()) for k, v in tparams.items()))
 
                 monitor.display(e * batch_size)
-                monitor.save(path.join(out_path, 'sffn_monitor.png'))
 
-                pd_i, d_hat_i = rval[len(extra_outs_names):]
+                if save_images:
+                    monitor.save(path.join(out_path, 'sffn_monitor.png'))
 
-                idx = np.random.randint(pd_i.shape[1])
-                pd_i = pd_i[:, idx]
-                d_hat_i = d_hat_i[:, idx]
-                d_hat_i = np.concatenate([pd_i[:, None, :],
-                                          d_hat_i[:, None, :]], axis=1)
-                train.save_images(d_hat_i, path.join(out_path, 'sffn_inference.png'))
-                d_hat_s = np.concatenate([pd_v[:10],
-                                          d_hat_v[1][None, :, :]], axis=0)
-                d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]
-                train.save_images(d_hat_s, path.join(out_path, 'sffn_samples.png'))
+                    pd_i, d_hat_i = rval[len(extra_outs_names):]
+
+                    idx = np.random.randint(pd_i.shape[1])
+                    pd_i = pd_i[:, idx]
+                    d_hat_i = d_hat_i[:, idx]
+                    d_hat_i = np.concatenate([pd_i[:, None, :],
+                                              d_hat_i[:, None, :]], axis=1)
+                    train.save_images(d_hat_i, path.join(out_path, 'sffn_inference.png'))
+                    d_hat_s = np.concatenate([pd_v[:10],
+                                              d_hat_v[1][None, :, :]], axis=0)
+                    d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]
+                    train.save_images(d_hat_s, path.join(out_path, 'sffn_samples.png'))
 
             f_grad_updates(learning_rate)
 
@@ -259,9 +262,11 @@ def train_model(batch_size=101,
 
 def make_argument_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-o', '--out_path', default=None)
+    parser.add_argument('-o', '--out_path', default=None,
+                        help='Output path for stuff')
     parser.add_argument('-l', '--load_last', action='store_true')
     parser.add_argument('-r', '--load_model', default=None)
+    parser.add_argument('-i', '--save_images', action='store_true')
     return parser
 
 if __name__ == '__main__':
@@ -275,4 +280,4 @@ if __name__ == '__main__':
         os.mkdir(path.abspath(out_path))
 
     train_model(out_path=args.out_path, load_last=args.load_last,
-                model_to_load=args.load_model)
+                model_to_load=args.load_model, save_images=args.save_images)
