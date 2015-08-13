@@ -65,6 +65,11 @@ class SFFN(Layer):
             self.init_infer = self._init_momentum
             self.unpack_infer = self._unpack_momentum
             self.params_infer = self._params_momentum
+        elif inference_method == 'cg':
+            self.step_infer = self._step_cg
+            self.init_infer = self._init_cg
+            self.unpack_infer = self._unpack_cg
+            self.params_infer = self._params_cg
         else:
             raise ValueError()
 
@@ -235,8 +240,8 @@ class SFFN(Layer):
         l *= self.inference_decay
         return z, l, cost
 
-    def _init_sgd(self, z):
-        return []
+    def _init_sgd(self, ph, y, z):
+        return [self.inference_rate]
 
     def _unpack_sgd(self, outs):
         zs, ls, costs = outs
@@ -253,7 +258,7 @@ class SFFN(Layer):
         l *= self.inference_decay
         return z, l, dz, cost
 
-    def _init_momentum(self, z):
+    def _init_momentum(self, ph, y, z):
         return [T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
@@ -261,7 +266,37 @@ class SFFN(Layer):
         return zs, costs
 
     def _params_momentum(self):
-        return [T.constant(self.momentum).astype('float32')]
+        return [self.inference_rate,
+                T.constant(self.momentum).astype('float32')]
+
+    # Conjugate gradient with line search
+    def _step_cg(self, ph, y, z, r_, p_, rold, *params):
+        cost, grad = self.inference_cost(ph, y, z, *params)
+
+        Ap = T.Rop(grad, z, p_)
+        alpha = rold / (Ap * p_ + 1e-7).sum(axis=1)
+
+        z = z - alpha[:, None] * p_
+        r = r_ - alpha[:, None] * Ap
+
+        rnew = (r * r).sum(axis=1)
+        p = r + p_ * (rnew / rold + 1e-7)[:, None]
+
+        return z, r, p, rnew, cost
+
+    def _init_cg(self, ph, y, z):
+        params = self.get_params()
+        _, r = self.inference_cost(ph, y, z, *params)
+        p = T.zeros_like(r) + r
+        rold = (r * r).sum(axis=1)
+        return [r, p, rold]
+
+    def _unpack_cg(self, outs):
+        zs, rs, ps, rolds, costs = outs
+        return zs, costs
+
+    def _params_cg(self, ):
+        return []
 
     # Inference
     def inference(self, x, y, n_samples=100):
@@ -278,7 +313,7 @@ class SFFN(Layer):
             updates.update(updates_c)
 
         seqs = [ph, ys]
-        outputs_info = [z0, self.inference_rate] + self.init_infer(z0) + [None]
+        outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
         outs, updates_2 = theano.scan(
