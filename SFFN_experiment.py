@@ -39,27 +39,31 @@ def concatenate_inputs(model, x, y, py):
 
     return pd, d_hat
 
-def train_model(batch_size=101,
-          dim_h=200,
-          l=.1,
-          learning_rate = 0.1,
-          min_lr = 0.01,
-          lr_decay = False,
-          n_inference_steps=50,
-          inference_decay=1.0,
-          inference_samples=20,
-          second_sffn=True,
-          out_path='',
-          load_last=False,
-          model_to_load=None,
-          inference_method='momentum',
-          save_images=False):
-    out_path = path.abspath(out_path)
+def train_model(batch_size=100,
+                dim_h=200,
+                l=.1,
+                learning_rate = 0.1,
+                min_lr = 0.01,
+                lr_decay = False,
+                n_inference_steps=50,
+                inference_decay=1.0,
+                inference_samples=20,
+                second_sffn=True,
+                out_path='',
+                load_last=False,
+                model_to_load=None,
+                inference_method='momentum',
+                save_images=False,
+                optimizer='adam'):
+    if out_path is not None:
+        out_path = path.abspath(out_path)
 
+    print 'Setting up data'
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
     test = mnist_iterator(batch_size=20000, mode='test', inf=True, repeat=1)
 
+    print 'Setting model'
     dim_in = train.dim / 2
     dim_out = train.dim / 2
     D = T.matrix('x', dtype=floatX)
@@ -107,7 +111,7 @@ def train_model(batch_size=101,
     extra_outs = [h_energy, y_energy, i_energy]
     vis_outs = [pd_i, d_hat_i]
 
-    extra_outs_names = ['cost', 'h_energy', 'train y energy', 'inference energy']
+    extra_outs_names = ['cost', 'h energy', 'train y energy', 'inference energy']
     vis_outs_names = ['pds', 'd_hats']
 
     '''
@@ -181,7 +185,6 @@ def train_model(batch_size=101,
 
     print 'Building optimizer'
     lr = T.scalar(name='lr')
-    optimizer = 'adam'
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [D], cost,
         extra_ups=updates,
@@ -192,7 +195,8 @@ def train_model(batch_size=101,
     print 'Actually running'
 
     best_cost = float('inf')
-    bestfile = path.join(out_path, 'sffn_best.npz')
+    if out_path is not None:
+        bestfile = path.join(out_path, 'sffn_best.npz')
 
     try:
         for e in xrange(100000):
@@ -274,10 +278,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     out_path = args.out_path
-    if path.isfile(out_path):
-        raise ValueError()
-    elif not path.isdir(out_path):
-        os.mkdir(path.abspath(out_path))
+    if out_path is not None:
+        if path.isfile(out_path):
+            raise ValueError()
+        elif not path.isdir(out_path):
+            os.mkdir(path.abspath(out_path))
 
     train_model(out_path=args.out_path, load_last=args.load_last,
                 model_to_load=args.load_model, save_images=args.save_images)
