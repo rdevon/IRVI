@@ -52,7 +52,8 @@ def train_model(batch_size=100,
                 out_path='',
                 load_last=False,
                 model_to_load=None,
-                inference_method='momentum',
+                #inference_method='momentum',
+                inference_method='adam',
                 save_images=False,
                 optimizer='adam'):
     if out_path is not None:
