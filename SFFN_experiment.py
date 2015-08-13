@@ -199,6 +199,7 @@ def train_model(batch_size=100,
         bestfile = path.join(out_path, 'sffn_best.npz')
 
     try:
+        t0 = time.time()
         for e in xrange(100000):
             x, _ = train.next()
             rval = f_grad_shared(x)
@@ -215,11 +216,15 @@ def train_model(batch_size=100,
                 outs = OrderedDict((k, v)
                     for k, v in zip(extra_outs_names,
                                     rval[:len(extra_outs_names)]))
+
+                t1 = time.time()
                 outs.update(**{
                     'train energy at test': ye_t,
-                    'valid y energy': ye_v}
+                    'valid y energy': ye_v,
+                    'elapsed_time': t1-t0}
                 )
                 monitor.update(**outs)
+                t0 = time.time()
 
                 if ye_v < best_cost:
                     best_cost = ye_v
