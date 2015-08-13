@@ -444,7 +444,7 @@ class SFFN_2Layer(SFFN):
                 - self.cond_to_h2.entropy(mu2)
                 ).mean(axis=0)
         grad1, grad2 = theano.grad(cost, wrt=[z1, z2],
-                                   consider_constant=[ph1, y])
+                                   consider_constant=[ph1, ph2, y])
         return cost, (grad1, grad2)
 
     def grad_step(self, z1, z2, x, y, l, *params):
