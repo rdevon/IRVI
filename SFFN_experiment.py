@@ -257,12 +257,14 @@ def train_model(batch_size=100,
     ye_t, _, _ = f_d_hat(x_t, y_t)
     print 'End test: %.5f' % ye_t
 
-    outfile = path.join(out_path,
-                        'sffn_{}.npz'.format(int(time.time())))
+    if out_path is not None:
+        outfile = path.join(out_path,
+                            'sffn_{}.npz'.format(int(time.time())))
 
-    print 'Saving'
-    np.savez(outfile, **dict((k, v.get_value()) for k, v in tparams.items()))
-    print 'Done saving. Bye bye.'
+        print 'Saving'
+        np.savez(outfile, **dict((k, v.get_value()) for k, v in tparams.items()))
+        print 'Done saving.'
+    print 'Bye bye!'
 
 def make_argument_parser():
     parser = argparse.ArgumentParser()

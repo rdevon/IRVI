@@ -477,7 +477,7 @@ class SFFN_2Layer(SFFN):
         return [self.inference_rate, T.zeros_like(z), T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
-        z1s, z2s, ls, dzs, costs = outs
+        z1s, z2s, ls, dz1s, dz2s, costs = outs
         return z1s, z2s, costs
 
     def inference(self, x, y, n_samples=20):
@@ -531,8 +531,8 @@ class SFFN_2Layer(SFFN):
 
         h1 = self.cond_to_h1.sample(ph1, size=(n_samples, ph1.shape[0], ph1.shape[1]))
         ph2 = self.cond_to_h2(h1)
-        h1 = self.cond_to_h2.sample(ph2)
+        h2 = self.cond_to_h2.sample(ph2)
         py = self.cond_from_h2(h2)
-        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
+        y_energy = self.cond_from_h2.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
         return py, y_energy
