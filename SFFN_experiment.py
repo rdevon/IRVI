@@ -223,7 +223,8 @@ def train_model(batch_size=100,
 
                 if ye_v < best_cost:
                     best_cost = ye_v
-                    np.savez(bestfile, **dict((k, v.get_value()) for k, v in tparams.items()))
+                    if out_path is not None:
+                        np.savez(bestfile, **dict((k, v.get_value()) for k, v in tparams.items()))
 
                 monitor.display(e * batch_size)
 
