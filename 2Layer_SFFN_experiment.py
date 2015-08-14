@@ -41,17 +41,19 @@ def concatenate_inputs(model, x, y, py):
 
 def train_model(batch_size=100,
                 dim_h=200,
-                l=.1,
-                learning_rate = 0.1,
-                min_lr = 0.01,
+                l1=1.,
+                l2=1.,
+                learning_rate = 0.01,
+                min_lr = 0.001,
                 lr_decay = False,
                 n_inference_steps=50,
                 inference_decay=1.0,
                 inference_samples=20,
-                second_sffn=True,
+                z_init=None,
                 out_path='',
                 load_last=False,
                 model_to_load=None,
+                load_from_simple=None,
                 inference_method='momentum',
                 save_images=False,
                 optimizer='adam'):
@@ -59,7 +61,7 @@ def train_model(batch_size=100,
     print 'Setting up data'
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
-    test = mnist_iterator(batch_size=20000, mode='test', inf=True, repeat=1)
+    test = mnist_iterator(batch_size=500, mode='test', inf=True, repeat=1)
 
     print 'Setting model'
     dim_in = train.dim / 2
@@ -73,11 +75,16 @@ def train_model(batch_size=100,
     sffn = SFFN_2Layer(dim_in, dim_h, dim_out,
                        trng=trng,
                        noise_amount=0.,
-                       inference_rate=l,
+                       inference_rate_1=l1,
+                       inference_rate_2=l2,
+                       z_init=z_init,
                        n_inference_steps=n_inference_steps,
                        inference_decay=inference_decay,
                        inference_method=inference_method)
 
+    if load_from_simple is not None:
+        sffn.cond_to_h1 = translate_load(sffn.cond_to_h1, model_to_load,
+                                         [()])
     if model_to_load is not None:
         sffn.cond_to_h1 = load_model(sffn.cond_to_h1, model_to_load)
         sffn.cond_to_h2 = load_model(sffn.cond_to_h2, model_to_load)
@@ -90,7 +97,7 @@ def train_model(batch_size=100,
 
     tparams = sffn.set_tparams()
 
-    (xs, ys, z1s, z2s, h1_energy, h2_energy, y_energy, i_energy), updates = sffn.inference(
+    (xs, ys, z1s, z2s, h1_energy, h2_energy, y_energy, i_energy, h1s, h2s), updates = sffn.inference(
         X, Y, n_samples=inference_samples)
 
     mu2 = T.nnet.sigmoid(z2s)
@@ -102,7 +109,7 @@ def train_model(batch_size=100,
     pd_s, d_hat_s = concatenate_inputs(sffn, X, Y, py_s)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
-    consider_constant = [xs, ys, z1s, z2s]
+    consider_constant = [xs, ys, z1s, z2s, h1s, h2s]
     cost = h1_energy + h2_energy + y_energy
 
     extra_outs = [h1_energy, h2_energy, y_energy, i_energy]

@@ -153,7 +153,7 @@ class SFFN(Layer):
         elif self.z_init == 'y':
             z = T.dot(y, self.W0) + self.b0
         elif self.z_init == 'noise':
-            z = self.trng.normal(avg=0, std=1, size=(x.shape[0], self.dim_h), dtype=x.dtype)
+            z = self.trng.normal(avg=0, std=0.01, size=(x.shape[0], self.dim_h), dtype=x.dtype)
         elif self.z_init is None:
             z = T.alloc(0., x.shape[0], self.dim_h).astype(floatX)
         elif self.z_init == 'from_tensor':
@@ -242,7 +242,7 @@ class SFFN(Layer):
     # SGD
     def _step_sgd(self, ph, y, z, l, *params):
         cost, grad = self.inference_cost(ph, y, z, *params)
-        z = (z - ph.shape[0] * l * grad).astype(floatX)
+        z = (z - l * grad).astype(floatX)
         l *= self.inference_decay
         return z, l, cost
 
@@ -259,7 +259,7 @@ class SFFN(Layer):
     # Momentum
     def _step_momentum(self, ph, y, z, l, dz_, m, *params):
         cost, grad = self.inference_cost(ph, y, z, *params)
-        dz = (-ph.shape[0] * l * grad + m * dz_).astype(floatX)
+        dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
         l *= self.inference_decay
         return z, l, dz, cost
@@ -389,9 +389,12 @@ class SFFN(Layer):
 
 class SFFN_2Layer(SFFN):
     def __init__(self, dim_in, dim_h, dim_out, cond_to_h2=None,
+                 inference_rate_1=0.1, inference_rate_2=0.1,
                  name='sffn_2layer', **kwargs):
 
         self.cond_to_h2 = cond_to_h2
+        self.inference_rate_1 = inference_rate_1
+        self.inference_rate_2 = inference_rate_2
 
         super(SFFN_2Layer, self).__init__(
             dim_in, dim_h, dim_out, name=name, **kwargs)
@@ -448,6 +451,7 @@ class SFFN_2Layer(SFFN):
 
         mu2 = eval(self.cond_to_h2.out_act)(
             self.cond_to_h2(h1, return_preact=True) + z2[None, :, :])
+        #mu2 = T.nnet.sigmoid(z2)
 
         if n_samples == 0:
             h2 = mu2
@@ -459,18 +463,20 @@ class SFFN_2Layer(SFFN):
 
         h1_energy = self.cond_to_h1.neg_log_prob(h1, ph1[None, :, :])#.mean()
         h1_energy = -log_mean_exp(-h1_energy, axis=0).mean()
-        h2_energy = self.cond_to_h2.neg_log_prob(h2, ph2)#.mean()
-        h2_energy = -log_mean_exp(-h2_energy, axis=0).mean()
+        h2_energy = self.cond_to_h2.neg_log_prob(h2, ph2).mean()
+        #h2_energy = -log_mean_exp(-h2_energy, axis=0).mean()
         y_energy = self.cond_from_h2.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
 
-        return (h1_energy, h2_energy, y_energy)
+        return (h1_energy, h2_energy, y_energy, h1, h2)
 
     def inference_cost(self, ph1, y, z1, z2,  *params):
         mu1 = T.nnet.sigmoid(z1)
+        mu1_c = T.zeros_like(mu1) + mu1
         ph2 = self.p_h2_given_h1(mu1, *params)
         mu2 = eval(self.cond_to_h2.out_act)(
-            self.preact_h1_to_h2(mu1, *params) + z2)
+            self.preact_h1_to_h2(mu1_c, *params) + z2)
+        mu2_e = T.nnet.sigmoid(z2)
         py = self.p_y_given_h2(mu2, *params)
 
         cost = (self.cond_to_h1.neg_log_prob(mu1, ph1)
@@ -479,42 +485,44 @@ class SFFN_2Layer(SFFN):
                 - self.cond_to_h1.entropy(mu1)
                 - self.cond_to_h2.entropy(mu2)
                 ).mean(axis=0)
+
         grad1, grad2 = theano.grad(cost, wrt=[z1, z2],
-                                   consider_constant=[ph1, ph2, y])
+                                   consider_constant=[ph1, y, mu1_c])
         return cost, (grad1, grad2)
 
-    def grad_step(self, z1, z2, x, y, l, *params):
-        z1 = (z1 - x.shape[0] * l * grad1).astype(floatX)
-        z2 = (z2 - x.shape[0] * l * grad2).astype(floatX)
-        return z1, z2, cost
+    def _init_sgd(self, ph, y, z):
+        return [self.inference_rate_1, self.inference_rate_2]
 
-    def _step_sgd(self, ph1, y, z1, z2, l, *params):
+    def _step_sgd(self, ph1, y, z1, z2, l1, l2, *params):
         cost, (grad1, grad2) = self.inference_cost(ph1, y, z1, z2, *params)
-        z1 = (z1 - ph1.shape[0] * l * grad1).astype(floatX)
-        z2 = (z2 - ph1.shape[0] * l * grad2).astype(floatX)
+        z1 = (z1 - l * grad1).astype(floatX)
+        z2 = (z2 - l * grad2).astype(floatX)
 
-        l *= self.inference_decay
-        return z1, z2, l, cost
+        l1 *= self.inference_decay
+        l2 *= self.inference_decay
+        return z1, z2, l1, l2, cost
 
     def _unpack_sgd(self, outs):
-        z1s, z2s, ls, costs = outs
+        z1s, z2s, l1s, l2s, costs = outs
         return z1s, z2s, costs
 
     # Adam
-    def _step_momentum(self, ph1, y, z1, z2, l, dz1_, dz2_, m, *params):
+    def _step_momentum(self, ph1, y, z1, z2, l1, l2, dz1_, dz2_, m, *params):
         cost, (grad1, grad2) = self.inference_cost(ph1, y, z1, z2, *params)
-        dz1 = (-ph1.shape[0] * l * grad1 + m * dz1_).astype(floatX)
-        dz2 = (-ph1.shape[0] * l * grad2 + m * dz2_).astype(floatX)
+        dz1 = (-l1 * grad1 + m * dz1_).astype(floatX)
+        dz2 = (-l2 * grad2 + m * dz2_).astype(floatX)
         z1 = (z1 + dz1).astype(floatX)
         z2 = (z2 + dz2).astype(floatX)
-        l *= self.inference_decay
-        return z1, z2, l, dz1, dz2, cost
+        l1 *= self.inference_decay
+        l2 *= self.inference_decay
+        return z1, z2, l1, l2, dz1, dz2, cost
 
     def _init_momentum(self, ph, y, z):
-        return [self.inference_rate, T.zeros_like(z), T.zeros_like(z)]
+        return [self.inference_rate_1, self.inference_rate_2,
+                T.zeros_like(z), T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
-        z1s, z2s, ls, dz1s, dz2s, costs = outs
+        z1s, z2s, l1s, l2s, dz1s, dz2s, costs = outs
         return z1s, z2s, costs
 
     # Adam
@@ -576,10 +584,9 @@ class SFFN_2Layer(SFFN):
         updates.update(updates_2)
 
         z1s, z2s, i_costs = self.unpack_infer(outs)
-        h1_energy, h2_energy, y_energy = self.sample_energy(ph1[0], ys[0],
-                                                            z1s[-1], z2s[-1],
-                                                            n_samples=n_samples)
-        return (xs, ys, z1s, z2s, h1_energy, h2_energy, y_energy, i_costs[-1]), updates
+        h1_energy, h2_energy, y_energy, h1s, h2s = self.sample_energy(
+            ph1[0], ys[0], z1s[-1], z2s[-1], n_samples=n_samples)
+        return (xs, ys, z1s, z2s, h1_energy, h2_energy, y_energy, i_costs[-1], h1s, h2s), updates
 
     def __call__(self, x, y, ph1=None, n_samples=100, from_z=False):
         x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)

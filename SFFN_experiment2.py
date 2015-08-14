@@ -74,12 +74,12 @@ def train_model(batch_size=100,
 
     trng = RandomStreams(6 * 23 * 2015)
 
-    cond_to_h = MLP(dim_in, dim_h, dim_h, 2,
+    cond_from_h = MLP(dim_h, dim_h, dim_out, 2,
                     h_act='T.nnet.sigmoid',
                     out_act='T.nnet.sigmoid')
 
     sffn = SFFN(dim_in, dim_h, dim_out, trng=trng,
-                cond_to_h=cond_to_h,
+                cond_from_h=cond_from_h,
                 noise_amount=0.,
                 z_init=z_init,
                 inference_rate=l,
