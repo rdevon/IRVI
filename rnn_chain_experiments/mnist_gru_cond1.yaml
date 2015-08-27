@@ -1,0 +1,23 @@
+{
+  name: 'mnist_cond1',
+  batch_size: 10,
+  dim_h: 500,
+  optimizer: 'adam',
+  mode: 'gru',
+  learning_rate: 0.01,
+  x_cond: {
+    dim_h: 50,
+    n_layers: 2,
+    h_act: 'T.nnet.sigmoid',
+  },
+  steps: 500000,
+  noise_input: True,
+  dataset_args: {    
+    source: '/Users/devon/Data/mnist.pkl.gz',
+    window: 20,
+    chain_build_batch: 1000,
+    chain_length: 5000,
+    chain_stride: 3
+  }, 
+  dataset: 'mnist'
+}

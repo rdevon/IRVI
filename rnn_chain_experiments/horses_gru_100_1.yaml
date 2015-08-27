@@ -1,0 +1,19 @@
+{
+  name: 'horses2',
+  batch_size: 1,
+  dim_h: 100,
+  optimizer: 'adam',
+  mode: 'gru',
+  learning_rate: 0.001,
+  steps: 50000,
+  noise_input: True,
+  dataset_args: {
+    source: '/Users/devon/Data/horses/',
+    window: 20,
+    chain_build_batch: 400,
+    chain_length: 400,
+    chain_stride: 3,
+    dims: [80, 80]
+  },
+  dataset: 'horses'
+}

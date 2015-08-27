@@ -9,6 +9,8 @@ from monitor import SimpleMonitor
 import numpy as np
 import os
 from os import path
+import pprint
+import random
 import sys
 import theano
 from theano import tensor as T
@@ -16,10 +18,11 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import time
 import yaml
 
+from gradient_inference import load_inference
 from layers import MLP
 from mnist import mnist_iterator
 import op
-from sffn import SFFN_2Layer
+from sffn import SFFN_MultiLayer
 from tools import check_bad_nums
 from tools import itemlist
 from tools import load_model
@@ -27,6 +30,71 @@ from tools import load_experiment
 
 
 floatX = theano.config.floatX
+
+def unpack(batch_size=None,
+           dim_h=None,
+           optimizer=None,
+           mode=None,
+           learning_rate=None,
+           x_cond=None,
+           steps=None,
+           dataset='horses',
+           dataset_args=None,
+           h_init=None,
+           **model_args):
+
+    dataset_args = dataset_args[()]
+    x_cond = x_cond[()]
+    models = []
+
+    trng = RandomStreams(random.randint(0, 100000))
+
+    if dataset == 'mnist':
+        dim_in = 28 * 28
+    elif dataset == 'horses':
+        dims = dataset_args['dims']
+        dim_in = dims[0] * dims[1]
+    else:
+        raise ValueError()
+
+    if x_cond is not None:
+        print 'Found xcond: \n%s' % pprint.pformat(x_cond)
+        condition_on_x  = MLP(dim_in=dim_in, dim_h=x_cond['dim_h'],
+                              dim_out=dim_in, n_layers=x_cond['n_layers'],
+                              h_act=x_cond['h_act'], name='xcond')
+        models.append(condition_on_x)
+    else:
+        condition_on_x = None
+
+    if mode == 'gru':
+        C = GenGRU
+    elif mode == 'rnn':
+        C = GenRNN
+    else:
+        raise ValueError('Mode %s not recognized' % mode)
+
+    rnn = C(dim_in, dim_h, trng=trng, condition_on_x=condition_on_x)
+    models.append(rnn)
+
+    if h_init == 'average':
+        averager = Averager((batch_size, dim_h))
+        models.append(averager)
+    elif h_init == 'mlp':
+        mlp = MLP(dim_in, dim_h, dim_h, 1, out_act='T.tanh')
+        models.append(mlp)
+
+    return models, model_args, dict(
+        batch_size=batch_size,
+        optimizer=optimizer,
+        mode=mode,
+        dataset=dataset,
+        learning_rate=learning_rate,
+        condition_on_x=condition_on_x,
+        steps=steps,
+        h_init=h_init,
+        dataset_args=dataset_args
+    )
+
 
 def translate_load(model, model_file):
     pretrained_model = np.load(model_file)
@@ -55,7 +123,7 @@ def translate_load(model, model_file):
     return model
 
 def concatenate_inputs(model, x, y, py):
-    y_hat = model.cond_from_h2.sample(py)
+    y_hat = model.layers[-1].sample(py)
 
     py = T.concatenate([y[None, :, :], py], axis=0)
     y = T.concatenate([y[None, :, :], y_hat], axis=0)
@@ -69,21 +137,16 @@ def concatenate_inputs(model, x, y, py):
 
 def train_model(batch_size=100,
                 dim_h=200,
-                l1=.001,
-                l2=.001,
+                n_layers=2,
+                layers=None,
                 learning_rate=0.1,
                 min_lr=0.001,
                 lr_decay=False,
-                n_inference_steps=50,
-                inference_decay=1.0,
-                inference_samples=20,
-                z_init=None,
                 out_path='',
-                load_last=False,
                 source=None,
-                model_to_load=None,
-                load_from_simple=None,
-                inference_method='momentum',
+                load_last=False, model_to_load=None,
+                inference_procedure=None,
+                inference_samples=20,
                 save_images=False,
                 optimizer='adam',
                 name='',
@@ -97,49 +160,35 @@ def train_model(batch_size=100,
     else:
         raise ValueError()
 
-    print 'Setting model'
+    print 'Setting up inference method %s' % pprint.pformat(inference_procedure)
+    inference_procedure = load_inference(n_layers - 1, **inference_procedure)
+
+    print 'Setting up model'
+    trng = RandomStreams(random.randint(0, 100000))
     dim_in = train.dim / 2
     dim_out = train.dim / 2
     D = T.matrix('x', dtype=floatX)
     X = D[:, :dim_in]
     Y = D[:, dim_in:]
 
-    trng = RandomStreams(6 * 23 * 2015)
-
-    cond_to_h = MLP(dim_in, dim_h, dim_h, 2,
-                     h_act='T.nnet.sigmoid',
-                     out_act='T.nnet.sigmoid')
-
-    sffn = SFFN_2Layer(dim_in, dim_h, dim_out,
-                       trng=trng,
-                       noise_amount=0.,
-                       inference_rate_1=l1,
-                       inference_rate_2=l2,
-                       z_init=z_init,
-                       n_inference_steps=n_inference_steps,
-                       inference_decay=inference_decay,
-                       inference_method=inference_method)
-
-    if load_from_simple is not None:
-        sffn = translate_load(sffn, load_from_simple)
     if model_to_load is not None:
-        sffn.cond_to_h1 = load_model(sffn.cond_to_h1, model_to_load)
-        sffn.cond_to_h2 = load_model(sffn.cond_to_h2, model_to_load)
-        sffn.cond_from_h2 = load_model(sffn.cond_from_h2, model_to_load)
+        models, _ = load_model(model_to_load, unpack)
     elif load_last:
-        model_file = glob(path.join(out_path, '*.npz'))[-1]
-        sffn.cond_to_h1 = load_model(sffn.cond_to_h1, model_file)
-        sffn.cond_to_h2 = load_model(sffn.cond_to_h2, model_file)
-        sffn.cond_from_h2 = load_model(sffn.cond_from_h2, model_file)
+        model_file = glob(path.join(out_path, '*last.npz'))[0]
+        models, _ = load_model(model_file, unpack)
+    else:
+        sffn = SFFN_MultiLayer(dim_in, dim_h, dim_out, n_layers,
+                               layers=layers,
+                               inference_procedure=inference_procedure)
 
     tparams = sffn.set_tparams()
 
-    (xs, ys, z1s, z2s, h1_energy, h2_energy, y_energy, i_energy, h1s, h2s), updates = sffn.inference(
+    (xs, ys, zs, hs, energies, i_energy), updates = sffn.inference(
         X, Y, n_samples=inference_samples)
 
-    mu2 = T.nnet.sigmoid(z2s)
-    h2 = sffn.cond_from_h2.sample(mu2)
-    py = sffn.cond_from_h2(h2)
+    mu_f = T.nnet.sigmoid(zs[-1])
+    h_f = sffn.layers[-2].sample(mu_f)
+    py = sffn.layers[-1](h_f)
 
     pd_i, d_hat_i = concatenate_inputs(sffn, xs[0], ys[0], py)
 
@@ -147,14 +196,14 @@ def train_model(batch_size=100,
     pd_s, d_hat_s = concatenate_inputs(sffn, X, Y, py_s)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
-    consider_constant = [xs, ys, z1s, z2s, h1s, h2s]
-    cost = h1_energy + h2_energy + y_energy
+    consider_constant = [xs, ys] + zs + hs
+    cost = sum(energies)
 
-    extra_outs = [h1_energy, h2_energy, y_energy, i_energy]
+    extra_outs = energies + [i_energy]
     vis_outs = [pd_i, d_hat_i]
 
-    extra_outs_names = ['cost', 'h1 energy', 'h2 energy', 'train y energy',
-                        'inference energy']
+    extra_outs_names = ['cost'] + ['train h%d energy' % l
+                                   for l in xrange(sffn.n_layers - 1)] + ['train y energy', 'inference energy']
     vis_outs_names = ['pds', 'd_hats']
 
     tparams = OrderedDict((k, v)
@@ -245,7 +294,13 @@ def train_model(batch_size=100,
                         '{name}_{t}.npz'.format(name=name, t=int(time.time())))
 
     print 'Saving'
-    np.savez(outfile, **dict((k, v.get_value()) for k, v in tparams.items()))
+    d = dict((k, v.get_value()) for k, v in tparams.items())
+    d.update(
+        dim_h=dim_h,
+        n_layers=n_layers,
+        layers=layers,
+    )
+    np.savez(outfile, **d)
     print 'Done saving. Bye bye.'
 
 def make_argument_parser():
@@ -256,7 +311,6 @@ def make_argument_parser():
     parser.add_argument('-l', '--load_last', action='store_true')
     parser.add_argument('-r', '--load_model', default=None)
     parser.add_argument('-i', '--save_images', action='store_true')
-    parser.add_argument('-s', '--load_from_simple', default=None)
     return parser
 
 if __name__ == '__main__':
@@ -266,7 +320,6 @@ if __name__ == '__main__':
     exp_dict = load_experiment(path.abspath(args.experiment))
     out_path = path.join(args.out_path, exp_dict['name'])
 
-    out_path = args.out_path
     if path.isfile(out_path):
         raise ValueError()
     elif not path.isdir(out_path):
@@ -274,4 +327,4 @@ if __name__ == '__main__':
 
     train_model(out_path=out_path, load_last=args.load_last,
                 model_to_load=args.load_model, save_images=args.save_images,
-                load_from_simple=args.load_from_simple, **exp_dict)
+                **exp_dict)
