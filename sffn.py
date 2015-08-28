@@ -483,58 +483,65 @@ class SFFN_MultiLayer(Layer):
         return x, y
 
     def sample_energy(self, ph1, preact_h1, y, zs, n_samples=10):
+        pys = [ph1[None, :, :]]
         if n_samples == 0:
             ys = [T.nnet.sigmoid(z) for z in zs]
+            pys += [layer(y_hat) for layer, y_hat in zip(self.layers[1:], ys)]
         else:
-            mu = T.nnet.sigmoid(zs[0])
+            mu = T.nnet.sigmoid(zs[0] + preact_h1)
             h = self._sample(p=mu, size=(n_samples, mu.shape[0], mu.shape[1]))
             hs = [h]
             ys = [mu]
             for z, layer in zip(zs[1:], self.layers[1:-1]):
+                py = layer(mu)
+                pys.append(py)
                 preact = layer(h, return_preact=True)
                 mu = T.nnet.sigmoid(preact + z[None, :, :])
                 h = self._sample(p=mu)
                 hs.append(h)
                 ys.append(mu)
 
-        pys = [ph1[None, :, :]] + [layer(y_hat) for layer, y_hat in zip(self.layers[1:], ys)]
+        pys.append(self.layers[-1](mu))
         ys.append(y[None, :, :])
 
         energies = []
 
         for layer, py, y in zip(self.layers, pys, ys):
-            energy = layer.neg_log_prob(y, py)
+            energy = layer.neg_log_prob(y, py)#.mean()
             energy = -log_mean_exp(-energy, axis=0).mean()
             energies.append(energy)
 
-        return energies, hs
+        return energies, ys
 
     def inference_cost(self, *args):
         ph1, preact_h1, y = args[:3]
         zs = self.get_qparams(*args)
         args = args[-len(self.get_params()):]
 
-        mu = T.nnet.sigmoid(zs[0])
+        mu = T.nnet.sigmoid(zs[0] + preact_h1)
         h = self._sample(p=mu)
         y_hat = mu
         py = ph1
 
         preacts = []
-        cost = T.constant(0.).astype(floatX)
+
+        # cost = -self.layers[0].entropy(y_hat)
+        cost = -self.layers[0].entropy(T.nnet.sigmoid(zs[0]))
         for l, layer in enumerate(self.layers[1:]):
-            energy = layer.neg_log_prob(y_hat, py)
-            cost += energy
+            cost += layer.neg_log_prob(y_hat, py)
 
             params = self.get_layer_args(l + 1, *args)
             py = layer.step_call(mu, *params)
-            preact = layer.preact(h, *params)
-            preacts.append(preact)
+
             if l + 1 < self.n_layers - 1:
+                preact = layer.preact(h, *params)
+                preacts.append(preact)
                 z = zs[l + 1]
-                cost += -layer.entropy(y_hat)
                 mu = T.nnet.sigmoid(preact + z)
                 h = self._sample(p=mu)
                 y_hat = mu
+                # cost += -layer.entropy(y_hat)
+                cost += -layer.entropy(T.nnet.sigmoid(z))
             else:
                 y_hat = y
 

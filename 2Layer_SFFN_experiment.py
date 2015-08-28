@@ -270,7 +270,7 @@ def train_model(batch_size=100,
                     d_hat_i = d_hat_i[:, idx]
                     d_hat_i = np.concatenate([pd_i[:, None, :],
                                               d_hat_i[:, None, :]], axis=1)
-                    train.save_images(d_hat_i, path.join(out_path, 'inference.png'))
+                    train.save_images(d_hat_i, path.join(out_path, 'inference.png'), x_limit=10)
                     d_hat_s = np.concatenate([pd_v[:10],
                                               d_hat_v[1][None, :, :]], axis=0)
                     d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]
