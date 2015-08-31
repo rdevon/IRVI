@@ -31,69 +31,22 @@ from tools import load_experiment
 
 floatX = theano.config.floatX
 
-def unpack(batch_size=None,
-           dim_h=None,
-           optimizer=None,
-           mode=None,
-           learning_rate=None,
-           x_cond=None,
-           steps=None,
-           dataset='horses',
-           dataset_args=None,
-           h_init=None,
+def unpack(dim_h=None,
+           n_layers=None,
+           inference_procedure=None,
+           layers=None,
            **model_args):
 
-    dataset_args = dataset_args[()]
-    x_cond = x_cond[()]
-    models = []
+    dim_in = 28 * 28 / 2
+    dim_out = dim_in
 
-    trng = RandomStreams(random.randint(0, 100000))
+    sffn = SFFN_MultiLayer(dim_in, dim_h, dim_out, n_layers,
+                           layers=layers,
+                           inference_procedure=inference_procedure)
 
-    if dataset == 'mnist':
-        dim_in = 28 * 28
-    elif dataset == 'horses':
-        dims = dataset_args['dims']
-        dim_in = dims[0] * dims[1]
-    else:
-        raise ValueError()
+    models = [sffn] + sffn.layers
 
-    if x_cond is not None:
-        print 'Found xcond: \n%s' % pprint.pformat(x_cond)
-        condition_on_x  = MLP(dim_in=dim_in, dim_h=x_cond['dim_h'],
-                              dim_out=dim_in, n_layers=x_cond['n_layers'],
-                              h_act=x_cond['h_act'], name='xcond')
-        models.append(condition_on_x)
-    else:
-        condition_on_x = None
-
-    if mode == 'gru':
-        C = GenGRU
-    elif mode == 'rnn':
-        C = GenRNN
-    else:
-        raise ValueError('Mode %s not recognized' % mode)
-
-    rnn = C(dim_in, dim_h, trng=trng, condition_on_x=condition_on_x)
-    models.append(rnn)
-
-    if h_init == 'average':
-        averager = Averager((batch_size, dim_h))
-        models.append(averager)
-    elif h_init == 'mlp':
-        mlp = MLP(dim_in, dim_h, dim_h, 1, out_act='T.tanh')
-        models.append(mlp)
-
-    return models, model_args, dict(
-        batch_size=batch_size,
-        optimizer=optimizer,
-        mode=mode,
-        dataset=dataset,
-        learning_rate=learning_rate,
-        condition_on_x=condition_on_x,
-        steps=steps,
-        h_init=h_init,
-        dataset_args=dataset_args
-    )
+    return models, model_args, dict()
 
 
 def translate_load(model, model_file):
@@ -150,7 +103,8 @@ def train_model(batch_size=100,
                 save_images=False,
                 optimizer='adam',
                 name='',
-                dataset='mnist'):
+                dataset='mnist',
+                **kwargs):
 
     print 'Setting up data'
     if dataset == 'mnist':
@@ -172,14 +126,20 @@ def train_model(batch_size=100,
     Y = D[:, dim_in:]
 
     if model_to_load is not None:
-        models, _ = load_model(model_to_load, unpack)
+        models, _ = load_model(model_to_load, unpack,
+                               inference_procedure=inference_procedure)
     elif load_last:
         model_file = glob(path.join(out_path, '*last.npz'))[0]
-        models, _ = load_model(model_file, unpack)
+        models, _ = load_model(model_file, unpack,
+                               inference_procedure=inference_procedure)
     else:
         sffn = SFFN_MultiLayer(dim_in, dim_h, dim_out, n_layers,
                                layers=layers,
-                               inference_procedure=inference_procedure)
+                               inference_procedure=inference_procedure,
+                               **kwargs)
+        models = OrderedDict({sffn.name: sffn})
+
+    sffn = models['sffn']
 
     tparams = sffn.set_tparams()
 
@@ -196,7 +156,7 @@ def train_model(batch_size=100,
     pd_s, d_hat_s = concatenate_inputs(sffn, X, Y, py_s)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
-    consider_constant = [xs, ys] + zs + hs
+    consider_constant = [xs, ys, i_energy] + zs + hs
     cost = sum(energies)
 
     extra_outs = energies + [i_energy]
@@ -261,7 +221,7 @@ def train_model(batch_size=100,
                 monitor.display(e * batch_size)
 
                 if save_images:
-                    monitor.save(path.join(out_path, 'monitor.png'))
+                    monitor.save(path.join(out_path, '{name}_monitor.png'.format(name=name)))
 
                     pd_i, d_hat_i = rval[len(extra_outs_names):]
 
@@ -270,11 +230,11 @@ def train_model(batch_size=100,
                     d_hat_i = d_hat_i[:, idx]
                     d_hat_i = np.concatenate([pd_i[:, None, :],
                                               d_hat_i[:, None, :]], axis=1)
-                    train.save_images(d_hat_i, path.join(out_path, 'inference.png'), x_limit=10)
+                    train.save_images(d_hat_i, path.join(out_path, '{name}_inference.png'.format(name=name)), x_limit=10)
                     d_hat_s = np.concatenate([pd_v[:10],
                                               d_hat_v[1][None, :, :]], axis=0)
                     d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]
-                    train.save_images(d_hat_s, path.join(out_path, 'samples.png'))
+                    train.save_images(d_hat_s, path.join(out_path, '{name}_samples.png'.format(name=name)))
 
             f_grad_updates(learning_rate)
 
@@ -292,6 +252,7 @@ def train_model(batch_size=100,
 
     outfile = path.join(out_path,
                         '{name}_{t}.npz'.format(name=name, t=int(time.time())))
+    last_outfile = path.join(out_path, '{name}_last.npz'.format(name=name))
 
     print 'Saving'
     d = dict((k, v.get_value()) for k, v in tparams.items())
@@ -301,6 +262,7 @@ def train_model(batch_size=100,
         layers=layers,
     )
     np.savez(outfile, **d)
+    np.savez(last_outfile, **d)
     print 'Done saving. Bye bye.'
 
 def make_argument_parser():

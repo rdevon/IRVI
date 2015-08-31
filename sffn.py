@@ -11,6 +11,8 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 from layers import Layer
 from layers import MLP
 import tools
+from tools import init_rngs
+from tools import init_weights
 from tools import log_mean_exp
 
 
@@ -357,12 +359,11 @@ class SFFN(Layer):
 
 class SFFN_MultiLayer(Layer):
     def __init__(self, dim_in, dim_h, dim_out, n_layers,
-                 rng=None, trng=None,
                  layers=None,
-                 weight_scale=1.0, weight_noise=False,
                  x_noise_mode=None, y_noise_mode=None, noise_amount=0.1,
-                 inference_procedure=None,
-                 name='sffn_2layer',):
+                 inference_procedure=None,  inference_parameters=False,
+                 name='sffn',
+                 **kwargs):
 
         self.dim_in = dim_in
         self.dim_h = dim_h
@@ -371,27 +372,20 @@ class SFFN_MultiLayer(Layer):
         assert inference_procedure is not None
         inference_procedure.model = self
         self.procedure = inference_procedure
+        self.inference_parameters = inference_parameters
 
         assert n_layers > 1, 'Hwhat???'
 
         self.layers = layers
 
-        self.weight_noise = weight_noise
-        self.weight_scale = weight_scale
-
         self.x_mode = x_noise_mode
         self.y_mode = y_noise_mode
         self.noise_amount = noise_amount
 
-        if rng is None:
-            rng = tools.rng_
-        self.rng = rng
+        kwargs = init_weights(self, **kwargs)
+        kwargs = init_rngs(self, **kwargs)
 
-        if trng is None:
-            self.trng = RandomStreams(6 * 10 * 2015)
-        else:
-            self.trng = trng
-
+        assert len(kwargs) == 0, kwargs.keys()
         super(SFFN_MultiLayer, self).__init__(name=name)
 
     def set_params(self):
@@ -424,6 +418,17 @@ class SFFN_MultiLayer(Layer):
                 assert layer.dim_out == dim_out
                 layer.name = 'layer_%d' % i
 
+        if self.inference_parameters:
+            for i in xrange(self.n_layers - 1):
+                if i == 0:
+                    dim_in = self.dim_in
+                else:
+                    dim_in = self.dim_h
+
+                W = tools.norm_weight(dim_in, self.dim_h,
+                                      scale=self.weight_scale, ortho=False)
+                self.params['WI_%d' % i] = W
+
     def set_tparams(self):
         tparams = super(SFFN_MultiLayer, self).set_tparams()
         for layer in self.layers:
@@ -435,6 +440,12 @@ class SFFN_MultiLayer(Layer):
         params = []
         for layer in self.layers[1:]:
             params += layer.get_params()
+
+        if self.inference_parameters:
+            for i in xrange(1, self.n_layers - 1):
+                W = self.__dict__['WI_%d' % i]
+                params.append(W)
+
         return params
 
     def get_layer_args(self, level, *args):
@@ -444,6 +455,9 @@ class SFFN_MultiLayer(Layer):
         length = len(self.layers[level].get_params())
         largs = args[start:start+length]
         return largs
+
+    def get_layer_iargs(self, ):
+        pass
 
     def init_z(self, size, name=''):
         z = T.alloc(0., *size).astype(floatX)
@@ -483,19 +497,25 @@ class SFFN_MultiLayer(Layer):
         return x, y
 
     def sample_energy(self, ph1, preact_h1, y, zs, n_samples=10):
+        preacts = []
         pys = [ph1[None, :, :]]
         if n_samples == 0:
             ys = [T.nnet.sigmoid(z) for z in zs]
             pys += [layer(y_hat) for layer, y_hat in zip(self.layers[1:], ys)]
         else:
-            mu = T.nnet.sigmoid(zs[0] + preact_h1)
+            mu = T.nnet.sigmoid(zs[0])
             h = self._sample(p=mu, size=(n_samples, mu.shape[0], mu.shape[1]))
             hs = [h]
             ys = [mu]
-            for z, layer in zip(zs[1:], self.layers[1:-1]):
+            for i, (z, layer) in enumerate(zip(zs[1:], self.layers[1:-1])):
                 py = layer(mu)
                 pys.append(py)
-                preact = layer(h, return_preact=True)
+                if self.inference_parameters:
+                    W = self.__dict__['WI_%d' % (i + 1)]
+                    preact = T.dot(h, W)
+                else:
+                    preact = layer(h, return_preact=True)
+                preacts.append(preact)
                 mu = T.nnet.sigmoid(preact + z[None, :, :])
                 h = self._sample(p=mu)
                 hs.append(h)
@@ -511,6 +531,11 @@ class SFFN_MultiLayer(Layer):
             energy = -log_mean_exp(-energy, axis=0).mean()
             energies.append(energy)
 
+        if self.inference_parameters:
+            for preact, layer, mu in zip(preacts, self.layers[1:-1], ys[1:-1]):
+                energy = layer.neg_log_prob(mu, )
+                energy = -log_mean_exp()
+
         return energies, ys
 
     def inference_cost(self, *args):
@@ -518,15 +543,14 @@ class SFFN_MultiLayer(Layer):
         zs = self.get_qparams(*args)
         args = args[-len(self.get_params()):]
 
-        mu = T.nnet.sigmoid(zs[0] + preact_h1)
+        mu = T.nnet.sigmoid(zs[0])
         h = self._sample(p=mu)
         y_hat = mu
         py = ph1
 
         preacts = []
 
-        # cost = -self.layers[0].entropy(y_hat)
-        cost = -self.layers[0].entropy(T.nnet.sigmoid(zs[0]))
+        cost = -self.layers[0].entropy(y_hat)
         for l, layer in enumerate(self.layers[1:]):
             cost += layer.neg_log_prob(y_hat, py)
 
@@ -534,21 +558,22 @@ class SFFN_MultiLayer(Layer):
             py = layer.step_call(mu, *params)
 
             if l + 1 < self.n_layers - 1:
+                if self.inference_parameters:
+                    params = self.get_inference_args(l + 1, *args)
                 preact = layer.preact(h, *params)
                 preacts.append(preact)
                 z = zs[l + 1]
                 mu = T.nnet.sigmoid(preact + z)
                 h = self._sample(p=mu)
                 y_hat = mu
-                # cost += -layer.entropy(y_hat)
-                cost += -layer.entropy(T.nnet.sigmoid(z))
+                cost += -layer.entropy(y_hat)
             else:
                 y_hat = y
 
         cost += layer.neg_log_prob(y_hat, py)
 
         cost = cost.sum(axis=0)
-        grads = theano.grad(cost, wrt=zs, consider_constant=preacts)
+        grads = theano.grad(cost, wrt=zs, consider_constant=[])
 
         return cost, grads
 

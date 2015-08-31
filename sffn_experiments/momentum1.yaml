@@ -1,5 +1,5 @@
 {
-  name: 'momentum1',
+  name: 'momentum_12',
   batch_size: 100,
   dim_h: 200,
   n_layers: 3,
@@ -15,5 +15,6 @@
   },
   optimizer: 'adam',
   source: '/Users/devon/Data/mnist.pkl.gz',
-  dataset: 'mnist'
+  dataset: 'mnist',
+  weight_scale: 0.1,
 }
