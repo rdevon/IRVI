@@ -501,7 +501,7 @@ class SFFN_MultiLayer(Layer):
         pys = [ph1[None, :, :]]
         if n_samples == 0:
             ys = [T.nnet.sigmoid(z) for z in zs]
-            pys += [layer(y_hat) for layer, y_hat in zip(self.layers[1:], ys)]
+            pys += [layer(mu) for layer, mu in zip(self.layers[1:], ys)]
         else:
             mu = T.nnet.sigmoid(zs[0])
             h = self._sample(p=mu, size=(n_samples, mu.shape[0], mu.shape[1]))
@@ -545,32 +545,29 @@ class SFFN_MultiLayer(Layer):
 
         mu = T.nnet.sigmoid(zs[0])
         h = self._sample(p=mu)
-        y_hat = mu
         py = ph1
-
         preacts = []
 
-        cost = -self.layers[0].entropy(y_hat)
+        cost = -self.layers[0].entropy(mu)
+        cost += self.layers[0].neg_log_prob(mu, py)
         for l, layer in enumerate(self.layers[1:]):
-            cost += layer.neg_log_prob(y_hat, py)
-
             params = self.get_layer_args(l + 1, *args)
             py = layer.step_call(mu, *params)
 
             if l + 1 < self.n_layers - 1:
                 if self.inference_parameters:
-                    params = self.get_inference_args(l + 1, *args)
-                preact = layer.preact(h, *params)
+                    W = self.get_inference_args(l + 1, *args)
+                    preact = T.dot(h, W)
+                else:
+                    preact = layer.preact(mu, *params)
                 preacts.append(preact)
                 z = zs[l + 1]
                 mu = T.nnet.sigmoid(preact + z)
                 h = self._sample(p=mu)
-                y_hat = mu
-                cost += -layer.entropy(y_hat)
+                cost += -layer.entropy(mu)
             else:
-                y_hat = y
-
-        cost += layer.neg_log_prob(y_hat, py)
+                mu = y
+            cost += layer.neg_log_prob(mu, py)
 
         cost = cost.sum(axis=0)
         grads = theano.grad(cost, wrt=zs, consider_constant=[])

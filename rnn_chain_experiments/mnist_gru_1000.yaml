@@ -1,5 +1,5 @@
 {
-  name: 'mnist1000',
+  name: 'mnist1000_init',
   batch_size: 10,
   dim_h: 1000,
   optimizer: 'adam',
@@ -11,8 +11,9 @@
     source: '/Users/devon/Data/mnist.pkl.gz',
     window: 20,
     chain_build_batch: 1000,
-    chain_length: 5000,
-    chain_stride: 1,
+    chain_length: 1000,
+    chain_stride: 3,
+    stop: 1000
   }, 
   dataset: 'mnist'
 }
