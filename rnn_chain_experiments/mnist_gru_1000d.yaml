@@ -1,11 +1,12 @@
 {
-  name: 'mnist1000d_4',
+  name: 'mnist1000d_euclid_2',
   batch_size: 10,
   dim_h: 1000,
   optimizer: 'adam',
   mode: 'gru',
   learning_rate: 0.01,
   steps: 500000,
+  metric: 'euclidean_then_energy',
   noise_input: False,
   mlp_a: {
     dim_h: 1000,

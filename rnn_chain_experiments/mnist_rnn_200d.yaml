@@ -1,19 +1,13 @@
 {
-  name: 'mnist200d_2',
+  name: 'mnist_rnn_200d_2',
   batch_size: 10,
   dim_h: 200,
   optimizer: 'adam',
-  mode: 'gru',
+  mode: 'rnn',
   learning_rate: 0.01,
   steps: 500000,
   metric: 'euclidean_then_energy',
   noise_input: False,
-  mlp_a: {
-    dim_h: 200,
-    n_layers: 2,
-    h_act: 'T.tanh',
-    weight_scale: 0.1
-  },
   mlp_b: {
     dim_h: 200,
     n_layers: 2,

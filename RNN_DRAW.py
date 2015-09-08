@@ -26,14 +26,14 @@ from GSN import likelihood_estimation_parzen as lep
 from gru import GenGRU
 from rbm import RBM
 from rnn import GenRNN
-from horses import Horses
+from horses import HorsesPieces
 from horses import SimpleHorses
 from layers import Averager
 from layers import BaselineWithInput
 from layers import MLP
 from layers import ParzenEstimator
 from mnist import mnist_iterator
-from mnist import MNIST_Chains
+from mnist import MNIST_Pieces
 import op
 import tools
 from tools import check_bad_nums
@@ -45,121 +45,6 @@ from tools import parzen_estimation
 
 floatX = theano.config.floatX
 
-
-def estimate_parzen(samples, epochs=1000, optimizer='adam',
-                    learning_rate=0.001):
-
-    test = mnist_iterator(batch_size=5000, mode='test', inf=False)
-    valid = mnist_iterator(batch_size=5000, mode='valid', inf=False)
-
-    parzen = ParzenEstimator(samples.shape[-1])
-
-    x_v, _ = valid.next()
-    print 'Setting sigmas'
-    parzen.set_params(samples, x_v)
-
-    tparams = parzen.set_tparams()
-
-    S = T.matrix('s', dtype=floatX)
-    X = T.matrix('x', dtype=floatX)
-    L = parzen(S, X)
-
-    f_par = theano.function([S, X], L)
-    x_t, _ = test.next()
-
-    print 'Getting log likeihood estimate'
-    log_est = f_par(samples, x_t)
-    print 'Parzen log likelihood lower bound: %.5f' % log_est
-
-def lower_bound(model_file, n_samples=10000, sigma=0.2, from_chain=False):
-
-    models, kwargs = load_model(model_file, unpack)
-    dataset_args = kwargs['dataset_args']
-    dataset = kwargs['dataset']
-
-    rnn, train, test, f_h0 = load_model_for_sampling(model_file)
-    params = rnn.get_sample_params()
-
-    if dataset == 'mnist':
-        test = MNIST_Chains(batch_size=n_samples, mode='test', **dataset_args)
-        valid = MNIST_Chains(batch_size=n_samples / 10, mode='valid', **dataset_args)
-        test.randomize()
-        valid.randomize()
-    elif dataset == 'horses':
-        test = Horses(batch_size=1, crop_image=True, **dataset_args)
-    else:
-        raise ValueError()
-
-    X = T.matrix('x', dtype=floatX)
-    H = T.matrix('h', dtype=floatX)
-
-    h_s, x_s, p_s = rnn.step_sample(H, X, *params)
-    f_sam = theano.function([X, H], [x_s, h_s, p_s])
-
-    if from_chain:
-        xs = []
-        x = train.next_simple(batch_size=1)
-        h = f_h0(x)
-        while len(xs) < n_samples:
-            x, h, p = f_sam(x, h)
-            xs.append(p)
-        samples = np.array(xs)[:, 0]
-    else:
-        print 'Generating'
-        samples = generate(model_file, n_steps=100, n_samples=n_samples)
-
-    x_v = valid.next_simple(batch_size=n_samples/10)
-
-    print 'Finding best sigma by grid search'
-    best = 0
-    best_sigma = None
-
-    def frange(x, y, jump):
-        while x < y:
-          yield x
-          x += jump
-
-    for sigma in frange(0.15, 0.25, 0.01):
-        print 'Sigma = %.2f' % sigma
-        parzen = lep.theano_parzen(samples, sigma)
-        test_ll = lep.get_ll(x_v, parzen)
-        best_ll = np.mean(test_ll)
-        if best_ll > best:
-            best_sigma = sigma
-            best = best_ll
-
-    print 'Best ll and sigma at validation: %.2f and %.2f' % (best, best_sigma)
-    sigma = best_sigma
-
-    x_t = test.next_simple(batch_size=n_samples)
-    print 'Calculating log likelihood at test by Parzen window'
-    parzen = lep.theano_parzen(samples, sigma)
-    test_ll = lep.get_ll(x_t, parzen)
-    print "Mean Log-Likelihood of test set = %.5f (model)" % np.mean(test_ll)
-    print "Std of Mean Log-Likelihood of test set = %.5f" % (np.std(test_ll) / 100)
-    print 'Calculating log likelihood at test by Parzen window using mnist validation data'
-
-def unpack_rbm(dim_h=None,
-               dataset='mnist',
-               dataset_args=None,
-               **model_args):
-
-    dim_h = int(dim_h)
-
-    if dataset == 'mnist':
-        dim_in = 28 * 28
-    elif dataset == 'horses':
-        dims = dataset_args['dims']
-        dim_in = dims[0] * dims[1]
-    else:
-        raise ValueError()
-
-    rbm = RBM(dim_in, dim_h)
-    models = [rbm]
-
-    return models, model_args, dict(
-        dataset_args=dataset_args
-    )
 
 def unpack(mode=None,
            dim_h=None,
@@ -279,54 +164,6 @@ def load_model_for_sampling(model_file):
 
     return rnn, train, test, f_h0
 
-def rbm_energy(model_file, rbm_file, n_samples=1000):
-    samples = generate_samples(model_file, n_samples=n_samples)
-    models, kwargs = load_model(rbm_file, unpack_rbm)
-    rbm = models['rbm']
-    rbm.set_tparams()
-
-    X = T.tensor3('x', dtype=floatX)
-    rval, updates = rbm.energy(X)
-    f_energy = theano.function([X], rval['acc_neg_log_p'], updates=updates)
-    rnn_energy = f_energy(samples.astype(floatX))[0]
-
-    X0 = T.matrix('x0', dtype=floatX)
-    rval, updates = rbm(n_samples, x0=X0)
-    rbm_samples = rval['p']
-    rval, updates_2 = rbm.energy(rbm_samples)
-    updates.update(updates_2)
-    f_energy = theano.function([X0], rval['acc_neg_log_p'], updates=updates)
-    rbm_energy = f_energy(samples[0])[0]
-
-    return rnn_energy, rbm_energy
-
-def test_mixture(model_file, length=10, n_steps=100, n_samples=100):
-    rnn, dataset, test, f_h0 = load_model_for_sampling(model_file)
-    samples = generate_samples(model_file, n_steps=n_steps, n_samples=n_samples)[1:]
-    energies = []
-    r_energies = []
-
-    X = T.tensor3('x', dtype=floatX)
-    H0 = T.matrix('h0', dtype=floatX)
-    f_energy = theano.function([X, H0], rnn.energy(X, h0=H0))
-
-    samples = samples[:(n_steps // length) * length]
-    r_idx = range(n_steps)
-    random.shuffle(r_idx)
-    s = samples.reshape(
-        (length, n_steps // length * n_samples, samples.shape[2])).astype(floatX)
-    r = samples[r_idx].reshape(
-        (length, n_steps.shape[0] // length * n_samples, samples.shape[2])).astype(floatX)
-
-    energy = f_energy(s, f_h0(s[0]))
-    r_energy = f_energy(r, f_h0(r[0]))
-
-    print energy.mean()
-    print r_energy.mean()
-    print np.exp(-energy.mean() + r_energy.mean())
-    dataset.save_images(s, '/Users/devon/tmp/test_samples.png')
-    dataset.save_images(r, '/Users/devon/tmp/test_rrsamples.png')
-
 def get_sample_cross_correlation(model_file, n_steps=100):
     rnn, dataset, test, f_h0 = load_model_for_sampling(model_file)
     samples = generate_samples(model_file, n_steps=n_steps, n_samples=1)[1:, 0]
@@ -335,90 +172,6 @@ def get_sample_cross_correlation(model_file, n_steps=100):
     plt.imshow(c)
     plt.colorbar()
     plt.show()
-
-def fill_in_the_blank(model_file, n_steps=200, n_samples=40, repeat=1, out_path=None):
-    rnn, train, test, f_h0 = load_model_for_sampling(model_file)
-    params = rnn.get_sample_params()
-
-    X = T.matrix('x', dtype=floatX)
-    H = T.matrix('h', dtype=floatX)
-    h_s, x_s, p_s = rnn.step_sample(H, X, *params)
-    f_sam = theano.function([X, H], [x_s, h_s, p_s])
-
-    x = test.next_simple(batch_size=n_samples)
-    x = np.zeros((repeat, n_samples, x.shape[1])).astype(floatX) + x[None, :, :]
-    x = x.reshape((repeat * n_samples, x.shape[2]))
-    ps = [np.copy(x)]
-    #x[:, x.shape[1] //  2:] = 0
-    #ps.append(x)
-    h = f_h0(x).astype(floatX)
-    x = np.zeros_like(x)
-    #h = f_h0(rnn.rng.binomial(p=0.5, size=(n_samples * repeat, rnn.dim_in), n=1).astype(floatX))
-    for s in xrange(n_steps):
-        x, h, p = f_sam(x, h)
-        ps.append(p)
-        if s % 30 == 0 and s != 0:
-            h = np.zeros_like(h) + f_h0(x)[0][None, :]
-            #h = np.zeros_like(h) + h[0][None, :]
-            #x = np.zeros_like(x)
-            ps.append(np.zeros_like(x))
-
-    train.save_images(np.array(ps), path.join(out_path, 'occulation_samples.png'))
-
-def test_AIS(model_file, n_samples=100, M=100, K=10, f_steps=10, T_steps=10):
-    models, kwargs = load_model(model_file, unpack)
-    dataset_args = kwargs['dataset_args']
-    dataset = kwargs['dataset']
-
-    if dataset == 'mnist':
-        test = MNIST_Chains(batch_size=n_samples, mode='test', **dataset_args)
-        test.randomize()
-    elif dataset == 'horses':
-        test = Horses(batch_size=1, crop_image=True, **dataset_args)
-    else:
-        raise ValueError()
-
-    rnn, dataset, f_h0 = load_model_for_sampling(model_file)
-    dataset.randomize()
-
-    X = T.matrix('x', dtype=floatX)
-    H = T.matrix('h', dtype=floatX)
-
-    x_t = dataset.next_simple(batch_size=n_samples)
-
-    out_f, updates_f = rnn.sample(x0=X, h0=H, n_steps=f_steps)
-    f_p = theano.function([X, H], out_f['p'][-1], updates=updates_f)
-
-    out_t, updates_t = rnn.sample(x0=X, h0=H, n_steps=T_steps)
-    f_trans = theano.function([X, H], out_t['p'][-1], updates=updates_t)
-
-    betas = [t / float(K - 1) for t in range(K)]
-
-    x0 = dataset.next_simple(batch_size=M)
-
-    def log_px(x, p):
-        return (x * np.log(p + 1e-7) + (1 - x) * np.log(1 - p + 1e-7)).sum(axis=1)
-
-    x_t = np.zeros((M,) + x_t.shape) + x_t[None, :, :]
-    x_t = x_t.reshape((M * n_samples, x_t.shape[2]))
-    p = np.zeros(x_t.shape).astype(floatX) + 0.5
-    logf_ = 0. * log_px(x_t, p)
-    x_k = rnn.rng.binomial(p=p, size=p.shape, n=1).astype(floatX)
-    logw = np.zeros((M * n_samples,)).astype(floatX)
-
-    for beta in betas[1:]:
-        #print beta
-        p = f_p(x_k, f_h0(x_k))
-        logf = beta * log_px(x_t, p)
-        logw = logw + logf - logf_
-        print logf.mean(), logf_.mean(), logw.mean()
-        trans = f_trans(x_k, f_h0(x_k)) ** beta
-        x_k = rnn.rng.binomial(p=trans, size=trans.shape, n=1).astype(floatX)
-        p = f_p(x_k, f_h0(x_k))
-        logf_ = beta * log_px(x_t, p)
-
-    logw = log_mean_exp(logw, axis=0, as_numpy=True)
-    print logw.mean()
 
 def generate(model_file, n_steps=20, n_samples=40, out_path=None):
     rnn, train, test, f_h0 = load_model_for_sampling(model_file)
@@ -551,17 +304,16 @@ def visualize(model_file, out_path=None, interval=1, n_samples=-1,
         anim.save(path.join(out_path, 'vis_train_movie.mp4'), writer=writer)
 
 def energy_function(model):
-    x = T.matrix('x', dtype=floatX)
+    x = T.tensor3('x', dtype=floatX)
     x_p = T.matrix('x_p', dtype=floatX)
     h_p = T.matrix('h_p', dtype=floatX)
-    x_e = T.alloc(0., x_p.shape[0], x.shape[0], x.shape[1]).astype(floatX) + x[None, :, :]
 
     params = model.get_sample_params()
     h, x_s, p = model.step_sample(h_p, x_p, *params)
 
     p = T.alloc(0., p.shape[0], x.shape[0], x.shape[1]).astype(floatX) + p[:, None, :]
 
-    energy = -(x_e * T.log(p + 1e-7) + (1 - x_e) * T.log(1 - p + 1e-7)).sum(axis=2)
+    energy = -(x * T.log(p + 1e-7) + (1 - x) * T.log(1 - p + 1e-7)).sum(axis=2)
 
     return theano.function([x, x_p, h_p], [energy, x_s, h])
 
@@ -570,14 +322,13 @@ def euclidean_distance(model):
     h_p are dummy variables to keep it working for dataset chain generators.
     '''
 
-    x = T.matrix('x', dtype=floatX)
+    x = T.tensor3('x', dtype=floatX)
     x_p = T.matrix('x_p', dtype=floatX)
     h_p = T.matrix('h_p', dtype=floatX)
-    x_e = T.alloc(0., x_p.shape[0], x.shape[0], x.shape[1]).astype(floatX) + x[None, :, :]
     x_pe = T.alloc(0., x_p.shape[0], x.shape[0], x_p.shape[1]).astype(floatX) + x_p[:, None, :]
 
     params = model.get_sample_params()
-    distance = (x_e - x_pe) ** 2
+    distance = (x - x_pe) ** 2
     distance = distance.sum(axis=2)
     return theano.function([x, x_p, h_p], [distance, x, h_p])
 
@@ -600,14 +351,16 @@ def train_model(save_graphs=False, out_path='', name='',
     out_path = path.abspath(out_path)
 
     if dataset == 'mnist':
-        train = MNIST_Chains(batch_size=batch_size, out_path=out_path, **dataset_args)
+        train = MNIST_Pieces(batch_size=batch_size, out_path=out_path, **dataset_args)
     elif dataset == 'horses':
-        train = Horses(batch_size=batch_size, out_path=out_path, crop_image=True, **dataset_args)
+        raise NotImplementedError()
+        train = Horses_Pieces(batch_size=batch_size, out_path=out_path, crop_image=True, **dataset_args)
     else:
         raise ValueError()
 
     dim_in = train.dim
     X = T.tensor3('x', dtype=floatX)
+    Y = T.matrix('y', dtype=floatX)
     trng = RandomStreams(random.randint(0, 100000))
 
     if mode == 'gru':
