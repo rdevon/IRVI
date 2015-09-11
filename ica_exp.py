@@ -16,7 +16,7 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import time
 
 from layers import MLP
-from mnist_ica import mnist_iterator
+from mnist import mnist_iterator
 import op
 from sffn_ica import SFFN
 from tools import check_bad_nums
@@ -26,18 +26,13 @@ from tools import load_model
 
 floatX = theano.config.floatX
 
-def concatenate_inputs(model, x, y, py):
+def concatenate_inputs(model, y, py):
     y_hat = model.cond_from_h.sample(py)
 
     py = T.concatenate([y[None, :, :], py], axis=0)
     y = T.concatenate([y[None, :, :], y_hat], axis=0)
 
-    x = T.alloc(0, py.shape[0], x.shape[0], x.shape[1]) + x[None, :, :]
-
-    pd = T.concatenate([x, py], axis=2)
-    d_hat = T.concatenate([x, y], axis=2)
-
-    return pd, d_hat
+    return py, y
 
 def train_model(batch_size=100,
                 dim_h=200,
@@ -62,7 +57,7 @@ def train_model(batch_size=100,
     print 'Setting up data'
     train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
     valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
-    test = mnist_iterator(batch_size=20000, mode='test', inf=True, repeat=1)
+    test = mnist_iterator(batch_size=2000, mode='test', inf=True, repeat=1)
 
     print 'Setting model'
     #dim_in = train.dim / 2
@@ -111,10 +106,10 @@ def train_model(batch_size=100,
     mu = T.nnet.sigmoid(zs)
     py = sffn.cond_from_h(mu)
 
-    pd_i, d_hat_i = concatenate_inputs(sffn, xs[0], ys[0], py)
+    pd_i, d_hat_i = concatenate_inputs(sffn, ys[0], py)
 
     py_s, y_energy_s = sffn(X, Y, from_z=False)
-    pd_s, d_hat_s = concatenate_inputs(sffn, X, Y, py_s)
+    pd_s, d_hat_s = concatenate_inputs(sffn, Y, py_s)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
 
     consider_constant = [xs, ys, zs]
