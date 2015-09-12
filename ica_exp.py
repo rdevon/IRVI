@@ -248,7 +248,7 @@ def train_model(
                 x, _ = train.next()
             except StopIteration:
                 e += 1
-                print 'Epoch {epoch}'.format(epoch=epoch)
+                print 'Epoch {epoch}'.format(epoch=e)
                 continue
 
             if e > epochs:
