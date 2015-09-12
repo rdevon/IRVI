@@ -19,14 +19,13 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import time
 
 from layers import MLP
-from mnist_ica import mnist_iterator
+from mnist import mnist_iterator
 import op
 from sffn_ica import SFFN
 from tools import check_bad_nums
 from tools import itemlist
 from tools import load_model
 from tools import load_experiment
-
 
 floatX = theano.config.floatX
 
