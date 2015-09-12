@@ -142,11 +142,11 @@ class SFFN(Layer):
         elif mode == 'noise':
             x = self._sample(x)
             x = self._noise(x[None, :, :], size=size)
-        elif mode == None:
+        elif mode is None:
             x = self._sample(x, size=x.shape)
             x = T.alloc(0., *size) + x[None, :, :]
         else:
-            raise ValueError()
+            raise ValueError('% not supported' % mode)
         return x
 
     def init_inputs(self, x, y, steps=1):
