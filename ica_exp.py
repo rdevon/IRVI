@@ -118,6 +118,7 @@ def train_model(
     inference_method='momentum',
     inference_rate=.01, n_inference_steps=100,
     inference_decay=1.0, inference_samples=20,
+    n_inference_steps_eval=0,
     z_init='recognition_net',
     dataset=None, dataset_args=None,
     model_save_freq=100, show_freq=10
@@ -202,9 +203,14 @@ def train_model(
 
     pd_i, d_hat_i = concatenate_inputs(sffn, ys[0], py)
 
-    py_s, y_energy_s = sffn(X, Y, from_z=False)
+    (py_s, y_energy_s), updates_s = sffn(X, Y, from_z=False,
+                            n_inference_steps=n_inference_steps_eval)
+    updates.update(updates_s)
     pd_s, d_hat_s = concatenate_inputs(sffn, Y, py_s)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
+
+    py_p = sffn.sample_from_prior()
+    f_py_p = theano.function([], py_p)
 
     consider_constant = [xs, ys, zs]
     cost = h_energy + y_energy
@@ -282,12 +288,25 @@ def train_model(
                 if ye_v < best_cost:
                     best_cost = ye_v
                     if out_path is not None:
-                        np.savez(bestfile, **dict((k, v.get_value()) for k, v in tparams.items()))
+                        d = dict((k, v.get_value()) for k, v in tparams.items())
+
+                        d.update(
+                            dim_h=dim_h,
+                            x_noise_mode=x_noise_mode,
+                            y_noise_mode=y_noise_mode,
+                            noise_amout=noise_amout,
+                            generation_net=generation_net,
+                            recognition_net=recognition_net,
+                            dataset=dataset, dataset_args=dataset_args
+                        )
+
+                        np.savez(bestfile, **d)
 
                 monitor.display(e, s)
 
                 if save_images and s % model_save_freq == 0:
-                    monitor.save(path.join(out_path, '{name}_monitor.png').format(name=name))
+                    monitor.save(path.join(
+                        out_path, '{name}_monitor.png').format(name=name))
 
                     pd_i, d_hat_i = rval[len(extra_outs_names):]
 
@@ -304,6 +323,14 @@ def train_model(
                     d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]
                     train.save_images(d_hat_s, path.join(
                         out_path, '{name}_samples.png'.format(name=name)))
+
+                    pd_p = f_py_p()
+                    train.save_images(
+                        pd_p[:, None], path.join(
+                            out_path,
+                            '{name}_samples_from_prior.png'.format(name=name)),
+                        x_limit=10
+                    )
 
             f_grad_updates(learning_rate)
 

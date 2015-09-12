@@ -163,6 +163,12 @@ class SFFN(Layer):
     def p_y_given_h(self, h, *params):
         return self.cond_from_h.step_call(h, *params)
 
+    def sample_from_prior(self, n_samples=100):
+        h = self.trng.binomial(p=0.5, size=(n_samples, self.dim_h), n=1,
+                               dtype=floatX)
+        py = self.cond_from_h(h)
+        return py
+
     def sample_energy(self, ph, y, z, n_samples=10):
         mu = T.nnet.sigmoid(z)
 
@@ -198,7 +204,6 @@ class SFFN(Layer):
         py = self.p_y_given_h(mu, *params)
 
         cost = (self.cond_from_h.neg_log_prob(y, py)
-                #+ self.cond_to_h.neg_log_prob(mu, ph)
                 - self.cond_to_h.entropy(mu)
                 ).sum(axis=0)
         grad = theano.grad(cost, wrt=z, consider_constant=[ph, y])
@@ -302,19 +307,13 @@ class SFFN(Layer):
     def _params_cg(self, ):
         return [(self.inference_rate * 2. ** T.arange(8)).astype(floatX)]
 
-    # Inference
-    def inference(self, x, y, n_samples=100):
+    def infer_q(self, x, y, n_inference_steps, z0=None):
         updates = theano.OrderedUpdates()
 
         xs, ys = self.init_inputs(x, y, steps=self.n_inference_steps)
         ph = self.cond_to_h(xs)
-        z0 = self.init_z(xs[0], ys[0])
-
-        if self.inference_step_scheduler is None:
-            n_inference_steps = self.n_inference_steps
-        else:
-            n_inference_steps, updates_c = self.inference_step_scheduler(n_inference_steps)
-            updates.update(updates_c)
+        if z0 is None:
+            z0 = self.init_z(xs[0], ys[0])
 
         seqs = [ph, ys]
         outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None]
@@ -333,11 +332,24 @@ class SFFN(Layer):
         updates.update(updates_2)
 
         zs, i_costs = self.unpack_infer(outs)
+
+        return (zs, i_costs, ph, xs, ys), updates
+
+    # Inference
+    def inference(self, x, y, z0=None, n_samples=100):
+        n_inference_steps = self.n_inference_steps
+
+        (zs, i_costs, ph, xs, ys), updates = self.infer_q(x, y, n_inference_steps, z0=z0)
+
         h_energy, y_energy = self.sample_energy(ph[0], ys[0], zs[-1],
                                                 n_samples=n_samples)
         return (xs, ys, zs, h_energy, y_energy, i_costs[-1]), updates
 
-    def __call__(self, x, y, ph=None, n_samples=100, from_z=False):
+    def __call__(self, x, y, ph=None, n_samples=100, from_z=False,
+                 n_inference_steps=0):
+
+        updates = theano.OrderedUpdates()
+
         x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
 
         if ph is not None:
@@ -350,11 +362,17 @@ class SFFN(Layer):
         else:
             ph = self.cond_to_h(x)
 
+        if n_inference_steps > 0:
+            z0 = T.log(ph + 1e-7) - T.log(1 - ph + 1e-7)
+            (zs, _, _, _, _), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
+            updates.update(updates_i)
+            ph = T.nnet.sigmoid(zs[-1])
+
         h = self.cond_to_h.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
         py = self.cond_from_h(h)
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
-        return py, y_energy
+        return (py, y_energy), updates
 
 
 class SFFN_MultiLayer(Layer):
