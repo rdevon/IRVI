@@ -9,6 +9,9 @@ from monitor import SimpleMonitor
 import numpy as np
 import os
 from os import path
+import pprint
+import random
+import shutil
 import sys
 import theano
 from theano import tensor as T
@@ -22,11 +25,15 @@ from sffn_ica import SFFN
 from tools import check_bad_nums
 from tools import itemlist
 from tools import load_model
+from tools import load_experiment
 
 
 floatX = theano.config.floatX
 
 def concatenate_inputs(model, y, py):
+    '''
+    Function to concatenate ground truth to samples and probabilities.
+    '''
     y_hat = model.cond_from_h.sample(py)
 
     py = T.concatenate([y[None, :, :], py], axis=0)
@@ -34,72 +41,159 @@ def concatenate_inputs(model, y, py):
 
     return py, y
 
-def train_model(batch_size=100,
-                dim_h=200,
-                l=.01,
-                learning_rate = 0.1,
-                min_lr = 0.01,
-                lr_decay = False,
-                n_inference_steps=100,
-                inference_decay=1.0,
-                inference_samples=20,
-                z_init=None,
-                second_sffn=True,
-                out_path='',
-                load_last=False,
-                model_to_load=None,
-                inference_method='momentum',
-                save_images=False,
-                optimizer='adam'):
-    if out_path is not None:
-        out_path = path.abspath(out_path)
+def load_mlp(name, dim_in, dim_out, dim_h=None, n_layers=None, **kwargs):
+    mlp = MLP(dim_in, dim_h, dim_out, n_layers, name=name, **kwargs)
+    return mlp
+
+def unpack(dim_h=None,
+           z_init=None,
+           recognition_net=None,
+           generation_net=None,
+           dataset=None,
+           dataset_args=None,
+           noise_amount=None,
+           n_inference_steps=None,
+           inference_decay=None,
+           inference_method=None,
+           inference_rate=None,
+           x_noise_mode=None,
+           y_noise_mode=None,
+           **model_args):
+    '''
+    Function to unpack pretrained model into fresh SFFN class.
+    '''
+
+    dataset_args = dataset_args[()]
+
+    if dataset == 'mnist':
+        dim_in = 28 * 28
+        dim_out = dim_in
+    else:
+        raise ValueError()
+
+    models = []
+    if recognition_net is not None:
+        recognition_net = recognition_net[()]
+        cond_to_h = load_mlp('cond_to_h', dim_in, dim_h,
+                             out_act='T.nnet.sigmoid',
+                             **recognition_net)
+        models.append(cond_to_h)
+    else:
+        cond_to_h = None
+
+    if generation_net is not None:
+        generation_net = generation_net[()]
+        cond_from_h = load_mlp('cond_from_h', dim_h, dim_in,
+                               out_act='T.nnet.sigmoid',
+                               **generation_net)
+        models.append(cond_from_h)
+
+    sffn = SFFN(dim_in, dim_h, dim_out,
+                cond_from_h=cond_from_h,
+                cond_to_h=cond_to_h,
+                noise_amount=0.,
+                z_init=z_init,
+                inference_rate=inference_rate,
+                n_inference_steps=n_inference_steps,
+                inference_decay=inference_decay,
+                inference_method=inference_method,
+                x_noise_mode=x_noise_mode,
+                y_noise_mode=y_noise_mode)
+    models.append(sffn)
+
+    return models, model_args, dict(
+        z_init=z_init,
+        dataset=dataset,
+        dataset_args=dataset_args
+    )
+
+def train_model(
+    out_path='', name='',
+    load_last=False, model_to_load=None, save_images=True,
+    source=None,
+    learning_rate=0.1, optimizer='adam', batch_size=100, epochs=100,
+    dim_h=300,
+    x_noise_mode=None, y_noise_mode=None, noise_amout=0.1,
+    generation_net=None, recognition_net=None,
+    inference_method='momentum',
+    inference_rate=.01, n_inference_steps=100,
+    inference_decay=1.0, inference_samples=20,
+    z_init='recognition_net',
+    dataset=None, dataset_args=None,
+    model_save_freq=100, show_freq=10
+    ):
+
+    print 'Dataset args: %s' % pprint.pformat(dataset_args)
 
     print 'Setting up data'
-    train = mnist_iterator(batch_size=batch_size, mode='train', inf=True, repeat=1)
-    valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, repeat=1)
-    test = mnist_iterator(batch_size=2000, mode='test', inf=True, repeat=1)
+    if dataset == 'mnist':
+        train = mnist_iterator(batch_size=batch_size, mode='train', **dataset_args)
+        valid = mnist_iterator(batch_size=batch_size, mode='valid', **dataset_args)
+        test = mnist_iterator(batch_size=2000, mode='test', **dataset_args)
+    else:
+        raise ValueError()
 
     print 'Setting model'
-    #dim_in = train.dim / 2
-    #dim_out = train.dim / 2
-    #D = T.matrix('x', dtype=floatX)
-    #X = D[:, :dim_in]
-    #Y = D[:, dim_in:]
     dim_in = train.dim
     dim_out = train.dim
     D = T.matrix('x', dtype=floatX)
     X = D.copy()
     Y = X.copy()
 
-    trng = RandomStreams(6 * 23 * 2015)
-
-    cond_to_h = MLP(dim_in, dim_h, dim_h, 2,
-                    h_act='T.nnet.sigmoid',
-                    out_act='T.nnet.sigmoid')
-
-    cond_from_h = MLP(dim_h, dim_h, dim_out, 2,
-                    h_act='T.nnet.sigmoid',
-                    out_act='T.nnet.sigmoid')
-
-    sffn = SFFN(dim_in, dim_h, dim_out, trng=trng,
-                cond_from_h=cond_from_h,
-                noise_amount=0.,
-                z_init=z_init,
-                inference_rate=l,
-                n_inference_steps=n_inference_steps,
-                inference_decay=inference_decay,
-                inference_method=inference_method)
+    trng = RandomStreams(random.randint(0, 1000000))
 
     if model_to_load is not None:
-        sffn.cond_to_h = load_model(sffn.cond_to_h, model_to_load)
-        sffn.cond_from_h = load_model(sffn.cond_from_h, model_to_load)
+        models, _ = load_model(model_to_load, unpack,
+                               inference_rate=inference_rate,
+                               n_inference_steps=n_inference_steps,
+                               inference_decay=inference_decay,
+                               inference_method=inference_method)
     elif load_last:
         model_file = glob(path.join(out_path, '*last.npz'))[0]
-        sffn.cond_to_h = load_model(sffn.cond_to_h, model_file)
-        sffn.cond_from_h = load_model(sffn.cond_from_h, model_file)
+        models, _ = load_model(model_file, unpack,
+                               inference_rate=inference_rate,
+                               n_inference_steps=n_inference_steps,
+                               inference_decay=inference_decay,
+                               inference_method=inference_method)
+    else:
+        # The recognition net is a MLP with 2 layers. The intermediate layer is
+        # deterministic.
+        if recognition_net is not None:
+            cond_to_h = load_mlp('cond_to_h', dim_in, dim_h,
+                                 out_act='T.nnet.sigmoid',
+                                 **recognition_net)
+        else:
+            cond_to_h = None
 
+        # The generation net has much of the same structure as the recognition net,
+        # with roles reversed.
+        if generation_net is not None:
+            cond_from_h = load_mlp('cond_from_h', dim_h, dim_in,
+                                   out_act='T.nnet.sigmoid',
+                                   **generation_net)
+        else:
+            cond_from_h = None
+
+        sffn = SFFN(dim_in, dim_h, dim_out, trng=trng,
+                    cond_from_h=cond_from_h,
+                    cond_to_h=cond_to_h,
+                    noise_amount=0.,
+                    z_init=z_init,
+                    inference_rate=inference_rate,
+                    n_inference_steps=n_inference_steps,
+                    inference_decay=inference_decay,
+                    inference_method=inference_method,
+                    x_noise_mode=x_noise_mode,
+                    y_noise_mode=y_noise_mode)
+
+        models = OrderedDict()
+        models[sffn.name] = sffn
+
+    print 'Getting params'
+    sffn = models['sffn']
     tparams = sffn.set_tparams()
 
+    print 'Getting cost'
     (xs, ys, zs, h_energy, y_energy, i_energy), updates = sffn.inference(
         X, Y, n_samples=inference_samples)
 
@@ -121,10 +215,13 @@ def train_model(batch_size=100,
     extra_outs_names = ['cost', 'h energy', 'train y energy', 'inference energy']
     vis_outs_names = ['pds', 'd_hats']
 
+    # Remove the parameters found in updates from the ones we will take
+    # gradients of.
     tparams = OrderedDict((k, v)
         for k, v in tparams.iteritems()
         if (v not in updates.keys()))
 
+    print 'Getting gradients.'
     grads = T.grad(cost, wrt=itemlist(tparams),
                    consider_constant=consider_constant)
 
@@ -145,13 +242,24 @@ def train_model(batch_size=100,
 
     try:
         t0 = time.time()
-        for e in xrange(100000):
-            x, _ = train.next()
+        s = 0
+        e = 0
+        while True:
+            try:
+                x, _ = train.next()
+            except StopIteration:
+                e += 1
+                print 'Epoch {epoch}'.format(epoch=epoch)
+                continue
+
+            if e > epochs:
+                break
+
             rval = f_grad_shared(x)
             if check_bad_nums(rval, extra_outs_names+vis_outs_names):
                 return
 
-            if e % 10 == 0:
+            if s % show_freq == 0:
                 d_v, _ = valid.next()
                 x_v, y_v = d_v, d_v
 
@@ -176,10 +284,10 @@ def train_model(batch_size=100,
                     if out_path is not None:
                         np.savez(bestfile, **dict((k, v.get_value()) for k, v in tparams.items()))
 
-                monitor.display(e * batch_size)
+                monitor.display(e, s)
 
-                if save_images:
-                    monitor.save(path.join(out_path, 'sffn_monitor.png'))
+                if save_images and s % model_save_freq == 0:
+                    monitor.save(path.join(out_path, '{name}_monitor.png').format(name=name))
 
                     pd_i, d_hat_i = rval[len(extra_outs_names):]
 
@@ -188,20 +296,23 @@ def train_model(batch_size=100,
                     d_hat_i = d_hat_i[:, idx]
                     d_hat_i = np.concatenate([pd_i[:, None, :],
                                               d_hat_i[:, None, :]], axis=1)
-                    train.save_images(d_hat_i, path.join(out_path, 'sffn_inference.png'))
+                    train.save_images(
+                        d_hat_i, path.join(
+                            out_path, '{name}_inference.png').format(name=name))
                     d_hat_s = np.concatenate([pd_v[:10],
                                               d_hat_v[1][None, :, :]], axis=0)
                     d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]
-                    train.save_images(d_hat_s, path.join(out_path, 'sffn_samples.png'))
+                    train.save_images(d_hat_s, path.join(
+                        out_path, '{name}_samples.png'.format(name=name)))
 
             f_grad_updates(learning_rate)
 
-            if lr_decay:
-                learning_rate = max(learning_rate * lr_decay, min_lr)
+            s += 1
 
     except KeyboardInterrupt:
         print 'Training interrupted'
 
+    print 'Quick test, please wait...'
     d_t, _ = test.next()
     x_t = d_t.copy()
     y_t = d_t.copy()
@@ -209,19 +320,28 @@ def train_model(batch_size=100,
     print 'End test: %.5f' % ye_t
 
     if out_path is not None:
-        outfile = path.join(out_path, 'sffn_{}.npz'.format(int(time.time())))
-        last_outfile = path.join(out_path, 'sffn_last.npz')
+        outfile = path.join(out_path, '{name}_{t}.npz'.format(name=name, t=int(time.time())))
+        last_outfile = path.join(out_path, '{name}_last.npz'.format(name=name))
+
+        d = dict((k, v.get_value()) for k, v in tparams.items())
+
+        d.update(
+            dim_h=dim_h,
+            x_noise_mode=x_noise_mode, y_noise_mode=y_noise_mode,
+            noise_amout=noise_amout,
+            generation_net=generation_net, recognition_net=recognition_net,
+            dataset=dataset, dataset_args=dataset_args
+        )
 
         print 'Saving'
-        np.savez(outfile,
-                 **dict((k, v.get_value()) for k, v in tparams.items()))
-        np.savez(last_outfile,
-                 **dict((k, v.get_value()) for k, v in tparams.items()))
+        np.savez(outfile, **d)
+        np.savez(last_outfile, **d)
         print 'Done saving.'
     print 'Bye bye!'
 
 def make_argument_parser():
     parser = argparse.ArgumentParser()
+    parser.add_argument('experiment', default=None)
     parser.add_argument('-o', '--out_path', default=None,
                         help='Output path for stuff')
     parser.add_argument('-l', '--load_last', action='store_true')
@@ -233,12 +353,17 @@ if __name__ == '__main__':
     parser = make_argument_parser()
     args = parser.parse_args()
 
-    out_path = args.out_path
+    exp_dict = load_experiment(path.abspath(args.experiment))
+    out_path = path.join(args.out_path, exp_dict['name'])
+
     if out_path is not None:
         if path.isfile(out_path):
             raise ValueError()
         elif not path.isdir(out_path):
             os.mkdir(path.abspath(out_path))
 
-    train_model(out_path=args.out_path, load_last=args.load_last,
-                model_to_load=args.load_model, save_images=args.save_images)
+    shutil.copy(path.abspath(args.experiment), path.abspath(out_path))
+
+    train_model(out_path=out_path, load_last=args.load_last,
+                model_to_load=args.load_model, save_images=args.save_images,
+                **exp_dict)
