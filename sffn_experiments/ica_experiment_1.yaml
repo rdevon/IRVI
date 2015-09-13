@@ -1,8 +1,8 @@
 {
   name: 'sbn_1',
-  dim_h: 300,
+  dim_h: 200,
   recognition_net: {
-    dim_h: 300,
+    dim_h: 200,
     h_act: 'T.nnet.softplus',
     n_layers: 2
   },
@@ -15,7 +15,7 @@
   optimizer: 'adam',
   batch_size: 100,
   inference_samples: 20,
-  n_inference_steps: 100,
+  n_inference_steps: 20,
   inference_decay: 0.99,
   inference_method: 'momentum',
   n_inference_steps_eval: 5,
