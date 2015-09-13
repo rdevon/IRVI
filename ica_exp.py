@@ -298,7 +298,8 @@ def train_model(
                             noise_amout=noise_amout,
                             generation_net=generation_net,
                             recognition_net=recognition_net,
-                            dataset=dataset, dataset_args=dataset_args
+                            dataset=dataset,
+                            dataset_args=dataset_args
                         )
 
                         np.savez(bestfile, **d)
