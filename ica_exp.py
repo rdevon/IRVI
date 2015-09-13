@@ -195,7 +195,7 @@ def train_model(
     tparams = sffn.set_tparams()
 
     print 'Getting cost'
-    (xs, ys, zs, h_energy, y_energy, i_energy), updates = sffn.inference(
+    (xs, ys, zs, prior_energy, h_energy, y_energy, i_energy), updates = sffn.inference(
         X, Y, n_samples=inference_samples)
 
     mu = T.nnet.sigmoid(zs)
@@ -213,12 +213,13 @@ def train_model(
     f_py_p = theano.function([], py_p)
 
     consider_constant = [xs, ys, zs]
-    cost = h_energy + y_energy
+    cost = prior_energy + h_energy + y_energy
 
-    extra_outs = [h_energy, y_energy, i_energy]
+    extra_outs = [prior_energy, h_energy, y_energy, i_energy]
     vis_outs = [pd_i, d_hat_i]
 
-    extra_outs_names = ['cost', 'h energy', 'train y energy', 'inference energy']
+    extra_outs_names = ['cost', 'prior_energy', 'h energy',
+                        'train y energy', 'inference energy']
     vis_outs_names = ['pds', 'd_hats']
 
     # Remove the parameters found in updates from the ones we will take

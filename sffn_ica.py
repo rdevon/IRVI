@@ -99,7 +99,9 @@ class SFFN(Layer):
         super(SFFN, self).__init__(name=name)
 
     def set_params(self):
-        self.params = OrderedDict()
+        prior = np.zeros((self.dim_h,)).astype(floatX)
+        self.params = OrderedDict(prior=prior)
+
         if self.cond_to_h is None:
             self.cond_to_h = MLP(self.dim_in, self.dim_h, self.dim_h, 1,
                                  rng=self.rng, trng=self.trng,
@@ -158,13 +160,15 @@ class SFFN(Layer):
         return x, y
 
     def get_params(self):
-        return self.cond_from_h.get_params()
+        params = [self.prior] + self.cond_from_h.get_params()
+        return params
 
     def p_y_given_h(self, h, *params):
+        params = params[1:]
         return self.cond_from_h.step_call(h, *params)
 
     def sample_from_prior(self, n_samples=100):
-        h = self.trng.binomial(p=0.5, size=(n_samples, self.dim_h), n=1,
+        h = self.trng.binomial(p=self.prior, size=(n_samples, self.dim_h), n=1,
                                dtype=floatX)
         py = self.cond_from_h(h)
         return py
@@ -180,12 +184,14 @@ class SFFN(Layer):
 
         py = self.cond_from_h(h)
 
+        prior_energy = (-mu * T.log(self.prior[None, :] + 1e-7)
+                        - (1 - mu) * T.log(1 - self.prior[None, :] + 1e-7)).sum(axis=1).mean()
         h_energy = self.cond_to_h.neg_log_prob(h, ph[None, :, :])
         h_energy = -log_mean_exp(-h_energy, axis=0).mean()
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
 
-        return (h_energy, y_energy)
+        return (prior_energy, h_energy, y_energy)
 
     def step_infer(self, *params):
         raise NotImplementedError()
@@ -200,10 +206,12 @@ class SFFN(Layer):
         raise NotImplementedError()
 
     def inference_cost(self, ph, y, z, *params):
+        prior = params[0]
         mu = T.nnet.sigmoid(z)
         py = self.p_y_given_h(mu, *params)
 
         cost = (self.cond_from_h.neg_log_prob(y, py)
+                + (- mu * T.log(prior + 1e-7) - (1 - mu) * T.log(1 - prior + 1e-7)).sum(axis=1)
                 - self.cond_to_h.entropy(mu)
                 ).sum(axis=0)
         grad = theano.grad(cost, wrt=z, consider_constant=[ph, y])
@@ -313,7 +321,7 @@ class SFFN(Layer):
         xs, ys = self.init_inputs(x, y, steps=self.n_inference_steps)
         ph = self.cond_to_h(xs)
         if z0 is None:
-            z0 = self.init_z(xs[0], ys[0])
+            z0 = T.log(ph[0] + 1e-7) - T.log(1 - ph[0] + 1e-7)
 
         seqs = [ph, ys]
         outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None]
@@ -339,11 +347,13 @@ class SFFN(Layer):
     def inference(self, x, y, z0=None, n_samples=100):
         n_inference_steps = self.n_inference_steps
 
-        (zs, i_costs, ph, xs, ys), updates = self.infer_q(x, y, n_inference_steps, z0=z0)
+        (zs, i_costs, ph, xs, ys), updates = self.infer_q(
+            x, y, n_inference_steps, z0=z0)
 
-        h_energy, y_energy = self.sample_energy(ph[0], ys[0], zs[-1],
-                                                n_samples=n_samples)
-        return (xs, ys, zs, h_energy, y_energy, i_costs[-1]), updates
+        prior_energy, h_energy, y_energy = self.sample_energy(
+            ph[0], ys[0], zs[-1], n_samples=n_samples)
+
+        return (xs, ys, zs, prior_energy, h_energy, y_energy, i_costs[-1]), updates
 
     def __call__(self, x, y, ph=None, n_samples=100, from_z=False,
                  n_inference_steps=0):
@@ -372,6 +382,7 @@ class SFFN(Layer):
         py = self.cond_from_h(h)
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
+
         return (py, y_energy), updates
 
 
