@@ -213,7 +213,7 @@ class SFFN(Layer):
         prior = T.clip(prior, 1e-7, 1.0 - 1e-7)
 
         cost = (self.cond_from_h.neg_log_prob(y, py)
-                + T.nnet.binary_crossentropy(prior, mu)
+                + T.nnet.binary_crossentropy(prior, mu).sum(axis=1)
                 - self.cond_to_h.entropy(mu)
                 ).sum(axis=0)
         grad = theano.grad(cost, wrt=z, consider_constant=[ph, y])
