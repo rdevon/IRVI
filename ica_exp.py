@@ -27,7 +27,6 @@ from tools import itemlist
 from tools import load_model
 from tools import load_experiment
 
-
 floatX = theano.config.floatX
 
 def concatenate_inputs(model, y, py):
@@ -256,7 +255,7 @@ def train_model(
                 x, _ = train.next()
             except StopIteration:
                 e += 1
-                print 'Epoch {epoch}'.format(epoch=epoch)
+                print 'Epoch {epoch}'.format(epoch=e)
                 continue
 
             if e > epochs:
