@@ -99,8 +99,8 @@ class SFFN(Layer):
         super(SFFN, self).__init__(name=name)
 
     def set_params(self):
-        prior = np.zeros((self.dim_h,)).astype(floatX)
-        self.params = OrderedDict(prior=prior)
+        z = np.zeros((self.dim_h,)).astype(floatX)
+        self.params = OrderedDict(z=z)
 
         if self.cond_to_h is None:
             self.cond_to_h = MLP(self.dim_in, self.dim_h, self.dim_h, 1,
@@ -160,7 +160,7 @@ class SFFN(Layer):
         return x, y
 
     def get_params(self):
-        params = [self.prior] + self.cond_from_h.get_params()
+        params = [self.z] + self.cond_from_h.get_params()
         return params
 
     def p_y_given_h(self, h, *params):
@@ -168,7 +168,7 @@ class SFFN(Layer):
         return self.cond_from_h.step_call(h, *params)
 
     def sample_from_prior(self, n_samples=100):
-        h = self.trng.binomial(p=self.prior, size=(n_samples, self.dim_h), n=1,
+        h = self.trng.binomial(p=T.nnet.sigmoid(self.z), size=(n_samples, self.dim_h), n=1,
                                dtype=floatX)
         py = self.cond_from_h(h)
         return py
@@ -184,8 +184,10 @@ class SFFN(Layer):
 
         py = self.cond_from_h(h)
 
-        prior_energy = (-mu * T.log(self.prior[None, :] + 1e-7)
-                        - (1 - mu) * T.log(1 - self.prior[None, :] + 1e-7)).sum(axis=1).mean()
+        prior = T.nnet.sigmoid(self.z)
+
+        prior_energy = -(mu * T.log(prior[None, :] + 1e-7)
+                        + (1 - mu) * T.log(1 - prior[None, :] + 1e-7)).sum(axis=1).mean()
         h_energy = self.cond_to_h.neg_log_prob(h, ph[None, :, :])
         h_energy = -log_mean_exp(-h_energy, axis=0).mean()
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
@@ -206,7 +208,7 @@ class SFFN(Layer):
         raise NotImplementedError()
 
     def inference_cost(self, ph, y, z, *params):
-        prior = params[0]
+        prior = T.nnet.sigmoid(params[0])
         mu = T.nnet.sigmoid(z)
         py = self.p_y_given_h(mu, *params)
 
@@ -323,7 +325,8 @@ class SFFN(Layer):
         xs, ys = self.init_inputs(x, y, steps=self.n_inference_steps)
         ph = self.cond_to_h(xs)
         if z0 is None:
-            z0 = T.log(ph[0] + 1e-7) - T.log(1 - ph[0] + 1e-7)
+            z0 = self.init_z(x, y)
+            #z0 = T.log(ph[0] + 1e-7) - T.log(1 - ph[0] + 1e-7)
 
         seqs = [ph, ys]
         outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None]
