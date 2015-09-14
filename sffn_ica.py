@@ -361,7 +361,7 @@ class SFFN(Layer):
         return (xs, ys, zs, prior_energy, h_energy, y_energy, i_costs[-1]), updates
 
     def __call__(self, x, y, ph=None, n_samples=100, from_z=False,
-                 n_inference_steps=0):
+                 n_inference_steps=0, end_with_inference=True):
 
         updates = theano.OrderedUpdates()
 
@@ -377,7 +377,7 @@ class SFFN(Layer):
         else:
             ph = self.cond_to_h(x)
 
-        if n_inference_steps > 0:
+        if end_with_inference:
             z0 = T.log(ph + 1e-7) - T.log(1 - ph + 1e-7)
             (zs, _, _, _, _), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
             updates.update(updates_i)
