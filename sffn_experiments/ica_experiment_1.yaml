@@ -15,7 +15,7 @@
   optimizer: 'adam',
   batch_size: 100,
   inference_samples: 20,
-  n_inference_steps: 20,
+  n_inference_steps: 100,
   inference_decay: 0.99,
   inference_method: 'momentum',
   n_inference_steps_eval: 5,
