@@ -27,7 +27,6 @@ from tools import itemlist
 from tools import load_model
 from tools import load_experiment
 
-
 floatX = theano.config.floatX
 
 def lower_bound_curve(
