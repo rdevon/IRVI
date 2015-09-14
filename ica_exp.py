@@ -30,6 +30,58 @@ from tools import load_experiment
 
 floatX = theano.config.floatX
 
+def lower_bound_curve(
+    model_file, rs=None, n_samples=10000,
+    inference_method='momentum',
+    inference_rate=.01, n_inference_steps=100,
+    inference_decay=1.0, inference_samples=20
+    ):
+
+    models, kwargs = load_model(model_file, unpack, inference_rate=inference_rate,
+                               n_inference_steps=n_inference_steps,
+                               inference_decay=inference_decay,
+                               inference_method=inference_method)
+    dataset_args = kwargs['dataset_args']
+    dataset = kwargs['dataset']
+
+    if dataset == 'mnist':
+        test = mnist_iterator(batch_size=n_samples, mode='test', **dataset_args)
+    else:
+        raise ValueError()
+
+    sffn = models['sffn']
+    sffn.set_tparams()
+
+    if rs is None:
+        rs = range(5, 100, 5)
+
+    x_t, _ = test.next()
+
+    X = T.matrix('x', dtype=floatX)
+    Y = T.matrix('y', dtype=floatX)
+
+    (py_s, y_energy_s), updates_s = sffn(X, Y, from_z=False,
+                                         end_with_inference=False)
+
+    f_ll = theano.function([X, Y], y_energy_s)
+
+    lls = [f_ll(x_t, x_t)]
+
+    R = T.scalar('r', dtype='int64')
+
+    (py_s, y_energy_s), updates_s = sffn(X, Y, from_z=False,
+                                         n_inference_steps=R)
+
+    f_ll = theano.function([X, Y, R], y_energy_s)
+
+    for r in rs:
+        print 'number of inference steps: %d' % r
+        ll = f_ll(x_t, x_t, r)
+        lls.append(ll)
+        print 'lower bound %.2f' % ll
+
+    return lls
+
 def concatenate_inputs(model, y, py):
     '''
     Function to concatenate ground truth to samples and probabilities.
@@ -63,6 +115,7 @@ def unpack(dim_h=None,
     Function to unpack pretrained model into fresh SFFN class.
     '''
 
+    dim_h = int(dim_h)
     dataset_args = dataset_args[()]
 
     if dataset == 'mnist':
@@ -121,7 +174,7 @@ def train_model(
     n_inference_steps_eval=0,
     z_init='recognition_net',
     dataset=None, dataset_args=None,
-    model_save_freq=100, show_freq=10
+    model_save_freq=10, show_freq=10
     ):
 
     print 'Dataset args: %s' % pprint.pformat(dataset_args)
@@ -129,8 +182,8 @@ def train_model(
     print 'Setting up data'
     if dataset == 'mnist':
         train = mnist_iterator(batch_size=batch_size, mode='train', **dataset_args)
-        valid = mnist_iterator(batch_size=batch_size, mode='valid', **dataset_args)
-        test = mnist_iterator(batch_size=2000, mode='test', **dataset_args)
+        valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, **dataset_args)
+        test = mnist_iterator(batch_size=2000, mode='test', inf=True, **dataset_args)
     else:
         raise ValueError()
 
@@ -256,7 +309,7 @@ def train_model(
                 x, _ = train.next()
             except StopIteration:
                 e += 1
-                print 'Epoch {epoch}'.format(epoch=epoch)
+                print 'Epoch {epoch}'.format(epoch=e)
                 continue
 
             if e > epochs:
