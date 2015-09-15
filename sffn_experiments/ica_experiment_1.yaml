@@ -1,16 +1,17 @@
 {
-  name: 'sbn_1',
+  name: 'sbn_2',
   dim_h: 200,
   recognition_net: {
-    dim_h: 200,
+    dim_h: 300,
     h_act: 'T.nnet.softplus',
-    n_layers: 2
+    n_layers: 3
   },
   generation_net: {
     dim_h: 300,
     h_act: 'T.nnet.softplus',
-    n_layers: 2
+    n_layers: 3
   },
+  z_init: 'recognition_net',
   learning_rate: 0.1,
   optimizer: 'adam',
   batch_size: 100,
@@ -18,7 +19,7 @@
   n_inference_steps: 100,
   inference_decay: 0.99,
   inference_method: 'momentum',
-  n_inference_steps_eval: 5,
+  n_inference_steps_eval: 20,
   source: '/Users/devon/Data/mnist.pkl.gz',
   dataset: 'mnist',
   dataset_args: {
