@@ -180,7 +180,7 @@ def train_model(
 
     print 'Setting up data'
     if dataset == 'mnist':
-        train = mnist_iterator(batch_size=batch_size, mode='train', **dataset_args)
+        train = mnist_iterator(batch_size=batch_size, mode='train', inf=False, **dataset_args)
         valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, **dataset_args)
         test = mnist_iterator(batch_size=2000, mode='test', inf=True, **dataset_args)
     else:
@@ -319,7 +319,10 @@ def train_model(
                 return
 
             if s % show_freq == 0:
-                d_v, _ = valid.next()
+                try:
+                    d_v, _ = valid.next()
+                except StopIteration:
+                    d_v, _ = valid.next()
                 x_v, y_v = d_v, d_v
 
                 ye_v, pd_v, d_hat_v = f_d_hat(x_v, y_v)

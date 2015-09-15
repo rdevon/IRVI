@@ -325,8 +325,11 @@ class SFFN(Layer):
         xs, ys = self.init_inputs(x, y, steps=self.n_inference_steps)
         ph = self.cond_to_h(xs)
         if z0 is None:
-            z0 = self.init_z(x, y)
-            #z0 = T.log(ph[0] + 1e-7) - T.log(1 - ph[0] + 1e-7)
+            if self.z_init == 'recognition_net':
+                print 'Starting z0 at recognition net'
+                z0 = T.log(ph[0] + 1e-7) - T.log(1 - ph[0] + 1e-7)
+            else:
+                z0 = self.init_z(x, y)
 
         seqs = [ph, ys]
         outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None]
