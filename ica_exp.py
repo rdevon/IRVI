@@ -297,7 +297,19 @@ def train_model(
 
     best_cost = float('inf')
     if out_path is not None:
-        bestfile = path.join(out_path, 'sffn_best.npz')
+        bestfile = path.join(out_path, '{name}_best.npz'.format(name=name))
+
+    def save(tparams, outfile):
+        d = dict((k, v.get_value()) for k, v in tparams.items())
+
+        d.update(
+            dim_h=dim_h,
+            x_noise_mode=x_noise_mode, y_noise_mode=y_noise_mode,
+            noise_amout=noise_amout,
+            generation_net=generation_net, recognition_net=recognition_net,
+            dataset=dataset, dataset_args=dataset_args
+        )
+        np.savez(outfile, **d)
 
     try:
         t0 = time.time()
@@ -344,20 +356,7 @@ def train_model(
                 if ye_v < best_cost:
                     best_cost = ye_v
                     if out_path is not None:
-                        d = dict((k, v.get_value()) for k, v in tparams.items())
-
-                        d.update(
-                            dim_h=dim_h,
-                            x_noise_mode=x_noise_mode,
-                            y_noise_mode=y_noise_mode,
-                            noise_amout=noise_amout,
-                            generation_net=generation_net,
-                            recognition_net=recognition_net,
-                            dataset=dataset,
-                            dataset_args=dataset_args
-                        )
-
-                        np.savez(bestfile, **d)
+                        save(tparams, bestfile)
 
                 monitor.display(e, s)
 
@@ -407,19 +406,9 @@ def train_model(
         outfile = path.join(out_path, '{name}_{t}.npz'.format(name=name, t=int(time.time())))
         last_outfile = path.join(out_path, '{name}_last.npz'.format(name=name))
 
-        d = dict((k, v.get_value()) for k, v in tparams.items())
-
-        d.update(
-            dim_h=dim_h,
-            x_noise_mode=x_noise_mode, y_noise_mode=y_noise_mode,
-            noise_amout=noise_amout,
-            generation_net=generation_net, recognition_net=recognition_net,
-            dataset=dataset, dataset_args=dataset_args
-        )
-
         print 'Saving'
-        np.savez(outfile, **d)
-        np.savez(last_outfile, **d)
+        save(tparams, outfile)
+        save(tparams, last_outfile)
         print 'Done saving.'
     print 'Bye bye!'
 
