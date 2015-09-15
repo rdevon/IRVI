@@ -188,8 +188,7 @@ class SFFN(Layer):
 
         prior_energy = -(mu * T.log(prior[None, :] + 1e-7)
                         + (1 - mu) * T.log(1 - prior[None, :] + 1e-7)).sum(axis=1).mean()
-        h_energy = self.cond_to_h.neg_log_prob(h, ph[None, :, :])
-        h_energy = -log_mean_exp(-h_energy, axis=0).mean()
+        h_energy = self.cond_to_h.neg_log_prob(mu, ph).mean()
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
 
