@@ -232,15 +232,30 @@ $q_{\TT,}(h|x)$.}
 network, and $\TT$ is that of the recognition network.
 
 Since the approximate inference has been computed, it is rather straightforward
-based on Eq.~\eqref{eq:approx_logp}:
-\begin{align}
-    \label{eq:e_step}
-    \argmax_{\Psi} \frac{1}{N} \sum_{h^n} \log p_{\Psi}(x| h^n) + \log p_{\Psi}(h^n),
-\end{align}
+to compute the gradient of Eq.~\eqref{eq:approx_logp}:
+\begin{align*}
+    &\nabla_{\Psi} \sum_h \tilde{q}(h|x) \log p_{\Psi}(x,h) \\
+    \approx&
+    \frac{1}{N} \sum_{h^n} \nabla \log p_{\Psi}(x,h^n) 
+    + \log p_{\Psi}(x,h^n) \nabla \log \tilde{q}(h^n|x) 
+\end{align*}
 where $h^n$ is the sample from the Bernoulli distribution with the parameters
 $\mu^{h,*}_1, \mu^{h,*}_2, \ldots, \mu^{h,*}_K$ obtained from the E-step.
+Because $\tilde{q}$ is fixed at this point, this becomes
+\begin{align}
+    \label{eq:m_step}
+    \frac{1}{N} \sum_{h^n} \nabla \log p_{\Psi}(x,h^n) 
+\end{align}
 
-Along with Eq.~\eqref{eq:e_step}, we minimize Eq.~\eqref{eq:c_q} together.
+Together with Eq.~\eqref{eq:m_step}, we minimize Eq.~\eqref{eq:c_q} together. This
+results in the final cost function of
+\begin{align*}
+    \underbrace{\frac{1}{N} \sum_{h^n} \log p_{\Psi}(x,h^n)}_{\text{Eq.~}\eqref{eq:m_step}} + 
+    \underbrace{\sum_{k=1}^K q_{\TT,k}(h|x) \log \mu^{h,*}_k + 
+    (1 - q_{\TT,k}(h|x)) \log (1 - \mu^{h,*}_k)}_{\text{Eq.~}\eqref{eq:c_q}}.
+\end{align*}
+
+
 
 
 
