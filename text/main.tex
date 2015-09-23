@@ -1,0 +1,265 @@
+\documentclass{article}
+\usepackage{mathptmx}
+\usepackage{url,latexsym,amsmath,amsthm,xspace,rotating,multirow,multicol,xspace,amssymb,paralist}
+\usepackage{euscript}
+\usepackage{fancybox,xcolor}
+\usepackage{longtable}
+\usepackage{paralist}
+\usepackage[normalem]{ulem}
+\usepackage[pdftex]{hyperref}
+
+\usepackage{url}
+\usepackage{latexsym}
+
+\usepackage{times}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{xspace}
+\usepackage{tabularx}
+\usepackage{multicol}
+\usepackage{multirow}
+%\usepackage{hyperref}
+\usepackage{url}
+%\usepackage{natbib}
+\usepackage{wrapfig}
+\usepackage{comment}
+\usepackage{listings}
+\usepackage{color}
+\usepackage[utf8]{inputenc}
+\usepackage{fancyvrb}
+\usepackage{booktabs}
+\usepackage{color}
+\usepackage[normalem]{ulem}
+
+\newcommand{\obs}{\text{obs}}
+\newcommand{\mis}{\text{mis}}
+
+\newcommand{\qt}[1]{\left<#1\right>}
+\newcommand{\ql}[1]{\left[#1\right]}
+\newcommand{\hess}{\mathbf{H}}
+\newcommand{\jacob}{\mathbf{J}}
+\newcommand{\hl}{HL}
+\newcommand{\cost}{\mathcal{L}}
+\newcommand{\lout}{\mathbf{r}}
+\newcommand{\louti}{r}
+\newcommand{\outi}{y}
+\newcommand{\out}{\mathbf{y}}
+\newcommand{\gauss}{\mathbf{G_N}}
+\newcommand{\eye}{\mathbf{I}}
+\newcommand{\softmax}{\phi}
+\newcommand{\targ}{\mathbf{t}}
+\newcommand{\metric}{\mathbf{G}}
+\newcommand{\sample}{\mathbf{z}}
+\newcommand{\f}{\text{f}}
+%\newcommand{\log}{\text{log}}
+
+\newcommand{\bmx}[0]{\begin{bmatrix}}
+\newcommand{\emx}[0]{\end{bmatrix}}
+\newcommand{\qexp}[1]{\left<#1\right>}
+\newcommand{\vect}[1]{\mathbf{#1}}
+\newcommand{\vects}[1]{\boldsymbol{#1}}
+\newcommand{\matr}[1]{\mathbf{#1}}
+\newcommand{\var}[0]{\operatorname{Var}}
+\newcommand{\std}[0]{\operatorname{std}}
+\newcommand{\cov}[0]{\operatorname{Cov}}
+\newcommand{\diag}[0]{\operatorname{diag}}
+\newcommand{\matrs}[1]{\boldsymbol{#1}}
+\newcommand{\va}[0]{\vect{a}}
+\newcommand{\vb}[0]{\vect{b}}
+\newcommand{\vc}[0]{\vect{c}}
+\newcommand{\ve}[0]{\vect{e}}
+
+\newcommand{\vh}[0]{\vect{h}}
+\newcommand{\vv}[0]{\vect{v}}
+\newcommand{\vx}[0]{\vect{x}}
+\newcommand{\vz}[0]{\vect{z}}
+\newcommand{\vw}[0]{\vect{w}}
+\newcommand{\vs}[0]{\vect{s}}
+\newcommand{\vf}[0]{\vect{f}}
+\newcommand{\vi}[0]{\vect{i}}
+\newcommand{\vo}[0]{\vect{o}}
+\newcommand{\vy}[0]{\vect{y}}
+\newcommand{\vg}[0]{\vect{g}}
+\newcommand{\vm}[0]{\vect{m}}
+\newcommand{\vu}[0]{\vect{u}}
+\newcommand{\vL}[0]{\vect{L}}
+\newcommand{\vr}[0]{\vect{r}}
+\newcommand{\vone}[0]{\vect{1}}
+\newcommand{\mW}[0]{\matr{W}}
+
+\newcommand{\mE}[0]{\matr{E}}
+\newcommand{\mG}[0]{\matr{G}}
+\newcommand{\mX}[0]{\matr{X}}
+\newcommand{\mY}[0]{\matr{Y}}
+\newcommand{\mQ}[0]{\matr{Q}}
+\newcommand{\mU}[0]{\matr{U}}
+\newcommand{\mF}[0]{\matr{F}}
+\newcommand{\mV}[0]{\matr{V}}
+\newcommand{\mA}{\matr{A}}
+\newcommand{\mC}{\matr{C}}
+\newcommand{\mD}{\matr{D}}
+\newcommand{\mS}{\matr{S}}
+\newcommand{\mI}{\matr{I}}
+\newcommand{\td}[0]{\text{d}}
+\newcommand{\TT}[0]{\vects{\theta}}
+\newcommand{\vsig}[0]{\vects{\sigma}}
+\newcommand{\valpha}[0]{\vects{\alpha}}
+\newcommand{\vmu}[0]{\vects{\mu}}
+\newcommand{\vzero}[0]{\vect{0}}
+\newcommand{\tf}[0]{\text{m}}
+\newcommand{\tdf}[0]{\text{dm}}
+\newcommand{\grad}[0]{\nabla}
+\newcommand{\alert}[1]{\textcolor{red}{#1}}
+\newcommand{\N}[0]{\mathcal{N}}
+\newcommand{\LL}[0]{\mathcal{L}}
+\newcommand{\HH}[0]{\mathcal{H}}
+\newcommand{\RR}[0]{\mathbb{R}}
+\newcommand{\MM}[0]{\mathcal{M}}
+\newcommand{\OO}[0]{\mathbb{O}}
+\newcommand{\II}[0]{\mathbb{I}}
+\newcommand{\Scal}[0]{\mathcal{S}}
+\newcommand{\sigmoid}{\sigma}
+\newcommand{\E}[0]{\mathbb{E}}
+\newcommand{\enabla}[0]{\ensuremath{%
+    \overset{\raisebox{-0.3ex}[0.5ex][0ex]{%
+    \ensuremath{\scriptscriptstyle e}}}{\nabla}}}
+\newcommand{\enhnabla}[0]{\nabla_{\hspace{-0.5mm}e}\,}
+
+
+\newcommand{\todo}[1]{{\Large\textcolor{red}{#1}}}
+\newcommand{\done}[1]{{\Large\textcolor{green}{#1}}}
+\newcommand{\dd}[1]{\ensuremath{\mbox{d}#1}}
+
+\DeclareMathOperator*{\argmax}{\arg \max}
+\DeclareMathOperator*{\argmin}{\arg \min}
+\newcommand{\newln}{\\&\quad\quad{}}
+
+\newcommand{\KL}{\text{KL}}
+\newcommand{\data}{\text{data}}
+\newcommand{\rect}{\text{rect}}
+\newcommand{\train}{\text{train}}
+\newcommand{\val}{\text{val}}
+\newcommand{\test}{\text{test}}
+\newcommand{\Ax}{\mathcal{A}_x}
+\newcommand{\Ay}{\mathcal{A}_y}
+\newcommand{\ola}{\overleftarrow}
+\newcommand{\ora}{\overrightarrow}
+\newcommand{\ov}{\overline}
+\newcommand{\ts}{\rule{0pt}{2.6ex}}       % Top strut
+\newcommand{\ms}{\rule{0pt}{0ex}}         % Middle strut
+\newcommand{\bs}{\rule[-1.2ex]{0pt}{0pt}} % Bottom strut
+\newcommand{\specialcell}[2][c]{%
+  \begin{tabular}[#1]{@{}c@{}}#2\end{tabular}}
+
+
+%\usepackage{bibentry}
+%\nobibliography*
+
+\begin{document}
+
+\title{Gradient-based Inference for Refining the Approximate Inference in
+Variational Autoencoder with Discrete Latent Variables}
+\author{}
+
+\maketitle
+\pagenumbering{arabic}
+
+\section{Main}
+
+Let us define the joint log-probability of $x$ and $h$ as
+\begin{align}
+    \label{eq:log_joint}
+    \log p(x, h) =& \log p(h) + \log p(x|h) \\
+    =& 
+    \sum_{k=1}^K (h_k \log \mu^h_k + (1 - h_k) \log (1 - \mu^h_k))
+    + \sum_{d=1}^D (x_d \log \mu^x_d + (1 - x_d) \log (1 - \mu^x_d)),
+\end{align}
+where $\mu^h$ is a parameter for the prior distribution, and $\mu^x = f(h)$. Let
+us use $\Psi$ to denote $\mu^h$ as well as the parameters of $f$.
+
+The objective in this case is to maximize the log probability of the marginal
+probability of $x$:
+\begin{align}
+    \label{eq:approx_logp}
+    \log p(x) =& \log \sum_{h} p(x, h) \nonumber \\
+    =& \log \sum_h \tilde{q}(h|x) \frac{p(x, h)}{\tilde{q}(h|x)} \nonumber \\
+    \geq& \sum_h \tilde{q}(h|x) \log \frac{p(x, h)}{\tilde{q}(h|x)} \nonumber \\
+    =& \sum_h \tilde{q}(h|x) \log p(x,h) + \HH(\tilde{q}) \nonumber \\
+    \approx& \frac{1}{N} \sum_{h^n} \log p(x, h^n) - \log
+    q(h^n),
+\end{align}
+where $\HH(q)$ is the entropy of the approximate posterior $q$.
+
+\subsection{E Step: Approximately Inferring $p(h|x)$}
+
+Approximately inferring $p(h|x)$ is equivalent to 
+\begin{align*}
+    &\argmax_{q}  \sum_h \tilde{q}(h|x) \log p(x,h) + \HH(\tilde{q}) \\
+    =& \argmax_{\mu^h_1, \ldots, \mu^h_K} \sum_h \tilde{q}(h|x) \log p(x,h) + \HH(\tilde{q}),
+\end{align*}
+where $\mu^h_k$'s are from Eq.~\eqref{eq:log_joint}.
+
+The issue here is that we need to {\em sample} $h$'s from $\tilde{q}(h|x)$,
+which results in a high-variance, computationally-expensive estimate. Instead,
+here we approximate it such that
+\begin{align}
+    \label{eq:grad_inf}
+    \argmax_{\mu^h_1, \ldots, \mu^h_K} 
+    \log p(x,\mu^h) + \HH(\tilde{q}),
+\end{align}
+which is equivalent to approximate $f(h)$ with $f(\mu^h)$. {\color{red} This is equivalent to
+maximizing the lowebound of Eq.~\eqref{eq:approx_logp} (Need to check further)}.
+
+Because there is a chance that this optimization may be non-convex, we
+initialize the optimization from a point $\mu^{h,0}$ given by a parametric
+function $q_{\TT}(h|x)$. In order to make sure that the initial point is close
+to the optimum, later in the M step, we add the following auxiliary cost
+function:
+\begin{align}
+    \label{eq:c_q}
+    C_q(\TT) = \sum_{k=1}^K q_{\TT,k}(h|x) \log \mu^{h,*}_k + 
+    (1 - q_{\TT,k}(h|x)) \log (1 - \mu^{h,*}_k),
+\end{align}
+where $\mu^{h,*}$ is the solution found by Eq.~\eqref{eq:grad_inf}. {\color{red}
+    Need to check if the order is correct between $\mu^{h,*}$ and
+$q_{\TT,}(h|x)$.}
+
+\subsection{M Step: Estimating the Parameters $\Psi$ and $\TT$}
+
+{\em Just to recap}: $\Psi$ is a set of the parameters of the generation
+network, and $\TT$ is that of the recognition network.
+
+Since the approximate inference has been computed, it is rather straightforward
+based on Eq.~\eqref{eq:approx_logp}:
+\begin{align}
+    \label{eq:e_step}
+    \argmax_{\Psi} \frac{1}{N} \sum_{h^n} \log p_{\Psi}(x| h^n) + \log p_{\Psi}(h^n),
+\end{align}
+where $h^n$ is the sample from the Bernoulli distribution with the parameters
+$\mu^{h,*}_1, \mu^{h,*}_2, \ldots, \mu^{h,*}_K$ obtained from the E-step.
+
+Along with Eq.~\eqref{eq:e_step}, we minimize Eq.~\eqref{eq:c_q} together.
+
+
+
+
+
+
+
+
+
+
+
+%\bibliographystyle{abbrv}
+%\bibliography{lecture_note}
+
+
+\end{document}
+
+
+
+
+
+
