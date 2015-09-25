@@ -173,11 +173,11 @@ Let us define the joint log-probability of $x$ and $h$ as
     \label{eq:log_joint}
     \log p(x, h) =& \log p(h) + \log p(x|h) \\
     =& 
-    \sum_{k=1}^K (h_k \log \mu^h_k + (1 - h_k) \log (1 - \mu^h_k))
+    \sum_{k=1}^K (h_k \log \alpha^h_k + (1 - h_k) \log (1 - \alpha^h_k))
     + \sum_{d=1}^D (x_d \log \mu^x_d + (1 - x_d) \log (1 - \mu^x_d)),
 \end{align}
-where $\mu^h$ is a parameter for the prior distribution, and $\mu^x = f(h)$. Let
-us use $\Psi$ to denote $\mu^h$ as well as the parameters of $f$.
+where $\alpha^h$ is a parameter for the prior distribution, and $\mu^x = f(h)$. Let
+us use $\Psi$ to denote $\alpha^h$ as well as the parameters of $f$.
 
 The objective in this case is to maximize the log probability of the marginal
 probability of $x$:
@@ -188,9 +188,9 @@ probability of $x$:
     \geq& \sum_h \tilde{q}(h|x) \log \frac{p(x, h)}{\tilde{q}(h|x)} \nonumber \\
     =& \sum_h \tilde{q}(h|x) \log p(x,h) + \HH(\tilde{q}) \nonumber \\
     \approx& \frac{1}{N} \sum_{h^n} \log p(x, h^n) - \log
-    q(h^n),
+    \tilde{q}(h^n),
 \end{align}
-where $\HH(q)$ is the entropy of the approximate posterior $q$.
+where $\HH(\tilde{q})$ is the entropy of the approximate posterior $q$.
 
 \subsection{E Step: Approximately Inferring $p(h|x)$}
 
@@ -219,8 +219,8 @@ to the optimum, later in the M step, we add the following auxiliary cost
 function:
 \begin{align}
     \label{eq:c_q}
-    C_q(\TT) = \sum_{k=1}^K q_{\TT,k}(h|x) \log \mu^{h,*}_k + 
-    (1 - q_{\TT,k}(h|x)) \log (1 - \mu^{h,*}_k),
+    C_q(\TT) = \sum_{k=1}^K \mu^{h,*}_k\log q_{\TT,k}(h|x) + 
+    (1 - \mu^{h,*}_k)\log (1 - q_{\TT,k}(h|x)),
 \end{align}
 where $\mu^{h,*}$ is the solution found by Eq.~\eqref{eq:grad_inf}. {\color{red}
     Need to check if the order is correct between $\mu^{h,*}$ and
@@ -251,8 +251,8 @@ Together with Eq.~\eqref{eq:m_step}, we minimize Eq.~\eqref{eq:c_q} together. Th
 results in the final cost function of
 \begin{align*}
     \underbrace{\frac{1}{N} \sum_{h^n} \log p_{\Psi}(x,h^n)}_{\text{Eq.~}\eqref{eq:m_step}} + 
-    \underbrace{\sum_{k=1}^K q_{\TT,k}(h|x) \log \mu^{h,*}_k + 
-    (1 - q_{\TT,k}(h|x)) \log (1 - \mu^{h,*}_k)}_{\text{Eq.~}\eqref{eq:c_q}}.
+    \underbrace{\sum_{k=1}^K \mu^{h,*}_k\log q_{\TT,k}(h|x) + 
+    (1 - \mu^{h,*}_k)\log (1 - q_{\TT,k}(h|x))}_{\text{Eq.~}\eqref{eq:c_q}}.
 \end{align*}
 
 
