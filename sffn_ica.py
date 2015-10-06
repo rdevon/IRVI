@@ -173,24 +173,21 @@ class SFFN(Layer):
         py = self.cond_from_h(h)
         return py
 
-    def sample_energy(self, ph, y, z, n_samples=10):
+    def m_step(self, ph, y, z, n_samples=10):
         mu = T.nnet.sigmoid(z)
 
         if n_samples == 0:
             h = mu
         else:
-            h = self.cond_to_h.sample(mu, size=(n_samples,
-                                                mu.shape[0], mu.shape[1]))
+            h = self.cond_to_h.sample(
+                mu, size=(n_samples, mu.shape[0], mu.shape[1]))
 
         py = self.cond_from_h(h)
 
         prior = T.nnet.sigmoid(self.z)
-
-        prior_energy = -(mu * T.log(prior[None, :] + 1e-7)
-                        + (1 - mu) * T.log(1 - prior[None, :] + 1e-7)).sum(axis=1).mean()
+        prior_energy = self.cond_to_h.neg_log_prob(mu, prior[None, :]).mean()
         h_energy = self.cond_to_h.neg_log_prob(mu, ph).mean()
-        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
-        y_energy = -log_mean_exp(-y_energy, axis=0).mean()
+        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean()
 
         return (prior_energy, h_energy, y_energy)
 
@@ -206,15 +203,13 @@ class SFFN(Layer):
     def params_infer(self):
         raise NotImplementedError()
 
-    def inference_cost(self, ph, y, z, *params):
+    def e_step(self, ph, y, z, *params):
         prior = T.nnet.sigmoid(params[0])
         mu = T.nnet.sigmoid(z)
         py = self.p_y_given_h(mu, *params)
 
-        prior = T.clip(prior, 1e-7, 1.0 - 1e-7)
-
         cost = (self.cond_from_h.neg_log_prob(y, py)
-                + T.nnet.binary_crossentropy(prior, mu).sum(axis=1)
+                + self.cond_to_h.neg_log_prob(mu, prior)
                 - self.cond_to_h.entropy(mu)
                 ).sum(axis=0)
         grad = theano.grad(cost, wrt=z, consider_constant=[ph, y])
@@ -222,7 +217,7 @@ class SFFN(Layer):
 
     # SGD
     def _step_sgd(self, ph, y, z, l, *params):
-        cost, grad = self.inference_cost(ph, y, z, *params)
+        cost, grad = self.e_step(ph, y, z, *params)
         z = (z - l * grad).astype(floatX)
         l *= self.inference_decay
         return z, l, cost
@@ -239,7 +234,7 @@ class SFFN(Layer):
 
     # Momentum
     def _step_momentum(self, ph, y, z, l, dz_, m, *params):
-        cost, grad = self.inference_cost(ph, y, z, *params)
+        cost, grad = self.e_step(ph, y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
         l *= self.inference_decay
@@ -259,7 +254,7 @@ class SFFN(Layer):
     def _step_adam(self, ph, y, z, m_tm1, v_tm1, cnt, b1, b2, lr, *params):
 
         b1 = b1 * (1 - 1e-8)**cnt
-        cost, grad = self.inference_cost(ph, y, z, *params)
+        cost, grad = self.e_step(ph, y, z, *params)
         m_t = b1 * m_tm1 + (1 - b1) * grad
         v_t = b2 * v_tm1 + (1 - b2) * grad**2
         m_t_hat = m_t / (1. - b1**(cnt + 1))
@@ -293,7 +288,7 @@ class SFFN(Layer):
 
     # Conjugate gradient with log-grid line search
     def _step_cg(self, ph, y, z, s_, dz_sq_, alphas, *params):
-        cost, grad = self.inference_cost(ph, y, z, *params)
+        cost, grad = self.e_step(ph, y, z, *params)
         dz = -grad
         dz_sq = (dz * dz).sum(axis=1)
         beta = dz_sq / (dz_sq_ + 1e-8)
@@ -357,7 +352,7 @@ class SFFN(Layer):
         (zs, i_costs, ph, xs, ys), updates = self.infer_q(
             x, y, n_inference_steps, z0=z0)
 
-        prior_energy, h_energy, y_energy = self.sample_energy(
+        prior_energy, h_energy, y_energy = self.m_step(
             ph[0], ys[0], zs[-1], n_samples=n_samples)
 
         return (xs, ys, zs, prior_energy, h_energy, y_energy, i_costs[-1]), updates
@@ -387,280 +382,7 @@ class SFFN(Layer):
 
         h = self.cond_to_h.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
         py = self.cond_from_h(h)
-        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)
+        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)#.mean()
         y_energy = -log_mean_exp(-y_energy, axis=0).mean()
 
         return (py, y_energy), updates
-
-
-class SFFN_MultiLayer(Layer):
-    def __init__(self, dim_in, dim_h, dim_out, n_layers,
-                 layers=None,
-                 x_noise_mode=None, y_noise_mode=None, noise_amount=0.1,
-                 inference_procedure=None,  inference_parameters=False,
-                 name='sffn',
-                 **kwargs):
-
-        self.dim_in = dim_in
-        self.dim_h = dim_h
-        self.dim_out = dim_out
-        self.n_layers = n_layers
-        assert inference_procedure is not None
-        inference_procedure.model = self
-        self.procedure = inference_procedure
-        self.inference_parameters = inference_parameters
-
-        assert n_layers > 1, 'Hwhat???'
-
-        self.layers = layers
-
-        self.x_mode = x_noise_mode
-        self.y_mode = y_noise_mode
-        self.noise_amount = noise_amount
-
-        kwargs = init_weights(self, **kwargs)
-        kwargs = init_rngs(self, **kwargs)
-
-        assert len(kwargs) == 0, kwargs.keys()
-        super(SFFN_MultiLayer, self).__init__(name=name)
-
-    def set_params(self):
-        self.params = OrderedDict()
-        if self.layers is None:
-            self.layers = [None for _ in xrange(self.n_layers)]
-        else:
-            assert self.n_layers == len(layers)
-
-        for i in xrange(self.n_layers):
-            if i == 0:
-                dim_in = self.dim_in
-                dim_out = self.dim_h
-            elif i == self.n_layers - 1:
-                dim_in = self.dim_h
-                dim_out = self.dim_out
-            else:
-                dim_in = self.dim_h
-                dim_out = self.dim_h
-
-            layer = self.layers[i]
-            if layer is None:
-                self.layers[i] = MLP(dim_in, self.dim_h, dim_out, 1,
-                                     rng=self.rng, trng=self.trng,
-                                     h_act='T.nnet.sigmoid',
-                                     out_act='T.nnet.sigmoid',
-                                     name='layer_%d' % i)
-            else:
-                assert layer.dim_in == dim_in
-                assert layer.dim_out == dim_out
-                layer.name = 'layer_%d' % i
-
-        if self.inference_parameters:
-            for i in xrange(self.n_layers - 1):
-                if i == 0:
-                    dim_in = self.dim_in
-                else:
-                    dim_in = self.dim_h
-
-                W = tools.norm_weight(dim_in, self.dim_h,
-                                      scale=self.weight_scale, ortho=False)
-                self.params['WI_%d' % i] = W
-
-    def set_tparams(self):
-        tparams = super(SFFN_MultiLayer, self).set_tparams()
-        for layer in self.layers:
-            tparams.update(**layer.set_tparams())
-
-        return tparams
-
-    def get_params(self):
-        params = []
-        for layer in self.layers[1:]:
-            params += layer.get_params()
-
-        if self.inference_parameters:
-            for i in xrange(1, self.n_layers - 1):
-                W = self.__dict__['WI_%d' % i]
-                params.append(W)
-
-        return params
-
-    def get_layer_args(self, level, *args):
-        assert level > 0
-        start = sum([0] + [len(layer.get_params())
-                           for layer in self.layers[1:level]])
-        length = len(self.layers[level].get_params())
-        largs = args[start:start+length]
-        return largs
-
-    def get_layer_iargs(self, ):
-        pass
-
-    def init_z(self, size, name=''):
-        z = T.alloc(0., *size).astype(floatX)
-        z.name = name
-        return z
-
-    def _sample(self, p, size=None):
-        if size is None:
-            size = p.shape
-        return self.trng.binomial(p=p, size=size, n=1, dtype=p.dtype)
-
-    def _noise(self, x, amount, size):
-        return x * (1 - self.trng.binomial(p=amount, size=size, n=1,
-                                           dtype=x.dtype))
-
-    def set_input(self, x, mode, size=None):
-        if size is None:
-            size = x.shape
-        if mode == 'sample':
-            x = self._sample(x[None, :, :], size=size)
-        elif mode == 'noise':
-            x = self._sample(x)
-            x = self._noise(x[None, :, :], size=size)
-        elif mode == None:
-            x = self._sample(x, size=x.shape)
-            x = T.alloc(0., *size) + x[None, :, :]
-        else:
-            raise ValueError()
-        return x
-
-    def init_inputs(self, x, y, steps=1):
-        x_size = (steps, x.shape[0], x.shape[1])
-        y_size = (steps, y.shape[0], y.shape[1])
-
-        x = self.set_input(x, self.x_mode, size=x_size)
-        y = self.set_input(y, self.y_mode, size=y_size)
-        return x, y
-
-    def sample_energy(self, ph1, preact_h1, y, zs, n_samples=10):
-        preacts = []
-        pys = [ph1[None, :, :]]
-        if n_samples == 0:
-            ys = [T.nnet.sigmoid(z) for z in zs]
-            pys += [layer(mu) for layer, mu in zip(self.layers[1:], ys)]
-        else:
-            mu = T.nnet.sigmoid(zs[0])
-            h = self._sample(p=mu, size=(n_samples, mu.shape[0], mu.shape[1]))
-            hs = [h]
-            ys = [mu]
-            for i, (z, layer) in enumerate(zip(zs[1:], self.layers[1:-1])):
-                py = layer(mu)
-                pys.append(py)
-                if self.inference_parameters:
-                    W = self.__dict__['WI_%d' % (i + 1)]
-                    preact = T.dot(h, W)
-                else:
-                    preact = layer(h, return_preact=True)
-                preacts.append(preact)
-                mu = T.nnet.sigmoid(preact + z[None, :, :])
-                h = self._sample(p=mu)
-                hs.append(h)
-                ys.append(mu)
-
-        pys.append(self.layers[-1](mu))
-        ys.append(y[None, :, :])
-
-        energies = []
-
-        for layer, py, y in zip(self.layers, pys, ys):
-            energy = layer.neg_log_prob(y, py)#.mean()
-            energy = -log_mean_exp(-energy, axis=0).mean()
-            energies.append(energy)
-
-        if self.inference_parameters:
-            for preact, layer, mu in zip(preacts, self.layers[1:-1], ys[1:-1]):
-                energy = layer.neg_log_prob(mu, )
-                energy = -log_mean_exp()
-
-        return energies, ys
-
-    def inference_cost(self, *args):
-        ph1, preact_h1, y = args[:3]
-        zs = self.get_qparams(*args)
-        args = args[-len(self.get_params()):]
-
-        mu = T.nnet.sigmoid(zs[0])
-        h = self._sample(p=mu)
-        py = ph1
-        preacts = []
-
-        cost = -self.layers[0].entropy(mu)
-        cost += self.layers[0].neg_log_prob(mu, py)
-        for l, layer in enumerate(self.layers[1:]):
-            params = self.get_layer_args(l + 1, *args)
-            py = layer.step_call(mu, *params)
-
-            if l + 1 < self.n_layers - 1:
-                if self.inference_parameters:
-                    W = self.get_inference_args(l + 1, *args)
-                    preact = T.dot(h, W)
-                else:
-                    preact = layer.preact(mu, *params)
-                preacts.append(preact)
-                z = zs[l + 1]
-                mu = T.nnet.sigmoid(preact + z)
-                h = self._sample(p=mu)
-                cost += -layer.entropy(mu)
-            else:
-                mu = y
-            cost += layer.neg_log_prob(mu, py)
-
-        cost = cost.sum(axis=0)
-        grads = theano.grad(cost, wrt=zs, consider_constant=[])
-
-        return cost, grads
-
-    def get_qparams(self, *args):
-        qparams = args[3:3+self.n_layers-1]
-        return qparams
-
-    def get_qrest(self, *args):
-        qrest = args[3+self.n_layers-1:-len(self.get_params())]
-        return qrest
-
-    def inference(self, x, y, z0s=None, n_samples=20):
-        n_inference_steps, updates = self.procedure.get_steps()
-
-        xs, ys = self.init_inputs(x, y, steps=n_inference_steps)
-        ph1 = self.layers[0](xs)
-        preact_h1 = self.layers[0](xs, return_preact=True)
-
-        if z0s is None:
-            z0s = [self.init_z((x.shape[0], layer.dim_out), name='z0%d' % i)
-                   for i, layer in enumerate(self.layers[:-1])]
-
-        seqs = [ph1, preact_h1, ys]
-        outputs_info = z0s + self.procedure.init_inference(xs[0], z0s) + [None]
-        non_seqs = self.procedure.get_params() + self.get_params()
-
-        outs, updates_2 = theano.scan(
-            self.procedure.step,
-            sequences=seqs,
-            outputs_info=outputs_info,
-            non_sequences=non_seqs,
-            name=tools._p(self.name, 'infer'),
-            n_steps=n_inference_steps,
-            profile=tools.profile,
-            strict=True
-        )
-        updates.update(updates_2)
-
-        zs, i_costs = self.procedure.unpack(outs)
-        zs_f = [z[-1] for z in zs]
-
-        energies, hs = self.sample_energy(ph1[0], preact_h1[0], y, zs_f,
-                                          n_samples=n_samples)
-        return (xs, ys, zs, hs, energies, i_costs[-1]), updates
-
-    def __call__(self, x, y, n_samples=100, from_z=False):
-        x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
-        py = self.layers[0](x_n)
-        y_hat = self.layers[0].sample(py, size=(n_samples, py.shape[0], py.shape[1]))
-
-        for layer in self.layers[1:]:
-            py = layer(y_hat)
-            y_hat = layer.sample(py)
-
-        y_energy = layer.neg_log_prob(y[None, :, :], py)
-        y_energy = -log_mean_exp(-y_energy, axis=0).mean()
-        return py, y_energy
