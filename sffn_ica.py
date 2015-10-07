@@ -116,10 +116,15 @@ class SFFN(Layer):
         self.cond_to_h.name = self.name + '_cond_to_h'
         self.cond_from_h.name = self.name + '_cond_from_h'
 
-    def set_tparams(self):
+    def set_tparams(self, excludes=[]):
+        excludes = ['{name}_{key}'.format(name=self.name, key=key)
+                    for key in excludes]
         tparams = super(SFFN, self).set_tparams()
         tparams.update(**self.cond_to_h.set_tparams())
         tparams.update(**self.cond_from_h.set_tparams())
+
+        tparams = OrderedDict((k, v) for k, v in tparams.iteritems()
+            if k not in excludes)
 
         return tparams
 
@@ -206,6 +211,7 @@ class SFFN(Layer):
     def e_step(self, ph, y, z, *params):
         prior = T.nnet.sigmoid(params[0])
         mu = T.nnet.sigmoid(z)
+
         py = self.p_y_given_h(mu, *params)
 
         cost = (self.cond_from_h.neg_log_prob(y, py)

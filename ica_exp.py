@@ -165,6 +165,7 @@ def train_model(
     source=None,
     learning_rate=0.1, optimizer='adam', batch_size=100, epochs=100,
     dim_h=300,
+    learn_prior=True,
     x_noise_mode=None, y_noise_mode=None, noise_amout=0.1,
     generation_net=None, recognition_net=None,
     inference_method='momentum',
@@ -244,7 +245,12 @@ def train_model(
 
     print 'Getting params'
     sffn = models['sffn']
-    tparams = sffn.set_tparams()
+
+    if not learn_prior:
+        excludes = ['z']
+    else:
+        excludes = []
+    tparams = sffn.set_tparams(excludes=excludes)
 
     print 'Getting cost'
     (xs, ys, zs, prior_energy, h_energy, y_energy, i_energy), updates = sffn.inference(
@@ -279,6 +285,8 @@ def train_model(
     tparams = OrderedDict((k, v)
         for k, v in tparams.iteritems()
         if (v not in updates.keys()))
+
+    print 'Learned model params: %s' % tparams.keys()
 
     print 'Getting gradients.'
     grads = T.grad(cost, wrt=itemlist(tparams),
@@ -327,6 +335,7 @@ def train_model(
                 break
 
             rval = f_grad_shared(x)
+
             if check_bad_nums(rval, extra_outs_names+vis_outs_names):
                 return
 
@@ -395,12 +404,15 @@ def train_model(
     except KeyboardInterrupt:
         print 'Training interrupted'
 
-    print 'Quick test, please wait...'
-    d_t, _ = test.next()
-    x_t = d_t.copy()
-    y_t = d_t.copy()
-    ye_t, _, _ = f_d_hat(x_t, y_t)
-    print 'End test: %.5f' % ye_t
+    try:
+        print 'Quick test, please wait...'
+        d_t, _ = test.next()
+        x_t = d_t.copy()
+        y_t = d_t.copy()
+        ye_t, _, _ = f_d_hat(x_t, y_t)
+        print 'End test: %.5f' % ye_t
+    except KeyboardInterrupt:
+        print 'Aborting test'
 
     if out_path is not None:
         outfile = path.join(out_path, '{name}_{t}.npz'.format(name=name, t=int(time.time())))
