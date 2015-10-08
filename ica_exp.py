@@ -171,7 +171,7 @@ def train_model(
     inference_rate=.01, n_inference_steps=100,
     inference_decay=1.0, inference_samples=20,
     z_init='recognition_net',
-    entropy_scale=1.0,
+    update_inference_scale=False,
     n_inference_steps_eval=0,
     dataset=None, dataset_args=None,
     model_save_freq=10, show_freq=10
@@ -182,7 +182,7 @@ def train_model(
         inference_rate=inference_rate,
         n_inference_steps=n_inference_steps,
         inference_decay=inference_decay,
-        entropy_scale=entropy_scale,
+        update_inference_scale=update_inference_scale,
         z_init=z_init
     )
 
@@ -277,12 +277,14 @@ def train_model(
     cost = prior_energy + h_energy + y_energy
 
     extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx,
-                  y_energy / y_energy_approx, i_energy]
+                  y_energy / y_energy_approx, i_energy,
+                  sffn.inference_scale_factor]
     vis_outs = [pd_i, d_hat_i]
 
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
                         'train y energy', 'approx train y energy',
-                        'y to y approx ratio', 'inference energy']
+                        'y to y approx ratio', 'inference energy',
+                        'inference scale factor']
     vis_outs_names = ['pds', 'd_hats']
 
     # Remove the parameters found in updates from the ones we will take

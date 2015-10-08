@@ -19,7 +19,7 @@
   n_inference_steps: 100,
   inference_decay: 0.99,
   inference_method: 'momentum',
-  entropy_scale: 2.0,
+  update_inference_scale: True,
   n_inference_steps_eval: 20,
   dataset: 'mnist',
   dataset_args: {

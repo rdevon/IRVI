@@ -29,8 +29,8 @@ class SFFN(Layer):
                  x_noise_mode=None, y_noise_mode=None, noise_amount=0.1,
                  momentum=0.9, b1=0.9, b2=0.999,
                  inference_rate=0.1, inference_decay=0.99, n_inference_steps=30,
-                 entropy_scale=1.0,
                  inference_step_scheduler=None,
+                 update_inference_scale=False,
                  inference_method='sgd', name='sffn'):
 
         self.dim_in = dim_in
@@ -56,7 +56,7 @@ class SFFN(Layer):
 
         self.inference_rate = inference_rate
         self.inference_decay = inference_decay
-        self.entropy_scale = entropy_scale
+        self.update_inference_scale = update_inference_scale
 
         self.n_inference_steps = T.constant(n_inference_steps).astype('int64')
         self.inference_step_scheduler = inference_step_scheduler
@@ -102,7 +102,10 @@ class SFFN(Layer):
 
     def set_params(self):
         z = np.zeros((self.dim_h,)).astype(floatX)
-        self.params = OrderedDict(z=z)
+        inference_scale_factor = np.float32(1.0)
+
+        self.params = OrderedDict(
+            z=z, inference_scale_factor=inference_scale_factor)
 
         if self.cond_to_h is None:
             self.cond_to_h = MLP(self.dim_in, self.dim_h, self.dim_h, 1,
@@ -167,11 +170,11 @@ class SFFN(Layer):
         return x, y
 
     def get_params(self):
-        params = [self.z] + self.cond_from_h.get_params()
+        params = [self.z] + self.cond_from_h.get_params() + [self.inference_scale_factor]
         return params
 
     def p_y_given_h(self, h, *params):
-        params = params[1:]
+        params = params[1:-1]
         return self.cond_from_h.step_call(h, *params)
 
     def sample_from_prior(self, n_samples=100):
@@ -217,10 +220,11 @@ class SFFN(Layer):
         mu = T.nnet.sigmoid(z)
 
         py = self.p_y_given_h(mu, *params)
+        scale_factor = params[-1]
 
-        cost = (self.cond_from_h.neg_log_prob(y, py)
+        cost = (scale_factor * self.cond_from_h.neg_log_prob(y, py)
                 + self.cond_to_h.neg_log_prob(mu, prior)
-                - self.entropy_scale * self.cond_to_h.entropy(mu)
+                - self.cond_to_h.entropy(mu)
                 ).sum(axis=0)
         grad = theano.grad(cost, wrt=z, consider_constant=[ph, y])
         return cost, grad
@@ -364,6 +368,10 @@ class SFFN(Layer):
 
         prior_energy, h_energy, y_energy, y_energy_approx = self.m_step(
             ph[0], ys[0], zs[-1], n_samples=n_samples)
+
+        if self.update_inference_scale:
+            updates += [(self.inference_scale_factor,
+                         y_energy / y_energy_approx)]
 
         return (xs, ys, zs,
                 prior_energy, h_energy, y_energy, y_energy_approx,
