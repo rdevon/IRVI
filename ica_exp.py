@@ -276,12 +276,13 @@ def train_model(
     consider_constant = [xs, ys, zs]
     cost = prior_energy + h_energy + y_energy
 
-    extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx, i_energy]
+    extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx,
+                  y_energy / y_energy_approx, i_energy]
     vis_outs = [pd_i, d_hat_i]
 
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
                         'train y energy', 'approx train y energy',
-                        'inference energy']
+                        'y to y approx ratio', 'inference energy']
     vis_outs_names = ['pds', 'd_hats']
 
     # Remove the parameters found in updates from the ones we will take
