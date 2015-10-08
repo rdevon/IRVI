@@ -33,13 +33,15 @@ def lower_bound_curve(
     model_file, rs=None, n_samples=10000,
     inference_method='momentum',
     inference_rate=.01, n_inference_steps=100,
-    inference_decay=1.0, inference_samples=20
+    inference_decay=1.0, inference_samples=20,
+    update_inference_scale=False
     ):
 
     models, kwargs = load_model(model_file, unpack, inference_rate=inference_rate,
                                n_inference_steps=n_inference_steps,
                                inference_decay=inference_decay,
-                               inference_method=inference_method)
+                               inference_method=inference_method,
+                               update_inference_scale=update_inference_scale)
     dataset_args = kwargs['dataset_args']
     dataset = kwargs['dataset']
 
@@ -107,12 +109,22 @@ def unpack(dim_h=None,
            inference_decay=None,
            inference_method=None,
            inference_rate=None,
+           update_inference_scale=None,
            x_noise_mode=None,
            y_noise_mode=None,
            **model_args):
     '''
     Function to unpack pretrained model into fresh SFFN class.
     '''
+
+    inference_args = dict(
+        inference_method=inference_method,
+        inference_rate=inference_rate,
+        n_inference_steps=n_inference_steps,
+        inference_decay=inference_decay,
+        update_inference_scale=update_inference_scale,
+        z_init=z_init
+    )
 
     dim_h = int(dim_h)
     dataset_args = dataset_args[()]
@@ -144,13 +156,9 @@ def unpack(dim_h=None,
                 cond_from_h=cond_from_h,
                 cond_to_h=cond_to_h,
                 noise_amount=0.,
-                z_init=z_init,
-                inference_rate=inference_rate,
-                n_inference_steps=n_inference_steps,
-                inference_decay=inference_decay,
-                inference_method=inference_method,
                 x_noise_mode=x_noise_mode,
-                y_noise_mode=y_noise_mode)
+                y_noise_mode=y_noise_mode,
+                **inference_args)
     models.append(sffn)
 
     return models, model_args, dict(
@@ -289,6 +297,8 @@ def train_model(
 
     # Remove the parameters found in updates from the ones we will take
     # gradients of.
+    all_params = OrderedDict((k, v) for k, v in tparams.iteritems())
+
     tparams = OrderedDict((k, v)
         for k, v in tparams.iteritems()
         if (v not in updates.keys()))
@@ -315,7 +325,7 @@ def train_model(
         bestfile = path.join(out_path, '{name}_best.npz'.format(name=name))
 
     def save(tparams, outfile):
-        d = dict((k, v.get_value()) for k, v in tparams.items())
+        d = dict((k, v.get_value()) for k, v in all_params.items())
 
         d.update(
             dim_h=dim_h,
