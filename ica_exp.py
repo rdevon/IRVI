@@ -162,7 +162,6 @@ def unpack(dim_h=None,
 def train_model(
     out_path='', name='',
     load_last=False, model_to_load=None, save_images=True,
-    source=None,
     learning_rate=0.1, optimizer='adam', batch_size=100, epochs=100,
     dim_h=300,
     learn_prior=True,
@@ -171,19 +170,33 @@ def train_model(
     inference_method='momentum',
     inference_rate=.01, n_inference_steps=100,
     inference_decay=1.0, inference_samples=20,
-    n_inference_steps_eval=0,
     z_init='recognition_net',
+    entropy_scale=1.0,
+    n_inference_steps_eval=0,
     dataset=None, dataset_args=None,
     model_save_freq=10, show_freq=10
     ):
 
+    inference_args = dict(
+        inference_method=inference_method,
+        inference_rate=inference_rate,
+        n_inference_steps=n_inference_steps,
+        inference_decay=inference_decay,
+        entropy_scale=entropy_scale,
+        z_init=z_init
+    )
+
     print 'Dataset args: %s' % pprint.pformat(dataset_args)
+    print 'Inference args: %s' % pprint.pformat(inference_args)
 
     print 'Setting up data'
     if dataset == 'mnist':
-        train = mnist_iterator(batch_size=batch_size, mode='train', inf=False, **dataset_args)
-        valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True, **dataset_args)
-        test = mnist_iterator(batch_size=2000, mode='test', inf=True, **dataset_args)
+        train = mnist_iterator(batch_size=batch_size, mode='train', inf=False,
+                               **dataset_args)
+        valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True,
+                               **dataset_args)
+        test = mnist_iterator(batch_size=2000, mode='test', inf=True,
+                              **dataset_args)
     else:
         raise ValueError()
 
@@ -197,18 +210,10 @@ def train_model(
     trng = RandomStreams(random.randint(0, 1000000))
 
     if model_to_load is not None:
-        models, _ = load_model(model_to_load, unpack,
-                               inference_rate=inference_rate,
-                               n_inference_steps=n_inference_steps,
-                               inference_decay=inference_decay,
-                               inference_method=inference_method)
+        models, _ = load_model(model_to_load, unpack, **inference_args)
     elif load_last:
         model_file = glob(path.join(out_path, '*last.npz'))[0]
-        models, _ = load_model(model_file, unpack,
-                               inference_rate=inference_rate,
-                               n_inference_steps=n_inference_steps,
-                               inference_decay=inference_decay,
-                               inference_method=inference_method)
+        models, _ = load_model(model_file, unpack, **inference_args)
     else:
         # The recognition net is a MLP with 2 layers. The intermediate layer is
         # deterministic.
@@ -232,13 +237,9 @@ def train_model(
                     cond_from_h=cond_from_h,
                     cond_to_h=cond_to_h,
                     noise_amount=0.,
-                    z_init=z_init,
-                    inference_rate=inference_rate,
-                    n_inference_steps=n_inference_steps,
-                    inference_decay=inference_decay,
-                    inference_method=inference_method,
                     x_noise_mode=x_noise_mode,
-                    y_noise_mode=y_noise_mode)
+                    y_noise_mode=y_noise_mode,
+                    **inference_args)
 
         models = OrderedDict()
         models[sffn.name] = sffn
@@ -253,7 +254,9 @@ def train_model(
     tparams = sffn.set_tparams(excludes=excludes)
 
     print 'Getting cost'
-    (xs, ys, zs, prior_energy, h_energy, y_energy, i_energy), updates = sffn.inference(
+    (xs, ys, zs,
+     prior_energy, h_energy, y_energy, y_energy_approx,
+     i_energy), updates = sffn.inference(
         X, Y, n_samples=inference_samples)
 
     mu = T.nnet.sigmoid(zs)
@@ -273,11 +276,12 @@ def train_model(
     consider_constant = [xs, ys, zs]
     cost = prior_energy + h_energy + y_energy
 
-    extra_outs = [prior_energy, h_energy, y_energy, i_energy]
+    extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx, i_energy]
     vis_outs = [pd_i, d_hat_i]
 
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
-                        'train y energy', 'inference energy']
+                        'train y energy', 'approx train y energy',
+                        'inference energy']
     vis_outs_names = ['pds', 'd_hats']
 
     # Remove the parameters found in updates from the ones we will take

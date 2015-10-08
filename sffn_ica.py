@@ -29,6 +29,7 @@ class SFFN(Layer):
                  x_noise_mode=None, y_noise_mode=None, noise_amount=0.1,
                  momentum=0.9, b1=0.9, b2=0.999,
                  inference_rate=0.1, inference_decay=0.99, n_inference_steps=30,
+                 entropy_scale=1.0,
                  inference_step_scheduler=None,
                  inference_method='sgd', name='sffn'):
 
@@ -55,6 +56,7 @@ class SFFN(Layer):
 
         self.inference_rate = inference_rate
         self.inference_decay = inference_decay
+        self.entropy_scale = entropy_scale
 
         self.n_inference_steps = T.constant(n_inference_steps).astype('int64')
         self.inference_step_scheduler = inference_step_scheduler
@@ -182,19 +184,21 @@ class SFFN(Layer):
         mu = T.nnet.sigmoid(z)
 
         if n_samples == 0:
-            h = mu
+            h = mu[None, :, :]
         else:
             h = self.cond_to_h.sample(
                 mu, size=(n_samples, mu.shape[0], mu.shape[1]))
 
         py = self.cond_from_h(h)
+        py_approx = self.cond_from_h(mu)
 
         prior = T.nnet.sigmoid(self.z)
         prior_energy = self.cond_to_h.neg_log_prob(mu, prior[None, :]).mean()
         h_energy = self.cond_to_h.neg_log_prob(mu, ph).mean()
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean()
+        y_energy_approx = self.cond_from_h.neg_log_prob(y, py_approx).mean()
 
-        return (prior_energy, h_energy, y_energy)
+        return (prior_energy, h_energy, y_energy, y_energy_approx)
 
     def step_infer(self, *params):
         raise NotImplementedError()
@@ -216,7 +220,7 @@ class SFFN(Layer):
 
         cost = (self.cond_from_h.neg_log_prob(y, py)
                 + self.cond_to_h.neg_log_prob(mu, prior)
-                - self.cond_to_h.entropy(mu)
+                - self.entropy_scale * self.cond_to_h.entropy(mu)
                 ).sum(axis=0)
         grad = theano.grad(cost, wrt=z, consider_constant=[ph, y])
         return cost, grad
@@ -358,10 +362,12 @@ class SFFN(Layer):
         (zs, i_costs, ph, xs, ys), updates = self.infer_q(
             x, y, n_inference_steps, z0=z0)
 
-        prior_energy, h_energy, y_energy = self.m_step(
+        prior_energy, h_energy, y_energy, y_energy_approx = self.m_step(
             ph[0], ys[0], zs[-1], n_samples=n_samples)
 
-        return (xs, ys, zs, prior_energy, h_energy, y_energy, i_costs[-1]), updates
+        return (xs, ys, zs,
+                prior_energy, h_energy, y_energy, y_energy_approx,
+                i_costs[-1]), updates
 
     def __call__(self, x, y, ph=None, n_samples=100, from_z=False,
                  n_inference_steps=0, end_with_inference=True):

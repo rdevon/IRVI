@@ -4,12 +4,12 @@
   recognition_net: {
     dim_h: 300,
     h_act: 'T.nnet.softplus',
-    n_layers: 2
+    n_layers: 5
   },
   generation_net: {
     dim_h: 300,
     h_act: 'T.nnet.softplus',
-    n_layers: 2
+    n_layers: 5
   },
   z_init: 'recognition_net',
   learning_rate: 0.1,
@@ -20,7 +20,6 @@
   inference_decay: 0.99,
   inference_method: 'momentum',
   n_inference_steps_eval: 20,
-  source: '/Users/devon/Data/mnist.pkl.gz',
   dataset: 'mnist',
   dataset_args: {
     source: '/Users/devon/Data/mnist.pkl.gz',

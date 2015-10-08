@@ -1,5 +1,5 @@
 {
-  name: 'sbn_5',
+  name: 'sbn_more_ent_1',
   dim_h: 200,
   recognition_net: {
     dim_h: 300,
@@ -19,10 +19,11 @@
   n_inference_steps: 100,
   inference_decay: 0.99,
   inference_method: 'momentum',
+  entropy_scale: 2.0,
   n_inference_steps_eval: 20,
-  source: '/Users/devon/Data/mnist.pkl.gz',
   dataset: 'mnist',
   dataset_args: {
     source: '/Users/devon/Data/mnist.pkl.gz',
+    stop: 5000,
   }
 }
