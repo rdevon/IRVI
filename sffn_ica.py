@@ -402,7 +402,9 @@ class SFFN(Layer):
 
         h = self.cond_to_h.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
         py = self.cond_from_h(h)
-        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py)#.mean()
-        y_energy = -log_mean_exp(-y_energy, axis=0).mean()
+        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean()
+        prior = T.nnet.sigmoid(self.z)
+        prior_energy = self.cond_to_h.neg_log_prob(ph, prior[None, :]).mean()
+        entropy = self.cond_to_h.entropy(ph).mean()
 
-        return (py, y_energy), updates
+        return (py, y_energy + prior_energy - entropy), updates
