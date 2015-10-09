@@ -207,10 +207,26 @@ here we approximate it such that
 \begin{align}
     \label{eq:grad_inf}
     \argmax_{\mu^h_1, \ldots, \mu^h_K} 
-    \log p(x,\mu^h) + \HH(\tilde{q}),
+    \alpha \log p(x,\mu^h) + \HH(\tilde{q}),
 \end{align}
-which is equivalent to approximate $f(h)$ with $f(\mu^h)$. {\color{red} This is equivalent to
-maximizing the lowebound of Eq.~\eqref{eq:approx_logp} (Need to check further)}.
+which is equivalent to approximate $f(h)$ with $f(\mu^h)$. 
+%{\color{red} This is
+%equivalent to maximizing the lowebound of Eq.~\eqref{eq:approx_logp} (Need to
+%check further)}.
+
+$\alpha$ in Eq.~\eqref{eq:grad_inf} is introduced as a way to balance the
+mismatch between the first approximate term and the second exact entropy term.
+What we have observed is that $\log p(x, \mu^h)$ often lowerbounds the correct
+term $\sum_h \log p(x, h)$, which effectively results in the underestimated
+entropy. $\alpha$ can be considered as an a hyperparameter, or we can estimate
+this on-the-fly during training as:
+\begin{align*}
+    \alpha^* = \frac{\sum_{n=1}^N \log p(x, h^n)}{\log p(x, \mu^h)},
+\end{align*}
+where $h^n$ is the samples generated from the approximate posterior.  We do not
+directly use the Monte-Carlo estimate of $\sum_h \log p(x, h)$ to avoid an
+often higher variance estimate of gradient caused by the stochastic
+approximation.
 
 Because there is a chance that this optimization may be non-convex, we
 initialize the optimization from a point $\mu^{h,0}$ given by a parametric
