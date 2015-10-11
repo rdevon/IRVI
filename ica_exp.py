@@ -276,7 +276,7 @@ def train_model(
                             n_inference_steps=n_inference_steps_eval)
     updates.update(updates_s)
     pd_s, d_hat_s = concatenate_inputs(sffn, Y, py_s)
-    f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s])
+    f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s], updates=updates_s)
 
     py_p = sffn.sample_from_prior()
     f_py_p = theano.function([], py_p)
@@ -372,8 +372,8 @@ def train_model(
 
                 t1 = time.time()
                 outs.update(**{
-                    'train energy at test': ye_t,
-                    'valid y energy': ye_v,
+                    'train lower bound': ye_t,
+                    'valid lower bound': ye_v,
                     'elapsed_time': t1-t0}
                 )
                 monitor.update(**outs)

@@ -203,6 +203,27 @@ class SFFN(Layer):
 
         return (prior_energy, h_energy, y_energy, y_energy_approx)
 
+    def e_step(self, ph, y, z, *params):
+        prior = T.nnet.sigmoid(params[0])
+        mu = T.nnet.sigmoid(z)
+
+        py = self.p_y_given_h(mu, *params)
+        h = self.cond_to_h.sample(
+            mu, size=(10, mu.shape[0], mu.shape[1]))
+        py_r = self.p_y_given_h(h, *params)
+
+        #scale_factor = params[-1]
+        py_c = T.zeros_like(py) + py
+        scale_factor = py_r.mean(axis=(0, 2)) / py_c.mean(axis=(1))
+
+        cost = (scale_factor * self.cond_from_h.neg_log_prob(y, py)
+                + self.cond_to_h.neg_log_prob(mu, prior[None, :])
+                - self.cond_to_h.entropy(mu)
+                ).sum(axis=0)
+        grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, py_c, ph, y])
+
+        return cost, grad
+
     def step_infer(self, *params):
         raise NotImplementedError()
 
@@ -214,20 +235,6 @@ class SFFN(Layer):
 
     def params_infer(self):
         raise NotImplementedError()
-
-    def e_step(self, ph, y, z, *params):
-        prior = T.nnet.sigmoid(params[0])
-        mu = T.nnet.sigmoid(z)
-
-        py = self.p_y_given_h(mu, *params)
-        scale_factor = params[-1]
-
-        cost = (scale_factor * self.cond_from_h.neg_log_prob(y, py)
-                + self.cond_to_h.neg_log_prob(mu, prior)
-                - self.cond_to_h.entropy(mu)
-                ).sum(axis=0)
-        grad = theano.grad(cost, wrt=z, consider_constant=[ph, y])
-        return cost, grad
 
     # SGD
     def _step_sgd(self, ph, y, z, l, *params):
