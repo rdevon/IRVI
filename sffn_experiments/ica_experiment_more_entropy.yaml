@@ -15,15 +15,16 @@
   learning_rate: 0.1,
   optimizer: 'adam',
   batch_size: 100,
+  epochs: 500,
   inference_samples: 20,
-  n_inference_steps: 100,
+  n_inference_steps: 20,
   inference_decay: 0.99,
+  inference_rate: 0.01,
   inference_method: 'momentum',
   update_inference_scale: True,
   n_inference_steps_eval: 20,
   dataset: 'mnist',
   dataset_args: {
-    source: '/Users/devon/Data/mnist.pkl.gz',
-    stop: 5000,
+    source: '/Users/devon/Data/mnist.pkl.gz'
   }
 }

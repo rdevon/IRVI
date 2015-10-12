@@ -1,11 +1,12 @@
 {
-  name: 'mnist200d_2',
+  name: 'mnist200d_3',
   batch_size: 10,
   dim_h: 200,
   optimizer: 'adam',
   mode: 'gru',
   learning_rate: 0.01,
   steps: 500000,
+  h_init: 'noise',
   metric: 'euclidean_then_energy',
   noise_input: False,
   mlp_a: {

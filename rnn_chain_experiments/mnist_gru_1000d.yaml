@@ -1,13 +1,14 @@
 {
-  name: 'mnist1000d_euclid_2',
+  name: 'mnist1000d_9',
   batch_size: 10,
   dim_h: 1000,
   optimizer: 'adam',
   mode: 'gru',
   learning_rate: 0.01,
   steps: 500000,
+  h_init: 'noise',
   metric: 'euclidean_then_energy',
-  noise_input: False,
+  noise_input: True,
   mlp_a: {
     dim_h: 1000,
     n_layers: 2,
@@ -25,12 +26,14 @@
     n_layers: 2,
     weight_scale: 0.1
   },
-  dataset_args: {    
+  dataset_args: {
     source: '/Users/devon/Data/mnist.pkl.gz',
     window: 20,
-    chain_build_batch: 2000,
-    chain_length: 2000,
-    chain_stride: 3
+    chain_build_batch: 5000,
+    chain_length: 5000,
+    chain_stride: 3,
+    stop: 5000,
+    trim_end: 50
   }, 
   dataset: 'mnist'
 }
