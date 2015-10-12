@@ -61,8 +61,7 @@ def lower_bound_curve(
     X = T.matrix('x', dtype=floatX)
     Y = T.matrix('y', dtype=floatX)
 
-    (py_s, y_energy_s), updates_s = sffn(X, Y, from_z=False,
-                                         end_with_inference=False)
+    (py_s, y_energy_s), updates_s = sffn(X, Y, end_with_inference=False)
 
     f_ll = theano.function([X, Y], y_energy_s)
 
@@ -70,8 +69,7 @@ def lower_bound_curve(
 
     R = T.scalar('r', dtype='int64')
 
-    (py_s, y_energy_s), updates_s = sffn(X, Y, from_z=False,
-                                         n_inference_steps=R)
+    (py_s, y_energy_s), updates_s = sffn(X, Y, n_inference_steps=R)
 
     f_ll = theano.function([X, Y, R], y_energy_s)
 
@@ -263,8 +261,8 @@ def train_model(
 
     print 'Getting cost'
     (xs, ys, zs,
-     prior_energy, h_energy, y_energy, y_energy_approx,
-     i_energy), updates = sffn.inference(
+     prior_energy, h_energy, y_energy, y_energy_approx, entropy,
+     i_energy, c_term, p_term, e_term), updates = sffn.inference(
         X, Y, n_samples=inference_samples)
 
     mu = T.nnet.sigmoid(zs)
@@ -272,11 +270,12 @@ def train_model(
 
     pd_i, d_hat_i = concatenate_inputs(sffn, ys[0], py)
 
-    (py_s, y_energy_s), updates_s = sffn(X, Y, from_z=False,
-                            n_inference_steps=n_inference_steps_eval)
+    (py_s, y_energy_s, i_energy2, c_term2, p_term2, e_term2), updates_s = sffn(
+        X, Y, n_inference_steps=n_inference_steps_eval)
     updates.update(updates_s)
     pd_s, d_hat_s = concatenate_inputs(sffn, Y, py_s)
-    f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s], updates=updates_s)
+    f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s],
+        updates=updates_s)
 
     py_p = sffn.sample_from_prior()
     f_py_p = theano.function([], py_p)
@@ -285,14 +284,16 @@ def train_model(
     cost = prior_energy + h_energy + y_energy
 
     extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx,
-                  y_energy / y_energy_approx, i_energy,
-                  sffn.inference_scale_factor]
+                  y_energy / y_energy_approx, entropy,
+                  i_energy, c_term, p_term, e_term,
+                  i_energy2, c_term2, p_term2, e_term2]
     vis_outs = [pd_i, d_hat_i]
 
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
                         'train y energy', 'approx train y energy',
-                        'y to y approx ratio', 'inference energy',
-                        'inference scale factor']
+                        'y to y approx ratio', 'entropy',
+                        'inference energy', 'i cond term', 'i prior term', 'i entropy term',
+                        'inference energy at test', 'i cond term at test', 'i prior term at test', 'i entropy term at test']
     vis_outs_names = ['pds', 'd_hats']
 
     # Remove the parameters found in updates from the ones we will take

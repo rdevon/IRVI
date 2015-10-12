@@ -178,8 +178,8 @@ class SFFN(Layer):
         return self.cond_from_h.step_call(h, *params)
 
     def sample_from_prior(self, n_samples=100):
-        h = self.trng.binomial(p=T.nnet.sigmoid(self.z), size=(n_samples, self.dim_h), n=1,
-                               dtype=floatX)
+        p = T.nnet.sigmoid(self.z)
+        h = self.cond_to_h.sample(p=p, size=(n_samples, p.shape[0]))
         py = self.cond_from_h(h)
         return py
 
@@ -200,8 +200,9 @@ class SFFN(Layer):
         h_energy = self.cond_to_h.neg_log_prob(mu, ph).mean()
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean()
         y_energy_approx = self.cond_from_h.neg_log_prob(y, py_approx).mean()
+        entropy = self.cond_to_h.entropy(mu).mean()
 
-        return (prior_energy, h_energy, y_energy, y_energy_approx)
+        return (prior_energy, h_energy, y_energy, y_energy_approx, entropy)
 
     def e_step(self, ph, y, z, *params):
         prior = T.nnet.sigmoid(params[0])
@@ -213,16 +214,18 @@ class SFFN(Layer):
         py_r = self.p_y_given_h(h, *params)
 
         #scale_factor = params[-1]
-        py_c = T.zeros_like(py) + py
-        scale_factor = py_r.mean(axis=(0, 2)) / py_c.mean(axis=(1))
+        approx = self.cond_from_h.neg_log_prob(y, py)
+        mc = self.cond_from_h.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
+        scale_factor = mc / approx
 
-        cost = (scale_factor * self.cond_from_h.neg_log_prob(y, py)
-                + self.cond_to_h.neg_log_prob(mu, prior[None, :])
-                - self.cond_to_h.entropy(mu)
-                ).sum(axis=0)
-        grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, py_c, ph, y])
+        cond_term = scale_factor * approx
+        prior_term = self.cond_to_h.neg_log_prob(mu, prior[None, :])
+        entropy_term = self.cond_to_h.entropy(mu)
 
-        return cost, grad
+        cost = (cond_term + prior_term - entropy_term).sum(axis=0)
+        grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, ph, y])
+
+        return cost, grad, cond_term.mean(), prior_term.mean(), entropy_term.mean()
 
     def step_infer(self, *params):
         raise NotImplementedError()
@@ -255,18 +258,18 @@ class SFFN(Layer):
 
     # Momentum
     def _step_momentum(self, ph, y, z, l, dz_, m, *params):
-        cost, grad = self.e_step(ph, y, z, *params)
+        cost, grad, c_term, p_term, e_term = self.e_step(ph, y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
         l *= self.inference_decay
-        return z, l, dz, cost
+        return z, l, dz, cost, c_term, p_term, e_term
 
     def _init_momentum(self, ph, y, z):
         return [self.inference_rate, T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
-        zs, ls, dzs, costs = outs
-        return zs, costs
+        zs, ls, dzs, costs, c_terms, p_terms, e_terms = outs
+        return zs, costs, c_terms, p_terms, e_terms
 
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
@@ -347,7 +350,7 @@ class SFFN(Layer):
                 z0 = self.init_z(x, y)
 
         seqs = [ph, ys]
-        outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None]
+        outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None, None, None, None]
         non_seqs = self.params_infer() + self.get_params()
 
         outs, updates_2 = theano.scan(
@@ -362,18 +365,18 @@ class SFFN(Layer):
         )
         updates.update(updates_2)
 
-        zs, i_costs = self.unpack_infer(outs)
+        zs, i_costs, c_terms, p_terms, e_terms = self.unpack_infer(outs)
 
-        return (zs, i_costs, ph, xs, ys), updates
+        return (zs, i_costs, ph, xs, ys, c_terms, p_terms, e_terms), updates
 
     # Inference
     def inference(self, x, y, z0=None, n_samples=100):
         n_inference_steps = self.n_inference_steps
 
-        (zs, i_costs, ph, xs, ys), updates = self.infer_q(
+        (zs, i_costs, ph, xs, ys, c_terms, p_terms, e_terms), updates = self.infer_q(
             x, y, n_inference_steps, z0=z0)
 
-        prior_energy, h_energy, y_energy, y_energy_approx = self.m_step(
+        prior_energy, h_energy, y_energy, y_energy_approx, entropy = self.m_step(
             ph[0], ys[0], zs[-1], n_samples=n_samples)
 
         if self.update_inference_scale:
@@ -381,37 +384,31 @@ class SFFN(Layer):
                          y_energy / y_energy_approx)]
 
         return (xs, ys, zs,
-                prior_energy, h_energy, y_energy, y_energy_approx,
-                i_costs[-1]), updates
+                prior_energy, h_energy, y_energy, y_energy_approx, entropy,
+                i_costs[-1], c_terms[-1], p_terms[-1], e_terms[-1]), updates
 
-    def __call__(self, x, y, ph=None, n_samples=100, from_z=False,
+    def __call__(self, x, y, ph=None, n_samples=100,
                  n_inference_steps=0, end_with_inference=True):
 
         updates = theano.OrderedUpdates()
 
         x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
 
-        if ph is not None:
-            pass
-        elif from_z:
-            assert self.learn_z
-            zh = T.tanh(T.dot(x_n, self.W0) + self.b0)
-            z = T.dot(zh, self.W1) + self.b1
-            ph = T.nnet.sigmoid(z)
-        else:
+        if ph is None:
             ph = self.cond_to_h(x)
 
         if end_with_inference:
             z0 = T.log(ph + 1e-7) - T.log(1 - ph + 1e-7)
-            (zs, _, _, _, _), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
+            (zs, i_energy, _, _, _, cs, ps, es), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
             updates.update(updates_i)
             ph = T.nnet.sigmoid(zs[-1])
 
         h = self.cond_to_h.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
         py = self.cond_from_h(h)
-        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean()
+        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean(axis=0)
         prior = T.nnet.sigmoid(self.z)
-        prior_energy = self.cond_to_h.neg_log_prob(ph, prior[None, :]).mean()
-        entropy = self.cond_to_h.entropy(ph).mean()
+        prior_energy = self.cond_to_h.neg_log_prob(ph, prior[None, :])
+        entropy = self.cond_to_h.entropy(ph)
 
-        return (py, y_energy + prior_energy - entropy), updates
+        return (py, (y_energy + prior_energy - entropy).mean(axis=0),
+                     i_energy[-1], cs[-1], ps[-1], es[-1]), updates
