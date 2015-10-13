@@ -204,13 +204,12 @@ class SFFN(Layer):
 
         return (prior_energy, h_energy, y_energy, y_energy_approx, entropy)
 
-    def e_step(self, ph, y, z, *params):
+    def e_step(self, y, z, *params):
         prior = T.nnet.sigmoid(params[0])
         mu = T.nnet.sigmoid(z)
 
         py = self.p_y_given_h(mu, *params)
-        h = self.cond_to_h.sample(
-            mu, size=(10, mu.shape[0], mu.shape[1]))
+        h = self.cond_to_h.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
         py_r = self.p_y_given_h(h, *params)
 
         #scale_factor = params[-1]
@@ -219,7 +218,7 @@ class SFFN(Layer):
         scale_factor = mc / approx
 
         cond_term = scale_factor * approx
-        prior_term = self.cond_to_h.neg_log_prob(mu, prior[None, :])
+        prior_term = self.cond_to_h.neg_log_prob(prior[None, :], mu)
         entropy_term = self.cond_to_h.entropy(mu)
 
         cost = (cond_term + prior_term - entropy_term).sum(axis=0)
@@ -240,8 +239,8 @@ class SFFN(Layer):
         raise NotImplementedError()
 
     # SGD
-    def _step_sgd(self, ph, y, z, l, *params):
-        cost, grad = self.e_step(ph, y, z, *params)
+    def _step_sgd(self, y, z, l, *params):
+        cost, grad = self.e_step(y, z, *params)
         z = (z - l * grad).astype(floatX)
         l *= self.inference_decay
         return z, l, cost
@@ -257,8 +256,8 @@ class SFFN(Layer):
         return []
 
     # Momentum
-    def _step_momentum(self, ph, y, z, l, dz_, m, *params):
-        cost, grad, c_term, p_term, e_term = self.e_step(ph, y, z, *params)
+    def _step_momentum(self, y, z, l, dz_, m, *params):
+        cost, grad, c_term, p_term, e_term = self.e_step(y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
         l *= self.inference_decay
@@ -349,7 +348,7 @@ class SFFN(Layer):
             else:
                 z0 = self.init_z(x, y)
 
-        seqs = [ph, ys]
+        seqs = [ys]
         outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None, None, None, None]
         non_seqs = self.params_infer() + self.get_params()
 
