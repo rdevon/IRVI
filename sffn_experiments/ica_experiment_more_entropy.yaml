@@ -23,6 +23,7 @@
   inference_method: 'momentum',
   update_inference_scale: True,
   n_inference_steps_eval: 20,
+  use_geometric_mean: True,
   dataset: 'mnist',
   dataset_args: {
     source: '/export/mialab/users/dhjelm/data/mnist.pkl.gz'

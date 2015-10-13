@@ -31,6 +31,8 @@ class SFFN(Layer):
                  inference_rate=0.1, inference_decay=0.99, n_inference_steps=30,
                  inference_step_scheduler=None,
                  update_inference_scale=False,
+                 entropy_scale=1.0,
+                 use_geometric_mean=False,
                  inference_method='sgd', name='sffn'):
 
         self.dim_in = dim_in
@@ -57,6 +59,8 @@ class SFFN(Layer):
         self.inference_rate = inference_rate
         self.inference_decay = inference_decay
         self.update_inference_scale = update_inference_scale
+        self.entropy_scale = entropy_scale
+        self.use_geometric_mean = use_geometric_mean
 
         self.n_inference_steps = T.constant(n_inference_steps).astype('int64')
         self.inference_step_scheduler = inference_step_scheduler
@@ -198,7 +202,10 @@ class SFFN(Layer):
         prior = T.nnet.sigmoid(self.z)
         prior_energy = self.cond_to_h.neg_log_prob(mu, prior[None, :]).mean()
         h_energy = self.cond_to_h.neg_log_prob(mu, ph).mean()
-        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean()
+        if self.use_geometric_mean:
+            y_energy = log_mean_exp(self.cond_from_h.neg_log_prob(y[None, :, :], py), axis=0).mean()
+        else:
+            y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean()
         y_energy_approx = self.cond_from_h.neg_log_prob(y, py_approx).mean()
         entropy = self.cond_to_h.entropy(mu).mean()
 
@@ -218,8 +225,8 @@ class SFFN(Layer):
         scale_factor = mc / approx
 
         cond_term = scale_factor * approx
-        prior_term = self.cond_to_h.neg_log_prob(prior[None, :], mu)
-        entropy_term = self.cond_to_h.entropy(mu)
+        prior_term = self.cond_to_h.neg_log_prob(mu, prior[None, :])
+        entropy_term = self.entropy_scale * self.cond_to_h.entropy(mu)
 
         cost = (cond_term + prior_term - entropy_term).sum(axis=0)
         grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, y])
@@ -404,7 +411,10 @@ class SFFN(Layer):
 
         h = self.cond_to_h.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
         py = self.cond_from_h(h)
-        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean(axis=0)
+        if self.use_geometric_mean:
+            y_energy = log_mean_exp(self.cond_from_h.neg_log_prob(y[None, :, :], py), axis=0).mean()
+        else:
+            y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean(axis=0)
         prior = T.nnet.sigmoid(self.z)
         prior_energy = self.cond_to_h.neg_log_prob(ph, prior[None, :])
         entropy = self.cond_to_h.entropy(ph)
