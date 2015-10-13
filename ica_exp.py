@@ -270,7 +270,7 @@ def train_model(
     print 'Getting cost'
     (xs, ys, zs,
      prior_energy, h_energy, y_energy, y_energy_approx, entropy,
-     i_energy, c_term, p_term, e_term), updates = sffn.inference(
+     i_energy, c_term, kl_term), updates = sffn.inference(
         X, Y, n_samples=inference_samples)
 
     mu = T.nnet.sigmoid(zs)
@@ -278,7 +278,7 @@ def train_model(
 
     pd_i, d_hat_i = concatenate_inputs(sffn, ys[0], py)
 
-    (py_s, y_energy_s, i_energy2, c_term2, p_term2, e_term2), updates_s = sffn(
+    (py_s, y_energy_s, i_energy2, c_term2, kl_term2), updates_s = sffn(
         X, Y, n_inference_steps=n_inference_steps_eval)
     updates.update(updates_s)
     pd_s, d_hat_s = concatenate_inputs(sffn, Y, py_s)
@@ -293,15 +293,15 @@ def train_model(
 
     extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx,
                   y_energy / y_energy_approx, entropy,
-                  i_energy, c_term, p_term, e_term,
-                  i_energy2, c_term2, p_term2, e_term2]
+                  i_energy, c_term, kl_term,
+                  i_energy2, c_term2, kl_term2]
     vis_outs = [pd_i, d_hat_i]
 
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
                         'train y energy', 'approx train y energy',
                         'y to y approx ratio', 'entropy',
-                        'inference energy', 'i cond term', 'i prior term', 'i entropy term',
-                        'inference energy at test', 'i cond term at test', 'i prior term at test', 'i entropy term at test']
+                        'inference energy', 'i cond term', 'i kl term',
+                        'inference energy at test', 'i cond term at test', 'i kl term at test']
     vis_outs_names = ['pds', 'd_hats']
 
     # Remove the parameters found in updates from the ones we will take

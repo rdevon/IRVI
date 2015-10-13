@@ -215,6 +215,11 @@ class SFFN(Layer):
 
         return (prior_energy, h_energy, y_energy, y_energy_approx, entropy)
 
+    def kl_divergence(self, mu, prior, entropy_scale=1.0):
+        entropy_term = entropy_scale * self.cond_to_h.entropy(mu)
+        prior_term = self.cond_to_h.neg_log_prob(mu, prior[None, :])
+        return -(entropy_term - prior_term)
+
     def e_step(self, y, z, *params):
         prior = T.nnet.sigmoid(params[0])
         mu = T.nnet.sigmoid(z)
@@ -232,13 +237,13 @@ class SFFN(Layer):
             scale_factor = mc / approx
             cond_term = scale_factor * approx
 
-        prior_term = self.cond_to_h.neg_log_prob(mu, prior[None, :])
-        entropy_term = self.entropy_scale * self.cond_to_h.entropy(mu)
+        kl_term = self.kl_divergence(mu, prior,
+                                     entropy_scale=self.entropy_scale)
 
-        cost = (cond_term + prior_term - entropy_term).sum(axis=0)
+        cost = (cond_term + kl_term).sum(axis=0)
         grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, y])
 
-        return cost, grad, cond_term.mean(), prior_term.mean(), entropy_term.mean()
+        return cost, grad, cond_term.mean(), kl_term.mean()
 
     def step_infer(self, *params):
         raise NotImplementedError()
@@ -271,18 +276,18 @@ class SFFN(Layer):
 
     # Momentum
     def _step_momentum(self, y, z, l, dz_, m, *params):
-        cost, grad, c_term, p_term, e_term = self.e_step(y, z, *params)
+        cost, grad, c_term, kl_term = self.e_step(y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
         l *= self.inference_decay
-        return z, l, dz, cost, c_term, p_term, e_term
+        return z, l, dz, cost, c_term, kl_term
 
     def _init_momentum(self, ph, y, z):
         return [self.inference_rate, T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
-        zs, ls, dzs, costs, c_terms, p_terms, e_terms = outs
-        return zs, costs, c_terms, p_terms, e_terms
+        zs, ls, dzs, costs, c_terms, kl_terms = outs
+        return zs, costs, c_terms, kl_terms
 
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
@@ -363,7 +368,7 @@ class SFFN(Layer):
                 z0 = self.init_z(x, y)
 
         seqs = [ys]
-        outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None, None, None, None]
+        outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None, None, None]
         non_seqs = self.params_infer() + self.get_params()
 
         outs, updates_2 = theano.scan(
@@ -378,16 +383,16 @@ class SFFN(Layer):
         )
         updates.update(updates_2)
 
-        zs, i_costs, c_terms, p_terms, e_terms = self.unpack_infer(outs)
+        zs, i_costs, c_terms, kl_terms = self.unpack_infer(outs)
         zs = T.concatenate([z0[None, :, :], zs], axis=0)
 
-        return (zs, i_costs, ph, xs, ys, c_terms, p_terms, e_terms), updates
+        return (zs, i_costs, ph, xs, ys, c_terms, kl_terms), updates
 
     # Inference
     def inference(self, x, y, z0=None, n_samples=100):
         n_inference_steps = self.n_inference_steps
 
-        (zs, i_costs, ph, xs, ys, c_terms, p_terms, e_terms), updates = self.infer_q(
+        (zs, i_costs, ph, xs, ys, c_terms, kl_terms), updates = self.infer_q(
             x, y, n_inference_steps, z0=z0)
 
         prior_energy, h_energy, y_energy, y_energy_approx, entropy = self.m_step(
@@ -399,7 +404,7 @@ class SFFN(Layer):
 
         return (xs, ys, zs,
                 prior_energy, h_energy, y_energy, y_energy_approx, entropy,
-                i_costs[-1], c_terms[-1], p_terms[-1], e_terms[-1]), updates
+                i_costs[-1], c_terms[-1], kl_terms[-1]), updates
 
     def __call__(self, x, y, ph=None, n_samples=100,
                  n_inference_steps=0, end_with_inference=True):
@@ -413,22 +418,18 @@ class SFFN(Layer):
 
         if end_with_inference:
             z0 = logit(ph)
-            (zs, i_energy, _, _, _, cs, ps, es), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
+            (zs, i_energy, _, _, _, cs, kls), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
             updates.update(updates_i)
             ph = T.nnet.sigmoid(zs[-1])
 
         h = self.cond_to_h.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
         py = self.cond_from_h(h)
-        if self.use_geometric_mean:
-            y_energy = log_mean_exp(self.cond_from_h.neg_log_prob(y[None, :, :], py), axis=0).mean()
-        else:
-            y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean(axis=0)
+        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean(axis=0)
         prior = T.nnet.sigmoid(self.z)
-        prior_energy = self.cond_to_h.neg_log_prob(ph, prior[None, :])
-        entropy = self.cond_to_h.entropy(ph)
+        kl_term = self.kl_divergence(ph, prior)
 
-        return (py, (y_energy + prior_energy - entropy).mean(axis=0),
-                     i_energy[-1], cs[-1], ps[-1], es[-1]), updates
+        return (py, (y_energy + kl_term).mean(axis=0),
+                     i_energy[-1], cs[-1], kls[-1]), updates
 
 
 class GaussianBeliefNet(Layer):
@@ -618,11 +619,15 @@ class GaussianBeliefNet(Layer):
 
         return (prior_energy, h_energy, y_energy, y_energy_approx, entropy)
 
+    def kl_divergence(self, mu, log_sigma, mu_p, log_sigma_p, entropy_scale=1.0):
+        return log_sigma_p[None, :] - log_sigma + 0.5 * (T.exp(2 * log_sigma) + (mu - mu_p[None, :]) / T.exp(2 * log_sigma_p[None, :]) - 1)
+
     def e_step(self, y, z, *params):
         mu_p = params[0]
         log_sigma_p = params[1]
 
         mu = _slice(z, 0, self.dim_h)
+        log_sigma = _slice(z, 1, self.dim_h)
 
         py = self.p_y_given_h(mu, *params)
         h = self.cond_to_h.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
@@ -633,15 +638,14 @@ class GaussianBeliefNet(Layer):
         #mc = self.cond_from_h.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
         #scale_factor = mc / approx
 
-        #cond_term = scale_factor * approx
         cond_term = self.cond_from_h.neg_log_prob(y, py)
-        prior_term = self.cond_to_h.neg_log_prob(mu, prior[None, :])
-        entropy_term = self.entropy_scale * self.cond_to_h.entropy(mu)
+        kl_term = self.kl_divergence(mu, log_sigma, mu_p, log_sigma_p,
+                                     entropy_scale=self.entropy_scale)
 
-        cost = (cond_term + prior_term - entropy_term).sum(axis=0)
+        cost = (cond_term + kl_term).sum(axis=0)
         grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, y])
 
-        return cost, grad, cond_term.mean(), prior_term.mean(), entropy_term.mean()
+        return cost, grad, cond_term.mean(), kl_term.mean()
 
     def step_infer(self, *params):
         raise NotImplementedError()
@@ -674,18 +678,18 @@ class GaussianBeliefNet(Layer):
 
     # Momentum
     def _step_momentum(self, y, z, l, dz_, m, *params):
-        cost, grad, c_term, p_term, e_term = self.e_step(y, z, *params)
+        cost, grad, c_term, kl_term = self.e_step(y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
         l *= self.inference_decay
-        return z, l, dz, cost, c_term, p_term, e_term
+        return z, l, dz, cost, c_term, kl_term
 
     def _init_momentum(self, ph, y, z):
         return [self.inference_rate, T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
-        zs, ls, dzs, costs, c_terms, p_terms, e_terms = outs
-        return zs, costs, c_terms, p_terms, e_terms
+        zs, ls, dzs, costs, c_terms, kl_terms = outs
+        return zs, costs, c_terms, kl_terms
 
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
@@ -766,7 +770,7 @@ class GaussianBeliefNet(Layer):
                 z0 = self.init_z(x, y)
 
         seqs = [ys]
-        outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None, None, None, None]
+        outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None, None, None]
         non_seqs = self.params_infer() + self.get_params()
 
         outs, updates_2 = theano.scan(
@@ -781,16 +785,16 @@ class GaussianBeliefNet(Layer):
         )
         updates.update(updates_2)
 
-        zs, i_costs, c_terms, p_terms, e_terms = self.unpack_infer(outs)
+        zs, i_costs, c_terms, kl_terms = self.unpack_infer(outs)
         zs = T.concatenate([z0[None, :, :], zs], axis=0)
 
-        return (zs, i_costs, ph, xs, ys, c_terms, p_terms, e_terms), updates
+        return (zs, i_costs, ph, xs, ys, c_terms, kl_terms), updates
 
     # Inference
     def inference(self, x, y, z0=None, n_samples=100):
         n_inference_steps = self.n_inference_steps
 
-        (zs, i_costs, ph, xs, ys, c_terms, p_terms, e_terms), updates = self.infer_q(
+        (zs, i_costs, ph, xs, ys, c_terms, kl_terms), updates = self.infer_q(
             x, y, n_inference_steps, z0=z0)
 
         prior_energy, h_energy, y_energy, y_energy_approx, entropy = self.m_step(
@@ -802,7 +806,7 @@ class GaussianBeliefNet(Layer):
 
         return (xs, ys, zs,
                 prior_energy, h_energy, y_energy, y_energy_approx, entropy,
-                i_costs[-1], c_terms[-1], p_terms[-1], e_terms[-1]), updates
+                i_costs[-1], c_terms[-1], kl_terms[-1]), updates
 
     def __call__(self, x, y, ph=None, n_samples=100,
                  n_inference_steps=0, end_with_inference=True):
@@ -816,19 +820,15 @@ class GaussianBeliefNet(Layer):
 
         if end_with_inference:
             z0 = logit(ph)
-            (zs, i_energy, _, _, _, cs, ps, es), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
+            (zs, i_energy, _, _, _, cs, kls), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
             updates.update(updates_i)
             ph = T.nnet.sigmoid(zs[-1])
 
         h = self.cond_to_h.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
         py = self.cond_from_h(h)
-        if self.use_geometric_mean:
-            y_energy = log_mean_exp(self.cond_from_h.neg_log_prob(y[None, :, :], py), axis=0).mean()
-        else:
-            y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean(axis=0)
+        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean(axis=0)
         prior = T.nnet.sigmoid(self.z)
-        prior_energy = self.cond_to_h.neg_log_prob(ph, prior[None, :])
-        entropy = self.cond_to_h.entropy(ph)
+        kl_term = self.kl_divergence(ph, prior)
 
-        return (py, (y_energy + prior_energy - entropy).mean(axis=0),
-                     i_energy[-1], cs[-1], ps[-1], es[-1]), updates
+        return (py, (y_energy + kl_term).mean(axis=0),
+                     i_energy[-1], cs[-1], kls[-1]), updates
