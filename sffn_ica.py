@@ -222,7 +222,7 @@ class SFFN(Layer):
         entropy_term = self.cond_to_h.entropy(mu)
 
         cost = (cond_term + prior_term - entropy_term).sum(axis=0)
-        grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, ph, y])
+        grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, y])
 
         return cost, grad, cond_term.mean(), prior_term.mean(), entropy_term.mean()
 
