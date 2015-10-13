@@ -108,6 +108,8 @@ def unpack(dim_h=None,
            inference_method=None,
            inference_rate=None,
            update_inference_scale=None,
+           entropy_scale=None,
+           use_geometric_mean=None,
            x_noise_mode=None,
            y_noise_mode=None,
            **model_args):
@@ -115,13 +117,15 @@ def unpack(dim_h=None,
     Function to unpack pretrained model into fresh SFFN class.
     '''
 
-    inference_args = dict(
+    kwargs = dict(
         inference_method=inference_method,
         inference_rate=inference_rate,
         n_inference_steps=n_inference_steps,
         inference_decay=inference_decay,
         update_inference_scale=update_inference_scale,
-        z_init=z_init
+        z_init=z_init,
+        entropy_scale=entropy_scale,
+        use_geometric_mean=use_geometric_mean
     )
 
     dim_h = int(dim_h)
@@ -156,7 +160,7 @@ def unpack(dim_h=None,
                 noise_amount=0.,
                 x_noise_mode=x_noise_mode,
                 y_noise_mode=y_noise_mode,
-                **inference_args)
+                **kwargs)
     models.append(sffn)
 
     return models, model_args, dict(
@@ -176,24 +180,28 @@ def train_model(
     inference_method='momentum',
     inference_rate=.01, n_inference_steps=100,
     inference_decay=1.0, inference_samples=20,
+    entropy_scale=1.0,
     z_init='recognition_net',
     update_inference_scale=False,
     n_inference_steps_eval=0,
+    use_geometric_mean=False,
     dataset=None, dataset_args=None,
     model_save_freq=10, show_freq=10
     ):
 
-    inference_args = dict(
+    kwargs = dict(
         inference_method=inference_method,
         inference_rate=inference_rate,
         n_inference_steps=n_inference_steps,
         inference_decay=inference_decay,
         update_inference_scale=update_inference_scale,
-        z_init=z_init
+        z_init=z_init,
+        entropy_scale=entropy_scale,
+        use_geometric_mean=use_geometric_mean
     )
 
     print 'Dataset args: %s' % pprint.pformat(dataset_args)
-    print 'Inference args: %s' % pprint.pformat(inference_args)
+    print 'Model args: %s' % pprint.pformat(kwargs)
 
     print 'Setting up data'
     if dataset == 'mnist':
@@ -216,10 +224,10 @@ def train_model(
     trng = RandomStreams(random.randint(0, 1000000))
 
     if model_to_load is not None:
-        models, _ = load_model(model_to_load, unpack, **inference_args)
+        models, _ = load_model(model_to_load, unpack, **kwargs)
     elif load_last:
         model_file = glob(path.join(out_path, '*last.npz'))[0]
-        models, _ = load_model(model_file, unpack, **inference_args)
+        models, _ = load_model(model_file, unpack, **kwargs)
     else:
         # The recognition net is a MLP with 2 layers. The intermediate layer is
         # deterministic.
@@ -245,7 +253,7 @@ def train_model(
                     noise_amount=0.,
                     x_noise_mode=x_noise_mode,
                     y_noise_mode=y_noise_mode,
-                    **inference_args)
+                    **kwargs)
 
         models = OrderedDict()
         models[sffn.name] = sffn
