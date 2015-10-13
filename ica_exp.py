@@ -181,7 +181,7 @@ def train_model(
     inference_rate=.01, n_inference_steps=100,
     inference_decay=1.0, inference_samples=20,
     entropy_scale=1.0,
-    z_init='recognition_net',
+    z_init=None,
     update_inference_scale=False,
     n_inference_steps_eval=0,
     use_geometric_mean=False,
