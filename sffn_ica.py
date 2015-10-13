@@ -14,6 +14,7 @@ import tools
 from tools import init_rngs
 from tools import init_weights
 from tools import log_mean_exp
+from tools import logit
 
 
 norm_weight = tools.norm_weight
@@ -351,7 +352,7 @@ class SFFN(Layer):
         if z0 is None:
             if self.z_init == 'recognition_net':
                 print 'Starting z0 at recognition net'
-                z0 = T.log(ph[0] + 1e-7) - T.log(1 - ph[0] + 1e-7)
+                z0 = logit(ph[0])
             else:
                 z0 = self.init_z(x, y)
 
@@ -372,6 +373,7 @@ class SFFN(Layer):
         updates.update(updates_2)
 
         zs, i_costs, c_terms, p_terms, e_terms = self.unpack_infer(outs)
+        zs = T.concatenate([z0[None, :, :], zs], axis=0)
 
         return (zs, i_costs, ph, xs, ys, c_terms, p_terms, e_terms), updates
 
@@ -404,7 +406,7 @@ class SFFN(Layer):
             ph = self.cond_to_h(x)
 
         if end_with_inference:
-            z0 = T.log(ph + 1e-7) - T.log(1 - ph + 1e-7)
+            z0 = logit(ph)
             (zs, i_energy, _, _, _, cs, ps, es), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
             updates.update(updates_i)
             ph = T.nnet.sigmoid(zs[-1])
