@@ -1,0 +1,30 @@
+{
+  name: 'sbn_no_scaling',
+  prior: 'logistic',
+  dim_h: 200,
+  recognition_net: {
+    dim_h: 200,
+    h_act: 'T.nnet.softplus',
+    n_layers: 2
+  },
+  generation_net: {
+    dim_h: 200,
+    h_act: 'T.nnet.softplus',
+    n_layers: 2
+  },
+  z_init: 'recognition_net',
+  learning_rate: 0.1,
+  optimizer: 'adam',
+  batch_size: 100,
+  epochs: 500,
+  inference_samples: 20,
+  n_inference_steps: 20,
+  inference_decay: 0.99,
+  inference_rate: 0.1,
+  inference_method: 'momentum',
+  n_inference_steps_eval: 20,
+  dataset: 'mnist',
+  dataset_args: {
+    source: '/Users/devon/Data/mnist.pkl.gz'
+  }
+}
