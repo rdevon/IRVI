@@ -444,7 +444,7 @@ class GaussianBeliefNet(Layer):
                  update_inference_scale=False,
                  entropy_scale=1.0,
                  use_geometric_mean=False,
-                 inference_method='sgd', name='gbn'):
+                 inference_method='sgd', name='sffn'):
 
         self.dim_in = dim_in
         self.dim_h = dim_h
@@ -513,14 +513,16 @@ class GaussianBeliefNet(Layer):
         else:
             self.trng = trng
 
-        super(SFFN, self).__init__(name=name)
+        super(GaussianBeliefNet, self).__init__(name=name)
 
     def set_params(self):
         mu = np.zeros((self.dim_h,)).astype(floatX)
         log_sigma = np.zeros((self.dim_h,)).astype(floatX)
+        inference_scale_factor = np.float32(1.0)
 
         self.params = OrderedDict(
-            mu=mu, log_sigma=log_sigma)
+            mu=mu, log_sigma=log_sigma,
+            inference_scale_factor=inference_scale_factor)
 
         if self.cond_to_h is None:
             self.cond_to_h = MLP(self.dim_in, self.dim_h, self.dim_h, 1,
@@ -539,7 +541,7 @@ class GaussianBeliefNet(Layer):
     def set_tparams(self, excludes=[]):
         excludes = ['{name}_{key}'.format(name=self.name, key=key)
                     for key in excludes]
-        tparams = super(SFFN, self).set_tparams()
+        tparams = super(GaussianBeliefNet, self).set_tparams()
         tparams.update(**self.cond_to_h.set_tparams())
         tparams.update(**self.cond_from_h.set_tparams())
 
@@ -589,38 +591,44 @@ class GaussianBeliefNet(Layer):
         return params
 
     def p_y_given_h(self, h, *params):
-        params = params[1:-1]
+        params = params[2:-1]
         return self.cond_from_h.step_call(h, *params)
 
     def sample_from_prior(self, n_samples=100):
-        p = T.concatenate([self.mu, self.sigma], axis=1)
-        h = self.cond_to_h.sample(p=p, size=(n_samples, p.shape[0]))
+        p = T.concatenate([self.mu, self.log_sigma], axis=0)
+        h = self.cond_to_h.sample(p=p, size=(n_samples, self.dim_h))
         py = self.cond_from_h(h)
         return py
 
     def m_step(self, ph, y, z, n_samples=10):
         mu = _slice(z, 0, self.dim_h)
-        sigma = _slice(z, 1, self.dim_h)
+        log_sigma = _slice(z, 1, self.dim_h)
 
         if n_samples == 0:
             h = mu[None, :, :]
         else:
-            h = self.cond_to_h.sample(p=z, size=(n_samples, z.shape[0], z.shape[1] / 2))
+            h = self.cond_to_h.sample(p=z, size=(n_samples, mu.shape[0], mu.shape[1]))
 
         py = self.cond_from_h(h)
         py_approx = self.cond_from_h(mu)
 
-        prior = T.nnet.sigmoid(self.z)
-        prior_energy = self.cond_to_h.neg_log_prob(mu, prior[None, :]).mean()
-        h_energy = self.cond_to_h.neg_log_prob(mu, ph).mean()
+        prior_energy = self.kl_divergence(mu, log_sigma,
+                                          self.mu[None, :], self.log_sigma[None, :]
+                                          ).mean()
+
+        mu_h = _slice(ph, 0, self.dim_h)
+        log_sigma_h = _slice(ph, 1, self.dim_h)
+        h_energy = self.kl_divergence(mu_h, log_sigma_h, mu, log_sigma).mean()
+
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean()
         y_energy_approx = self.cond_from_h.neg_log_prob(y, py_approx).mean()
-        entropy = self.cond_to_h.entropy(mu).mean()
+        entropy = self.cond_to_h.entropy(z).mean()
 
         return (prior_energy, h_energy, y_energy, y_energy_approx, entropy)
 
     def kl_divergence(self, mu, log_sigma, mu_p, log_sigma_p, entropy_scale=1.0):
-        return log_sigma_p[None, :] - log_sigma + 0.5 * (T.exp(2 * log_sigma) + (mu - mu_p[None, :]) / T.exp(2 * log_sigma_p[None, :]) - 1)
+        kl = log_sigma_p - log_sigma + 0.5 * ((T.exp(2 * log_sigma) + (mu - mu_p) ** 2) / T.exp(2 * log_sigma_p) - 1)
+        return kl.sum(axis=kl.ndim-1)
 
     def e_step(self, y, z, *params):
         mu_p = params[0]
@@ -633,13 +641,14 @@ class GaussianBeliefNet(Layer):
         h = self.cond_to_h.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
         #py_r = self.p_y_given_h(h, *params)
 
-        #scale_factor = params[-1]
+        scale_factor = params[-1]
         #approx = self.cond_from_h.neg_log_prob(y, py)
         #mc = self.cond_from_h.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
         #scale_factor = mc / approx
 
         cond_term = self.cond_from_h.neg_log_prob(y, py)
-        kl_term = self.kl_divergence(mu, log_sigma, mu_p, log_sigma_p,
+        kl_term = self.kl_divergence(mu, log_sigma, mu_p[None, :],
+                                     log_sigma_p[None, :],
                                      entropy_scale=self.entropy_scale)
 
         cost = (cond_term + kl_term).sum(axis=0)
@@ -765,7 +774,7 @@ class GaussianBeliefNet(Layer):
         if z0 is None:
             if self.z_init == 'recognition_net':
                 print 'Starting z0 at recognition net'
-                z0 = logit(ph[0])
+                z0 = ph[0]
             else:
                 z0 = self.init_z(x, y)
 
@@ -819,16 +828,23 @@ class GaussianBeliefNet(Layer):
             ph = self.cond_to_h(x)
 
         if end_with_inference:
-            z0 = logit(ph)
-            (zs, i_energy, _, _, _, cs, kls), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
+            z0 = ph
+            (zs, i_energy, _, _, _, cs, kls), updates_i = self.infer_q(
+                x_n, y, n_inference_steps, z0=z0)
             updates.update(updates_i)
-            ph = T.nnet.sigmoid(zs[-1])
 
-        h = self.cond_to_h.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
+            mu = _slice(zs[-1], 0, self.dim_h)
+            log_sigma = _slice(zs[-1], 1, self.dim_h)
+        else:
+            mu = _slice(ph, 0, self.dim_h)
+            log_sigma = _slice(ph, 1, self.dim_h)
+
+        h = self.cond_to_h.sample(ph,
+                                  size=(n_samples, mu.shape[0], mu.shape[1]))
         py = self.cond_from_h(h)
         y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean(axis=0)
-        prior = T.nnet.sigmoid(self.z)
-        kl_term = self.kl_divergence(ph, prior)
+        kl_term = self.kl_divergence(mu, log_sigma,
+                                     self.mu[None, :], self.log_sigma[None, :])
 
         return (py, (y_energy + kl_term).mean(axis=0),
                      i_energy[-1], cs[-1], kls[-1]), updates

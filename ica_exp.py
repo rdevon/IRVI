@@ -21,11 +21,13 @@ import time
 from layers import MLP
 from mnist import mnist_iterator
 import op
+from sffn_ica import GaussianBeliefNet as GBN
 from sffn_ica import SFFN
 from tools import check_bad_nums
 from tools import itemlist
 from tools import load_model
 from tools import load_experiment
+from tools import _slice
 
 floatX = theano.config.floatX
 
@@ -174,6 +176,7 @@ def train_model(
     load_last=False, model_to_load=None, save_images=True,
     learning_rate=0.1, optimizer='adam', batch_size=100, epochs=100,
     dim_h=300,
+    prior='logistic',
     learn_prior=True,
     x_noise_mode=None, y_noise_mode=None, noise_amout=0.1,
     generation_net=None, recognition_net=None,
@@ -231,9 +234,16 @@ def train_model(
     else:
         # The recognition net is a MLP with 2 layers. The intermediate layer is
         # deterministic.
+        if prior == 'sffn':
+            out_act = 'T.nnet.sigmoid'
+        elif prior == 'gaussian':
+            out_act = 'lambda x: x'
+        else:
+            raise ValueError()
+
         if recognition_net is not None:
             cond_to_h = load_mlp('cond_to_h', dim_in, dim_h,
-                                 out_act='T.nnet.sigmoid',
+                                 out_act=out_act,
                                  **recognition_net)
         else:
             cond_to_h = None
@@ -247,13 +257,19 @@ def train_model(
         else:
             cond_from_h = None
 
-        sffn = SFFN(dim_in, dim_h, dim_out, trng=trng,
-                    cond_from_h=cond_from_h,
-                    cond_to_h=cond_to_h,
-                    noise_amount=0.,
-                    x_noise_mode=x_noise_mode,
-                    y_noise_mode=y_noise_mode,
-                    **kwargs)
+        if prior == 'sffn':
+            C = SFFN
+        elif prior == 'gaussian':
+            C = GBN
+        else:
+            raise ValueError()
+        sffn = C(dim_in, dim_h, dim_out, trng=trng,
+                cond_from_h=cond_from_h,
+                cond_to_h=cond_to_h,
+                noise_amount=0.,
+                x_noise_mode=x_noise_mode,
+                y_noise_mode=y_noise_mode,
+                **kwargs)
 
         models = OrderedDict()
         models[sffn.name] = sffn
@@ -273,7 +289,12 @@ def train_model(
      i_energy, c_term, kl_term), updates = sffn.inference(
         X, Y, n_samples=inference_samples)
 
-    mu = T.nnet.sigmoid(zs)
+    if prior == 'sffn':
+        mu = T.nnet.sigmoid(zs)
+    elif prior == 'gaussian':
+        mu = _slice(zs, 0, sffn.dim_h)
+    else:
+        raise ValueError()
     py = sffn.cond_from_h(mu)
 
     pd_i, d_hat_i = concatenate_inputs(sffn, ys[0], py)
