@@ -223,22 +223,24 @@ class SFFN(Layer):
     def e_step(self, y, z, *params):
         prior = T.nnet.sigmoid(params[0])
         mu = T.nnet.sigmoid(z)
-
         py = self.p_y_given_h(mu, *params)
-        h = self.cond_to_h.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
-        py_r = self.p_y_given_h(h, *params)
 
+        consider_constant = [y]
         cond_term = self.cond_from_h.neg_log_prob(y, py)
         if self.inference_scaling == 'global':
             print 'Using global scaling in inference'
             scale_factor = params[-1]
             cond_term = scale_factor * cond_term
+            consider_constant += [scale_factor]
         elif self.inference_scaling == 'inference':
             print 'Calculating scaling during inference'
+            h = self.cond_to_h.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
+            py_r = self.p_y_given_h(h, *params)
             mc = self.cond_from_h.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
             cond_term_c = T.zeros_like(cond_term) + cond_term
             scale_factor = mc / cond_term_c
             cond_term = scale_factor * cond_term
+            consider_constant += [scale_factor, cond_term_c]
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
 
@@ -246,8 +248,7 @@ class SFFN(Layer):
             mu, prior, entropy_scale=self.entropy_scale)
 
         cost = (cond_term + kl_term).sum(axis=0)
-        grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, y,
-                                                           cond_term_c])
+        grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
 
         return cost, grad, cond_term.mean(), kl_term.mean()
 
@@ -448,6 +449,7 @@ class GaussianBeliefNet(Layer):
                  inference_rate=0.1, inference_decay=0.99, n_inference_steps=30,
                  inference_step_scheduler=None,
                  update_inference_scale=False,
+                 inference_scaling='global',
                  entropy_scale=1.0,
                  use_geometric_mean=False,
                  inference_method='sgd', name='sffn'):
@@ -481,32 +483,13 @@ class GaussianBeliefNet(Layer):
 
         self.n_inference_steps = T.constant(n_inference_steps).astype('int64')
         self.inference_step_scheduler = inference_step_scheduler
+        self.inference_scaling = inference_scaling
 
-        if inference_method == 'sgd':
-            self.step_infer = self._step_sgd
-            self.init_infer = self._init_sgd
-            self.unpack_infer = self._unpack_sgd
-            self.params_infer = self._params_sgd
-        elif inference_method == 'momentum':
+        if inference_method == 'momentum':
             self.step_infer = self._step_momentum
             self.init_infer = self._init_momentum
             self.unpack_infer = self._unpack_momentum
             self.params_infer = self._params_momentum
-        elif inference_method == 'adam':
-            self.step_infer = self._step_adam
-            self.init_infer = self._init_adam
-            self.unpack_infer = self._unpack_adam
-            self.params_infer = self._params_adam
-        elif inference_method == 'cg':
-            self.step_infer = self._step_cg
-            self.init_infer = self._init_cg
-            self.unpack_infer = self._unpack_cg
-            self.params_infer = self._params_cg
-        elif inference_method == 'cg2':
-            self.step_infer = self._step_cg2
-            self.init_infer = self._init_cg2
-            self.unpack_infer = self._unpack_cg2
-            self.params_infer = self._params_cg2
         else:
             raise ValueError()
 
@@ -638,18 +621,25 @@ class GaussianBeliefNet(Layer):
     def e_step(self, y, z, *params):
         mu_p = params[0]
         log_sigma_p = params[1]
-
         mu = _slice(z, 0, self.dim_h)
         log_sigma = _slice(z, 1, self.dim_h)
-
         py = self.p_y_given_h(mu, *params)
-        h = self.cond_to_h.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
-        #py_r = self.p_y_given_h(h, *params)
 
-        scale_factor = params[-1]
-        #approx = self.cond_from_h.neg_log_prob(y, py)
-        #mc = self.cond_from_h.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
-        #scale_factor = mc / approx
+        cond_term = self.cond_from_h.neg_log_prob(y, py)
+        if self.inference_scaling == 'global':
+            print 'Using global scaling in inference'
+            scale_factor = params[-1]
+            cond_term = scale_factor * cond_term
+        elif self.inference_scaling == 'inference':
+            print 'Calculating scaling during inference'
+            h = self.cond_to_h.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
+            py_r = self.p_y_given_h(h, *params)
+            mc = self.cond_from_h.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
+            cond_term_c = T.zeros_like(cond_term) + cond_term
+            scale_factor = mc / cond_term_c
+            cond_term = scale_factor * cond_term
+        elif self.inference_scaling is not None:
+            raise ValueError(self.inference_scaling)
 
         cond_term = self.cond_from_h.neg_log_prob(y, py)
         kl_term = self.kl_divergence(mu, log_sigma, mu_p[None, :],
@@ -673,23 +663,6 @@ class GaussianBeliefNet(Layer):
     def params_infer(self):
         raise NotImplementedError()
 
-    # SGD
-    def _step_sgd(self, y, z, l, *params):
-        cost, grad = self.e_step(y, z, *params)
-        z = (z - l * grad).astype(floatX)
-        l *= self.inference_decay
-        return z, l, cost
-
-    def _init_sgd(self, ph, y, z):
-        return [self.inference_rate]
-
-    def _unpack_sgd(self, outs):
-        zs, ls, costs = outs
-        return zs, costs
-
-    def _params_sgd(self):
-        return []
-
     # Momentum
     def _step_momentum(self, y, z, l, dz_, m, *params):
         cost, grad, c_term, kl_term = self.e_step(y, z, *params)
@@ -707,69 +680,6 @@ class GaussianBeliefNet(Layer):
 
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
-
-    # Adam
-    def _step_adam(self, ph, y, z, m_tm1, v_tm1, cnt, b1, b2, lr, *params):
-
-        b1 = b1 * (1 - 1e-8)**cnt
-        cost, grad = self.e_step(ph, y, z, *params)
-        m_t = b1 * m_tm1 + (1 - b1) * grad
-        v_t = b2 * v_tm1 + (1 - b2) * grad**2
-        m_t_hat = m_t / (1. - b1**(cnt + 1))
-        v_t_hat = v_t / (1. - b2**(cnt + 1))
-        grad_t = m_t_hat / (T.sqrt(v_t_hat) + 1e-8)
-        z_t = (z - lr * grad_t).astype(floatX)
-        cnt += 1
-
-        return z_t, m_t, v_t, cnt, cost
-
-    def _init_adam(self, ph, y, z):
-        return [T.zeros_like(z), T.zeros_like(z), 0]
-
-    def _unpack_adam(self, outs):
-        zs, ms, vs, cnts, costs = outs
-        return zs, costs
-
-    def _params_adam(self):
-        return [T.constant(self.b1).astype('float32'),
-                T.constant(self.b2).astype('float32'),
-                T.constant(self.inference_rate).astype('float32')]
-
-    def _inference_cost_cg(self, ph, y, z, *params):
-        mu = T.nnet.sigmoid(z)
-        py = self.p_y_given_h(mu, *params)
-        cost = (self.cond_from_h.neg_log_prob(y, py)
-                + self.cond_to_h.neg_log_prob(mu, ph)
-                - self.cond_to_h.entropy(mu)
-                )
-        return cost
-
-    # Conjugate gradient with log-grid line search
-    def _step_cg(self, ph, y, z, s_, dz_sq_, alphas, *params):
-        cost, grad = self.e_step(ph, y, z, *params)
-        dz = -grad
-        dz_sq = (dz * dz).sum(axis=1)
-        beta = dz_sq / (dz_sq_ + 1e-8)
-        s = dz + beta[:, None] * s_
-        z_alpha = z[None, :, :] + alphas[:, None, None] * s[None, :, :]
-        costs = self._inference_cost_cg(
-            ph[None, :, :], y[None, :, :], z_alpha, *params)
-        idx = costs.argmin(axis=0)
-        z = z + alphas[idx][:, None] * s
-        return z, s, dz_sq, cost
-
-    def _init_cg(self, ph, y, z):
-        params = self.get_params()
-        s0 = T.zeros_like(z)
-        dz_sq0 = T.alloc(1., z.shape[0]).astype(floatX)
-        return [s0, dz_sq0]
-
-    def _unpack_cg(self, outs):
-        zs, ss, dz_sqs, costs = outs
-        return zs, costs
-
-    def _params_cg(self, ):
-        return [(self.inference_rate * 2. ** T.arange(8)).astype(floatX)]
 
     def infer_q(self, x, y, n_inference_steps, z0=None):
         updates = theano.OrderedUpdates()
