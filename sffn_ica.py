@@ -225,7 +225,7 @@ class SFFN(Layer):
         mu = T.nnet.sigmoid(z)
         py = self.p_y_given_h(mu, *params)
 
-        consider_constant = [y]
+        consider_constant = [y, prior]
         cond_term = self.cond_from_h.neg_log_prob(y, py)
         if self.inference_scaling == 'global':
             print 'Using global scaling in inference'
