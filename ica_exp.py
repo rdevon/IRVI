@@ -234,7 +234,7 @@ def train_model(
     else:
         # The recognition net is a MLP with 2 layers. The intermediate layer is
         # deterministic.
-        if prior == 'sffn':
+        if prior == 'logistic':
             out_act = 'T.nnet.sigmoid'
         elif prior == 'gaussian':
             out_act = 'lambda x: x'
@@ -257,7 +257,7 @@ def train_model(
         else:
             cond_from_h = None
 
-        if prior == 'sffn':
+        if prior == 'logistic':
             C = SFFN
         elif prior == 'gaussian':
             C = GBN
@@ -289,7 +289,7 @@ def train_model(
      i_energy, c_term, kl_term), updates = sffn.inference(
         X, Y, n_samples=inference_samples)
 
-    if prior == 'sffn':
+    if prior == 'logistic':
         mu = T.nnet.sigmoid(zs)
     elif prior == 'gaussian':
         mu = _slice(zs, 0, sffn.dim_h)
