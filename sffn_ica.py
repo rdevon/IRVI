@@ -35,7 +35,7 @@ class SFFN(Layer):
                  update_inference_scale=False,
                  entropy_scale=1.0,
                  use_geometric_mean=False,
-                 global_inference_scale=True,
+                 inference_scaling='global',
                  inference_method='sgd', name='sffn'):
 
         self.dim_in = dim_in
@@ -67,7 +67,7 @@ class SFFN(Layer):
 
         self.n_inference_steps = T.constant(n_inference_steps).astype('int64')
         self.inference_step_scheduler = inference_step_scheduler
-        self.global_inference_scale = global_inference_scale
+        self.inference_scaling = inference_scaling
 
         if inference_method == 'sgd':
             self.step_infer = self._step_sgd
@@ -228,20 +228,26 @@ class SFFN(Layer):
         h = self.cond_to_h.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
         py_r = self.p_y_given_h(h, *params)
 
-        if self.global_inference_scale:
+        cond_term = self.cond_from_h.neg_log_prob(y, py)
+        if self.inference_scaling == 'global':
+            print 'Using global scaling in inference'
             scale_factor = params[-1]
-            cond_term = scale_factor * self.cond_from_h.neg_log_prob(y, py)
-        else:
-            approx = self.cond_from_h.neg_log_prob(y, py)
+            cond_term = scale_factor * cond_term
+        elif self.inference_scaling == 'inference':
+            print 'Calculating scaling during inference'
             mc = self.cond_from_h.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
-            scale_factor = mc / approx
-            cond_term = scale_factor * approx
+            cond_term_c = T.zeros_like(cond_term) + cond_term
+            scale_factor = mc / cond_term_c
+            cond_term = scale_factor * cond_term
+        elif self.inference_scaling is not None:
+            raise ValueError(self.inference_scaling)
 
-        kl_term = self.kl_divergence(mu, prior,
-                                     entropy_scale=self.entropy_scale)
+        kl_term = self.kl_divergence(
+            mu, prior, entropy_scale=self.entropy_scale)
 
         cost = (cond_term + kl_term).sum(axis=0)
-        grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, y])
+        grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, y,
+                                                           cond_term_c])
 
         return cost, grad, cond_term.mean(), kl_term.mean()
 
@@ -612,9 +618,8 @@ class GaussianBeliefNet(Layer):
         py = self.cond_from_h(h)
         py_approx = self.cond_from_h(mu)
 
-        prior_energy = self.kl_divergence(mu, log_sigma,
-                                          self.mu[None, :], self.log_sigma[None, :]
-                                          ).mean()
+        prior_energy = self.kl_divergence(
+            mu, log_sigma, self.mu[None, :], self.log_sigma[None, :]).mean()
 
         mu_h = _slice(ph, 0, self.dim_h)
         log_sigma_h = _slice(ph, 1, self.dim_h)

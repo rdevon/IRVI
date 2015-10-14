@@ -23,6 +23,7 @@
   inference_rate: 0.1,
   inference_method: 'momentum',
   update_inference_scale: True,
+  inference_scaling: 'inference',
   n_inference_steps_eval: 20,
   dataset: 'mnist',
   dataset_args: {
