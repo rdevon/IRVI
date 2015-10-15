@@ -184,7 +184,7 @@ def train_model(
     inference_method='momentum',
     inference_rate=.01, n_inference_steps=100,
     inference_decay=1.0, inference_samples=20,
-    inference_scaling='global',
+    inference_scaling=None,
     entropy_scale=1.0,
     z_init=None,
     update_inference_scale=False,
