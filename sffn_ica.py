@@ -35,7 +35,7 @@ class SFFN(Layer):
                  update_inference_scale=False,
                  entropy_scale=1.0,
                  use_geometric_mean=False,
-                 inference_scaling='global',
+                 inference_scaling=None,
                  inference_method='sgd', name='sffn'):
 
         self.dim_in = dim_in
@@ -206,10 +206,7 @@ class SFFN(Layer):
         prior = T.nnet.sigmoid(self.z)
         prior_energy = self.cond_to_h.neg_log_prob(mu, prior[None, :]).mean()
         h_energy = self.cond_to_h.neg_log_prob(mu, ph).mean()
-        if self.use_geometric_mean:
-            y_energy = log_mean_exp(self.cond_from_h.neg_log_prob(y[None, :, :], py), axis=0).mean()
-        else:
-            y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean()
+        y_energy = self.cond_from_h.neg_log_prob(y[None, :, :], py).mean()
         y_energy_approx = self.cond_from_h.neg_log_prob(y, py_approx).mean()
         entropy = self.cond_to_h.entropy(mu).mean()
 
@@ -625,11 +622,13 @@ class GaussianBeliefNet(Layer):
         log_sigma = _slice(z, 1, self.dim_h)
         py = self.p_y_given_h(mu, *params)
 
+        consider_constant = [y, mu_p, log_sigma_p]
         cond_term = self.cond_from_h.neg_log_prob(y, py)
         if self.inference_scaling == 'global':
             print 'Using global scaling in inference'
             scale_factor = params[-1]
             cond_term = scale_factor * cond_term
+            consider_constant += [scale_factor]
         elif self.inference_scaling == 'inference':
             print 'Calculating scaling during inference'
             h = self.cond_to_h.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
@@ -638,6 +637,7 @@ class GaussianBeliefNet(Layer):
             cond_term_c = T.zeros_like(cond_term) + cond_term
             scale_factor = mc / cond_term_c
             cond_term = scale_factor * cond_term
+            consider_constant += [scale_factor, cond_term_c]
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
 
@@ -647,7 +647,7 @@ class GaussianBeliefNet(Layer):
                                      entropy_scale=self.entropy_scale)
 
         cost = (cond_term + kl_term).sum(axis=0)
-        grad = theano.grad(cost, wrt=z, consider_constant=[scale_factor, y])
+        grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
 
         return cost, grad, cond_term.mean(), kl_term.mean()
 
