@@ -192,11 +192,14 @@ class SigmoidBeliefNetwork(Layer):
         y_energy_approx = self.conditional.neg_log_prob(y, py_approx).mean()
         if self.importance_sampling:
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py)
-            w = T.exp(-y_energy) / T.exp(-self.posterior.neg_log_prob(h, mu))
-            w_tilda = w / w.sum(axis=0)
+            w = T.exp(-y_energy + self.posterior.neg_log_prob(h, mu))
+            w_sum = w.sum(axis=0)
+            w_sum = T.clip(w_sum, 1e-7, 1.0 - 1e-7)
+            w_tilda = w / w_sum
             y_energy = (w_tilda * y_energy).mean()
             constants += [w_tilda, w]
         elif self.sample_from_joint:
+            raise NotImplementedError()
             y_hat = self.conditional.sample(
                 py, size=(n_samples, py.shape[0], py.shape[1]))
             ph = self.posterior(y_hat)
@@ -238,7 +241,6 @@ class SigmoidBeliefNetwork(Layer):
             raise NotImplementedError()
             print 'Adding KL term to inference'
             mc = self.conditional.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
-
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
         else:
