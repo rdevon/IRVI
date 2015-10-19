@@ -1,5 +1,5 @@
 {
-  name: 'sbn_no_scaling',
+  name: 'sbn_no_sampling',
   prior: 'logistic',
   dim_h: 200,
   recognition_net: {
