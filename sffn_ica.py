@@ -192,7 +192,7 @@ class SigmoidBeliefNetwork(Layer):
         y_energy_approx = self.conditional.neg_log_prob(y, py_approx).mean()
         if self.importance_sampling:
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py)
-            w = y_energy / self.posterior.neg_log_prob(h, mu)
+            w = T.exp(y_energy) / T.exp(self.posterior.neg_log_prob(h, mu))
             w_tilda = w / w.sum(axis=0)
             y_energy = (w_tilda * y_energy).mean()
             constants += [w_tilda, w]
@@ -234,6 +234,11 @@ class SigmoidBeliefNetwork(Layer):
             scale_factor = mc / cond_term_c
             cond_term = scale_factor * cond_term
             consider_constant += [scale_factor, cond_term_c]
+        elif self.inference_scaling == 'KL':
+            raise NotImplementedError()
+            print 'Adding KL term to inference'
+            mc = self.conditional.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
+
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
         else:
@@ -243,6 +248,7 @@ class SigmoidBeliefNetwork(Layer):
             mu, prior, entropy_scale=self.entropy_scale)
 
         cost = (cond_term + kl_term).sum(axis=0)
+
         grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
 
         return cost, grad, cond_term.mean(), kl_term.mean()
