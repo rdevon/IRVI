@@ -192,7 +192,7 @@ class SigmoidBeliefNetwork(Layer):
         y_energy_approx = self.conditional.neg_log_prob(y, py_approx).mean()
         if self.importance_sampling:
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py)
-            w = T.exp(y_energy) / T.exp(self.posterior.neg_log_prob(h, mu))
+            w = T.exp(-y_energy) / T.exp(-self.posterior.neg_log_prob(h, mu))
             w_tilda = w / w.sum(axis=0)
             y_energy = (w_tilda * y_energy).mean()
             constants += [w_tilda, w]
