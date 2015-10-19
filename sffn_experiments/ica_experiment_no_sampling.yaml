@@ -17,7 +17,7 @@
   optimizer: 'adam',
   batch_size: 100,
   epochs: 500,
-  inference_samples: 20,
+  inference_samples: 0,
   n_inference_steps: 20,
   inference_decay: 0.99,
   inference_rate: 0.01,

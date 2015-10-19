@@ -3,14 +3,14 @@
   prior: 'logistic',
   dim_h: 200,
   recognition_net: {
-    dim_h: 300,
+    dim_h: 200,
     h_act: 'T.nnet.softplus',
-    n_layers: 2
+    n_layers: 3
   },
   generation_net: {
-    dim_h: 300,
+    dim_h: 200,
     h_act: 'T.nnet.softplus',
-    n_layers: 2
+    n_layers: 3
   },
   z_init: 'recognition_net',
   learning_rate: 0.1,
@@ -22,7 +22,6 @@
   inference_decay: 0.99,
   inference_rate: 0.1,
   inference_method: 'momentum',
-  update_inference_scale: True,
   inference_scaling: 'inference',
   n_inference_steps_eval: 20,
   dataset: 'mnist',

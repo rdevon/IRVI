@@ -22,7 +22,7 @@ from layers import MLP
 from mnist import mnist_iterator
 import op
 from sffn_ica import GaussianBeliefNet as GBN
-from sffn_ica import SFFN
+from sffn_ica import SigmoidBeliefNetwork as SBN
 from tools import check_bad_nums
 from tools import itemlist
 from tools import load_model
@@ -36,14 +36,12 @@ def lower_bound_curve(
     inference_method='momentum',
     inference_rate=.01, n_inference_steps=100,
     inference_decay=1.0, inference_samples=20,
-    update_inference_scale=False
     ):
 
     models, kwargs = load_model(model_file, unpack, inference_rate=inference_rate,
                                n_inference_steps=n_inference_steps,
                                inference_decay=inference_decay,
-                               inference_method=inference_method,
-                               update_inference_scale=update_inference_scale)
+                               inference_method=inference_method)
     dataset_args = kwargs['dataset_args']
     dataset = kwargs['dataset']
 
@@ -52,8 +50,8 @@ def lower_bound_curve(
     else:
         raise ValueError()
 
-    sffn = models['sffn']
-    sffn.set_tparams()
+    model = models['sbn']
+    model.set_tparams()
 
     if rs is None:
         rs = range(5, 100, 5)
@@ -63,7 +61,7 @@ def lower_bound_curve(
     X = T.matrix('x', dtype=floatX)
     Y = T.matrix('y', dtype=floatX)
 
-    (py_s, y_energy_s), updates_s = sffn(X, Y, end_with_inference=False)
+    (py_s, y_energy_s), updates_s = model(X, Y, end_with_inference=False)
 
     f_ll = theano.function([X, Y], y_energy_s)
 
@@ -71,7 +69,7 @@ def lower_bound_curve(
 
     R = T.scalar('r', dtype='int64')
 
-    (py_s, y_energy_s), updates_s = sffn(X, Y, n_inference_steps=R)
+    (py_s, y_energy_s), updates_s = model(X, Y, n_inference_steps=R)
 
     f_ll = theano.function([X, Y, R], y_energy_s)
 
@@ -87,7 +85,7 @@ def concatenate_inputs(model, y, py):
     '''
     Function to concatenate ground truth to samples and probabilities.
     '''
-    y_hat = model.cond_from_h.sample(py)
+    y_hat = model.conditional.sample(py)
 
     py = T.concatenate([y[None, :, :], py], axis=0)
     y = T.concatenate([y[None, :, :], y_hat], axis=0)
@@ -109,9 +107,9 @@ def unpack(dim_h=None,
            inference_decay=None,
            inference_method=None,
            inference_rate=None,
-           update_inference_scale=None,
+           inference_scaling=None,
+           importance_sampling=None,
            entropy_scale=None,
-           use_geometric_mean=None,
            x_noise_mode=None,
            y_noise_mode=None,
            **model_args):
@@ -124,11 +122,10 @@ def unpack(dim_h=None,
         inference_rate=inference_rate,
         n_inference_steps=n_inference_steps,
         inference_decay=inference_decay,
-        update_inference_scale=update_inference_scale,
         z_init=z_init,
         entropy_scale=entropy_scale,
-        use_geometric_mean=use_geometric_mean,
-        inference_scaling=inference_scaling
+        inference_scaling=inference_scaling,
+        importance_sampling=importance_sampling
     )
 
     dim_h = int(dim_h)
@@ -143,28 +140,28 @@ def unpack(dim_h=None,
     models = []
     if recognition_net is not None:
         recognition_net = recognition_net[()]
-        cond_to_h = load_mlp('cond_to_h', dim_in, dim_h,
+        posterior = load_mlp('posterior', dim_in, dim_h,
                              out_act='T.nnet.sigmoid',
                              **recognition_net)
-        models.append(cond_to_h)
+        models.append(posterior)
     else:
-        cond_to_h = None
+        posterior = None
 
     if generation_net is not None:
         generation_net = generation_net[()]
-        cond_from_h = load_mlp('cond_from_h', dim_h, dim_in,
+        conditional = load_mlp('conditional', dim_h, dim_in,
                                out_act='T.nnet.sigmoid',
                                **generation_net)
-        models.append(cond_from_h)
+        models.append(conditional)
 
-    sffn = SFFN(dim_in, dim_h, dim_out,
-                cond_from_h=cond_from_h,
-                cond_to_h=cond_to_h,
+    model = SBN(dim_in, dim_h, dim_out,
+                conditional=conditional,
+                posterior=posterior,
                 noise_amount=0.,
                 x_noise_mode=x_noise_mode,
                 y_noise_mode=y_noise_mode,
                 **kwargs)
-    models.append(sffn)
+    models.append(model)
 
     return models, model_args, dict(
         z_init=z_init,
@@ -185,11 +182,10 @@ def train_model(
     inference_rate=.01, n_inference_steps=100,
     inference_decay=1.0, inference_samples=20,
     inference_scaling=None,
+    importance_sampling=False,
     entropy_scale=1.0,
     z_init=None,
-    update_inference_scale=False,
     n_inference_steps_eval=0,
-    use_geometric_mean=False,
     dataset=None, dataset_args=None,
     model_save_freq=10, show_freq=10
     ):
@@ -199,11 +195,10 @@ def train_model(
         inference_rate=inference_rate,
         n_inference_steps=n_inference_steps,
         inference_decay=inference_decay,
-        update_inference_scale=update_inference_scale,
         z_init=z_init,
         entropy_scale=entropy_scale,
-        use_geometric_mean=use_geometric_mean,
-        inference_scaling=inference_scaling
+        inference_scaling=inference_scaling,
+        importance_sampling=importance_sampling
     )
 
     print 'Dataset args: %s' % pprint.pformat(dataset_args)
@@ -245,74 +240,73 @@ def train_model(
             raise ValueError()
 
         if recognition_net is not None:
-            cond_to_h = load_mlp('cond_to_h', dim_in, dim_h,
+            posterior = load_mlp('posterior', dim_in, dim_h,
                                  out_act=out_act,
                                  **recognition_net)
         else:
-            cond_to_h = None
+            posterior = None
 
         # The generation net has much of the same structure as the recognition net,
         # with roles reversed.
         if generation_net is not None:
-            cond_from_h = load_mlp('cond_from_h', dim_h, dim_in,
+            conditional = load_mlp('conditional', dim_h, dim_in,
                                    out_act='T.nnet.sigmoid',
                                    **generation_net)
         else:
-            cond_from_h = None
+            conditional = None
 
         if prior == 'logistic':
-            C = SFFN
+            C = SBN
         elif prior == 'gaussian':
             C = GBN
         else:
             raise ValueError()
-        sffn = C(dim_in, dim_h, dim_out, trng=trng,
-                cond_from_h=cond_from_h,
-                cond_to_h=cond_to_h,
+        model = C(dim_in, dim_h, dim_out, trng=trng,
+                conditional=conditional,
+                posterior=posterior,
                 noise_amount=0.,
                 x_noise_mode=x_noise_mode,
                 y_noise_mode=y_noise_mode,
                 **kwargs)
 
         models = OrderedDict()
-        models[sffn.name] = sffn
+        models[model.name] = model
 
     print 'Getting params'
-    sffn = models['sffn']
+    model = models['sbn']
 
     if not learn_prior:
         excludes = ['z']
     else:
         excludes = []
-    tparams = sffn.set_tparams(excludes=excludes)
+    tparams = model.set_tparams(excludes=excludes)
 
     print 'Getting cost'
     (xs, ys, zs,
      prior_energy, h_energy, y_energy, y_energy_approx, entropy,
-     i_energy, c_term, kl_term), updates = sffn.inference(
+     i_energy, c_term, kl_term), updates, consider_constant = model.inference(
         X, Y, n_samples=inference_samples)
 
     if prior == 'logistic':
         mu = T.nnet.sigmoid(zs)
     elif prior == 'gaussian':
-        mu = _slice(zs, 0, sffn.dim_h)
+        mu = _slice(zs, 0, model.dim_h)
     else:
         raise ValueError()
-    py = sffn.cond_from_h(mu)
+    py = model.conditional(mu)
 
-    pd_i, d_hat_i = concatenate_inputs(sffn, ys[0], py)
+    pd_i, d_hat_i = concatenate_inputs(model, ys[0], py)
 
-    (py_s, y_energy_s, i_energy2, c_term2, kl_term2), updates_s = sffn(
+    (py_s, y_energy_s, i_energy2, c_term2, kl_term2), updates_s = model(
         X, Y, n_inference_steps=n_inference_steps_eval)
     updates.update(updates_s)
-    pd_s, d_hat_s = concatenate_inputs(sffn, Y, py_s)
+    pd_s, d_hat_s = concatenate_inputs(model, Y, py_s)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s],
         updates=updates_s)
 
-    py_p = sffn.sample_from_prior()
+    py_p = model.sample_from_prior()
     f_py_p = theano.function([], py_p)
 
-    consider_constant = [xs, ys, zs]
     cost = prior_energy + h_energy + y_energy
 
     extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx,
