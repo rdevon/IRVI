@@ -38,6 +38,7 @@ def init_inference_args(model,
                         n_inference_steps=20,
                         inference_scaling=None,
                         inference_method='momentum',
+                        sample_from_prior=False,
                         **kwargs):
     model.inference_rate = inference_rate
     model.inference_decay = inference_decay
@@ -45,6 +46,7 @@ def init_inference_args(model,
     model.importance_sampling = importance_sampling
     model.n_inference_steps = T.constant(n_inference_steps).astype('int64')
     model.inference_scaling = inference_scaling
+    model.sample_from_prior = sample_from_prior
 
     if inference_method == 'sgd':
         model.step_infer = model._step_sgd
