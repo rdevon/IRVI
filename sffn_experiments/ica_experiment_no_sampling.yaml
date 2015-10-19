@@ -1,16 +1,16 @@
 {
-  name: 'sbn_no_scaling',
+  name: 'sbn_no_sampling',
   prior: 'logistic',
   dim_h: 200,
   recognition_net: {
     dim_h: 200,
     h_act: 'T.nnet.softplus',
-    n_layers: 2
+    n_layers: 3
   },
   generation_net: {
     dim_h: 200,
     h_act: 'T.nnet.softplus',
-    n_layers: 2
+    n_layers: 3
   },
   z_init: 'recognition_net',
   learning_rate: 0.1,
@@ -25,6 +25,6 @@
   n_inference_steps_eval: 20,
   dataset: 'mnist',
   dataset_args: {
-    source: '/Users/devon/Data/mnist.pkl.gz'
+    source: '/export/mialab/users/dhjelm/data/mnist.pkl.gz'
   }
 }
