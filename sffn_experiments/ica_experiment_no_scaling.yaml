@@ -20,7 +20,7 @@
   inference_samples: 20,
   n_inference_steps: 20,
   inference_decay: 0.99,
-  inference_rate: 0.1,
+  inference_rate: 0.01,
   inference_method: 'momentum',
   n_inference_steps_eval: 20,
   dataset: 'mnist',

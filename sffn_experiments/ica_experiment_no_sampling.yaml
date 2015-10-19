@@ -1,31 +1,30 @@
 {
-  name: 'sbn_more_ent_1',
+  name: 'sbn_no_scaling',
   prior: 'logistic',
   dim_h: 200,
   recognition_net: {
     dim_h: 200,
     h_act: 'T.nnet.softplus',
-    n_layers: 3
+    n_layers: 2
   },
   generation_net: {
     dim_h: 200,
     h_act: 'T.nnet.softplus',
-    n_layers: 3
+    n_layers: 2
   },
   z_init: 'recognition_net',
   learning_rate: 0.1,
   optimizer: 'adam',
   batch_size: 100,
   epochs: 500,
-  inference_samples: 20,
+  inference_samples: 0,
   n_inference_steps: 20,
   inference_decay: 0.99,
-  inference_rate: 0.1,
+  inference_rate: 0.01,
   inference_method: 'momentum',
-  inference_scaling: 'inference',
   n_inference_steps_eval: 20,
   dataset: 'mnist',
   dataset_args: {
-    source: '/export/mialab/users/dhjelm/data/mnist.pkl.gz'
+    source: '/Users/devon/Data/mnist.pkl.gz'
   }
 }
