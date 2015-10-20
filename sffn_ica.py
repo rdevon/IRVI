@@ -295,12 +295,12 @@ class SigmoidBeliefNetwork(Layer):
         if self.inference_scaling == 'reweight':
             mu = T.nnet.sigmoid(z)
             prior = T.nnet.sigmoid(params[0])
-            h = self.posterior.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
+            h = self.posterior.sample(mu, size=(100, mu.shape[0], mu.shape[1]))
 
             py_r = self.p_y_given_h(h, *params)
             mc = self.conditional.neg_log_prob(y[None, :, :], py_r)
             kl = self.kl_divergence(h, prior[None, None, :])
-            w = mc + kl
+            w = -(mc + kl)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).mean(axis=0)
 
