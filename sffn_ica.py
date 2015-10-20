@@ -375,22 +375,33 @@ class SigmoidBeliefNetwork(Layer):
     def __call__(self, x, y, ph=None, n_samples=100,
                  n_inference_steps=0, end_with_inference=True):
         updates = theano.OrderedUpdates()
-
-        x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
-
-        if ph is None:
-            ph = self.posterior(x)
+        prior = T.nnet.sigmoid(self.z)
 
         if end_with_inference:
-            z0 = logit(ph)
-            (zs, i_energy, _, _, _, cs, kls), updates_i = self.infer_q(x_n, y, n_inference_steps, z0=z0)
+            if ph is None:
+                z0 = None
+            else:
+                z0 = logit(ph)
+
+            (zs, i_energy, _, _, _, cs, kls), updates_i = self.infer_q(x, y, n_inference_steps, z0=z0)
             updates.update(updates_i)
             ph = T.nnet.sigmoid(zs[-1])
+        elif ph is None:
+            x = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
+            ph = self.posterior(x)
+            mu = _slice(ph, 0, self.dim_h)
+            log_sigma = _slice(ph, 1, self.dim_h)
+        else:
+            mu = _slice(ph, 0, self.dim_h)
+            log_sigma = _slice(ph, 1, self.dim_h)
 
-        h = self.posterior.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
+        if n_samples == 0:
+            h = ph[None, :, :]
+        else:
+            h = self.posterior.sample(ph, size=(n_samples, ph.shape[0], ph.shape[1]))
+
         py = self.conditional(h)
         y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
-        prior = T.nnet.sigmoid(self.z)
         kl_term = self.kl_divergence(ph, prior[None, :])
 
         return (py, (y_energy + kl_term).mean(axis=0),
@@ -695,7 +706,6 @@ class GaussianBeliefNet(Layer):
 
     def __call__(self, x, y, ph=None, n_samples=100,
                  n_inference_steps=0, end_with_inference=True):
-
         updates = theano.OrderedUpdates()
 
         x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
@@ -720,7 +730,7 @@ class GaussianBeliefNet(Layer):
             log_sigma = _slice(ph, 1, self.dim_h)
 
         if n_samples == 0:
-            h = ph[None, :, :]
+            h = mu[None, :, :]
         else:
             h = self.posterior.sample(mu,
                                       size=(n_samples, mu.shape[0], mu.shape[1]))
