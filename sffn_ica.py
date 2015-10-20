@@ -700,8 +700,6 @@ class GaussianBeliefNet(Layer):
 
         x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
 
-
-
         if end_with_inference:
             if ph is None:
                 z0 = None
@@ -715,12 +713,17 @@ class GaussianBeliefNet(Layer):
             ph = phs[0]
         elif ph is None:
             ph = self.posterior(x_n)
+            mu = _slice(ph, 0, self.dim_h)
+            log_sigma = _slice(ph, 1, self.dim_h)
         else:
             mu = _slice(ph, 0, self.dim_h)
             log_sigma = _slice(ph, 1, self.dim_h)
 
-        h = self.posterior.sample(ph,
-                                  size=(n_samples, mu.shape[0], mu.shape[1]))
+        if n_samples == 0:
+            h = ph[None, :, :]
+        else:
+            h = self.posterior.sample(mu,
+                                      size=(n_samples, mu.shape[0], mu.shape[1]))
         py = self.conditional(h)
         y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
         kl_term = self.kl_divergence(mu, log_sigma,
