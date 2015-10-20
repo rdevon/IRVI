@@ -299,9 +299,11 @@ class SigmoidBeliefNetwork(Layer):
             py_r = self.p_y_given_h(h, *params)
             cond_term = -self.conditional.neg_log_prob(y[None, :, :], py_r)
             prior_term = -self.posterior.neg_log_prob(h, prior[None, None, :])
-            w = cond_term + prior_term
+            entropy_term = self.posterior.entropy(mu)
+            w = T.exp(cond_term + prior_term)
+            w = T.clip(w, 1e-8, 1 - 1e-8)
             w_tilda = w / w.sum(axis=0)[None, :]
-            mu = (w_tilda[:, :, None] * h).mean(axis=0)
+            mu = (w_tilda[:, :, None] * h).sum(axis=0)
             z__ = logit(mu)
             dz = (z - z__)
             z = z__
