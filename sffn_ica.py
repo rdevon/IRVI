@@ -291,20 +291,22 @@ class SigmoidBeliefNetwork(Layer):
     def _step_momentum(self, y, z, l, dz_, m, *params):
         cost, grad, c_term, kl_term = self.e_step(y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
-        z = (z + dz).astype(floatX)
+        z_ = (z + dz).astype(floatX)
         if self.inference_scaling == 'reweight':
-            mu = T.nnet.sigmoid(z)
+            mu = T.nnet.sigmoid(z_)
             prior = T.nnet.sigmoid(params[0])
             h = self.posterior.sample(mu, size=(100, mu.shape[0], mu.shape[1]))
-
             py_r = self.p_y_given_h(h, *params)
             mc = self.conditional.neg_log_prob(y[None, :, :], py_r)
             kl = self.kl_divergence(h, prior[None, None, :])
             w = -(mc + kl)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).mean(axis=0)
-
-            z = logit(mu)
+            z__ = logit(mu)
+            dz = (z - z__)
+            z = z__
+        else:
+            z = z_
         l *= self.inference_decay
         return z, l, dz, cost, c_term, kl_term
 
