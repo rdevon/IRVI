@@ -297,9 +297,9 @@ class SigmoidBeliefNetwork(Layer):
             prior = T.nnet.sigmoid(params[0])
             h = self.posterior.sample(mu, size=(100, mu.shape[0], mu.shape[1]))
             py_r = self.p_y_given_h(h, *params)
-            mc = self.conditional.neg_log_prob(y[None, :, :], py_r)
-            kl = self.kl_divergence(h, prior[None, None, :])
-            w = -(mc + kl)
+            cond_term = -self.conditional.neg_log_prob(y[None, :, :], py_r)
+            prior_term = -self.posterior.neg_log_prob(h, prior[None, None, :])
+            w = cond_term + prior_term
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).mean(axis=0)
             z__ = logit(mu)
