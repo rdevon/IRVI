@@ -211,9 +211,9 @@ class SigmoidBeliefNetwork(Layer):
 
         return (prior_energy, h_energy, y_energy, y_energy_approx, entropy), constants
 
-    def kl_divergence(self, mu, prior, entropy_scale=1.0):
-        entropy_term = entropy_scale * self.posterior.entropy(mu)
-        prior_term = self.posterior.neg_log_prob(mu, prior[None, :])
+    def kl_divergence(self, p, q, entropy_scale=1.0):
+        entropy_term = entropy_scale * self.posterior.entropy(p)
+        prior_term = self.posterior.neg_log_prob(p, q)
         return -(entropy_term - prior_term)
 
     def e_step(self, y, z, *params):
@@ -241,13 +241,16 @@ class SigmoidBeliefNetwork(Layer):
             raise NotImplementedError()
             print 'Adding KL term to inference'
             mc = self.conditional.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
+        elif self.inference_scaling == 'reweight':
+            print 'Reweighting mus'
+            pass
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
         else:
             print 'No inference scaling'
 
         kl_term = self.kl_divergence(
-            mu, prior, entropy_scale=self.entropy_scale)
+            mu, prior[None, :], entropy_scale=self.entropy_scale)
 
         cost = (cond_term + kl_term).sum(axis=0)
 
@@ -289,6 +292,19 @@ class SigmoidBeliefNetwork(Layer):
         cost, grad, c_term, kl_term = self.e_step(y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
+        if self.inference_scaling == 'reweight':
+            mu = T.nnet.sigmoid(z)
+            prior = T.nnet.sigmoid(params[0])
+            h = self.posterior.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
+
+            py_r = self.p_y_given_h(h, *params)
+            mc = self.conditional.neg_log_prob(y[None, :, :], py_r)
+            kl = self.kl_divergence(h, prior[None, None, :])
+            w = mc + kl
+            w_tilda = w / w.sum(axis=0)[None, :]
+            mu = (w_tilda[:, :, None] * h).mean(axis=0)
+
+            z = logit(mu)
         l *= self.inference_decay
         return z, l, dz, cost, c_term, kl_term
 
@@ -375,7 +391,7 @@ class SigmoidBeliefNetwork(Layer):
         py = self.conditional(h)
         y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
         prior = T.nnet.sigmoid(self.z)
-        kl_term = self.kl_divergence(ph, prior)
+        kl_term = self.kl_divergence(ph, prior[None, :])
 
         return (py, (y_energy + kl_term).mean(axis=0),
                      i_energy[-1], cs[-1], kls[-1]), updates

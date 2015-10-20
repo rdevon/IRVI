@@ -301,7 +301,7 @@ def train_model(
         X, Y, n_inference_steps=n_inference_steps_eval)
     updates.update(updates_s)
     pd_s, d_hat_s = concatenate_inputs(model, Y, py_s)
-    f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s],
+    f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s, i_energy2, c_term2, kl_term2],
         updates=updates_s)
 
     py_p = model.sample_from_prior()
@@ -311,15 +311,13 @@ def train_model(
 
     extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx,
                   y_energy / y_energy_approx, entropy,
-                  i_energy, c_term, kl_term,
-                  i_energy2, c_term2, kl_term2]
+                  i_energy, c_term, kl_term]
     vis_outs = [pd_i, d_hat_i]
 
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
                         'train y energy', 'approx train y energy',
                         'y to y approx ratio', 'entropy',
-                        'inference energy', 'i cond term', 'i kl term',
-                        'inference energy at test', 'i cond term at test', 'i kl term at test']
+                        'inference energy', 'i cond term', 'i kl term']
     vis_outs_names = ['pds', 'd_hats']
 
     # Remove the parameters found in updates from the ones we will take
@@ -390,8 +388,8 @@ def train_model(
                     d_v, _ = valid.next()
                 x_v, y_v = d_v, d_v
 
-                ye_v, pd_v, d_hat_v = f_d_hat(x_v, y_v)
-                ye_t, _, _ = f_d_hat(x, x)
+                ye_v, pd_v, d_hat_v, ie_v, ct_v, klt_v = f_d_hat(x_v, y_v)
+                ye_t, _, _, _, _, _ = f_d_hat(x, x)
 
                 outs = OrderedDict((k, v)
                     for k, v in zip(extra_outs_names,
@@ -401,7 +399,10 @@ def train_model(
                 outs.update(**{
                     'train lower bound': ye_t,
                     'valid lower bound': ye_v,
-                    'elapsed_time': t1-t0}
+                    'elapsed_time': t1-t0,
+                    'inference energy at test': ie_v,
+                    'i cond term at test': ct_v,
+                    'i kl term at test': klt_v}
                 )
                 monitor.update(**outs)
                 t0 = time.time()
@@ -453,7 +454,7 @@ def train_model(
         d_t, _ = test.next()
         x_t = d_t.copy()
         y_t = d_t.copy()
-        ye_t, _, _ = f_d_hat(x_t, y_t)
+        ye_t, _, _, _, _, _ = f_d_hat(x_t, y_t)
         print 'End test: %.5f' % ye_t
     except KeyboardInterrupt:
         print 'Aborting test'
