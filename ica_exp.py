@@ -184,6 +184,7 @@ def train_model(
     inference_scaling=None,
     importance_sampling=False,
     entropy_scale=1.0,
+    inference_samples_test=20,
     z_init=None,
     n_inference_steps_eval=0,
     dataset=None, dataset_args=None,
@@ -298,7 +299,7 @@ def train_model(
     pd_i, d_hat_i = concatenate_inputs(model, ys[0], py)
 
     (py_s, y_energy_s, i_energy2, c_term2, kl_term2), updates_s = model(
-        X, Y, n_inference_steps=n_inference_steps_eval)
+        X, Y, n_samples=inference_samples_test, n_inference_steps=n_inference_steps_eval)
     updates.update(updates_s)
     pd_s, d_hat_s = concatenate_inputs(model, Y, py_s)
     f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s, i_energy2, c_term2, kl_term2],
