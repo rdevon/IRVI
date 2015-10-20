@@ -700,17 +700,21 @@ class GaussianBeliefNet(Layer):
 
         x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
 
-        if ph is None:
-            ph = self.posterior(x)
+
 
         if end_with_inference:
-            z0 = ph
-            (zs, i_energy, _, _, _, cs, kls), updates_i = self.infer_q(
+            if ph is None:
+                z0 = None
+            else:
+                z0 = logit(ph)
+            (zs, i_energy, phs, _, _, cs, kls), updates_i = self.infer_q(
                 x_n, y, n_inference_steps, z0=z0)
             updates.update(updates_i)
-
             mu = _slice(zs[-1], 0, self.dim_h)
             log_sigma = _slice(zs[-1], 1, self.dim_h)
+            ph = phs[0]
+        elif ph is None:
+            ph = self.posterior(x_n)
         else:
             mu = _slice(ph, 0, self.dim_h)
             log_sigma = _slice(ph, 1, self.dim_h)
