@@ -478,6 +478,7 @@ def make_argument_parser():
     parser.add_argument('-l', '--load_last', action='store_true')
     parser.add_argument('-r', '--load_model', default=None)
     parser.add_argument('-i', '--save_images', action='store_true')
+    parser.add_argument('-n', '--name', default=None)
     return parser
 
 if __name__ == '__main__':
@@ -485,9 +486,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     exp_dict = load_experiment(path.abspath(args.experiment))
+    if args.name is not None:
+        exp_dict['name'] = args.name
     out_path = path.join(args.out_path, exp_dict['name'])
 
     if out_path is not None:
+        print 'Saving to %s' % out_path
         if path.isfile(out_path):
             raise ValueError()
         elif not path.isdir(out_path):
