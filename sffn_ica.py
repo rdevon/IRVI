@@ -196,7 +196,7 @@ class SigmoidBeliefNetwork(Layer):
             w_sum = w.sum(axis=0)
             w_sum = T.clip(w_sum, 1e-7, 1.0 - 1e-7)
             w_tilda = w / w_sum
-            y_energy = (w_tilda * y_energy).mean()
+            y_energy = (w_tilda * y_energy).sum(axis=0).mean()
             constants += [w_tilda, w]
         elif self.sample_from_joint:
             raise NotImplementedError()

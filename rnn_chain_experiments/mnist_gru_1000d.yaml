@@ -9,19 +9,21 @@
   h_init: 'noise',
   metric: 'euclidean_then_energy',
   noise_input: True,
-  mlp_a: {
+  i_net: {
     dim_h: 1000,
     n_layers: 2,
     h_act: 'T.tanh',
-    weight_scale: 0.1
+    out_act: 'T.tanh',
+    weight_scale: 0.1,
   },
-  mlp_b: {
+  a_net: {
     dim_h: 1000,
     n_layers: 2,
     h_act: 'T.tanh',
+    h_act: 'T.tanh',
     weight_scale: 0.1
   },
-  mlp_o: {
+  o_net: {
     dim_h: 1000,
     n_layers: 2,
     weight_scale: 0.1
@@ -29,11 +31,11 @@
   dataset_args: {
     source: '/Users/devon/Data/mnist.pkl.gz',
     window: 20,
-    chain_build_batch: 5000,
-    chain_length: 5000,
+    chain_build_batch: 100,
+    chain_length: 500,
     chain_stride: 3,
     stop: 5000,
-    trim_end: 50
+    trim_end: 5
   }, 
   dataset: 'mnist'
 }
