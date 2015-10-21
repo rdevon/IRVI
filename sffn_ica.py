@@ -247,6 +247,8 @@ class SigmoidBeliefNetwork(Layer):
         elif self.inference_scaling == 'reweight':
             print 'Reweighting mus'
             pass
+        elif self.inference_scaling == 'stochastic':
+            pass
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
         else:
@@ -257,7 +259,21 @@ class SigmoidBeliefNetwork(Layer):
 
         cost = (cond_term + kl_term).sum(axis=0)
 
-        grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
+        if self.inference_scaling == 'stochastic':
+            print 'Sampling instead of deriving real gradient'
+            h = self.posterior.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
+            py_s = self.p_y_given_h(h, *params)
+            cond_term_s = self.conditional.neg_log_prob(y[None, :, :], py_s)
+            prior_term_s = self.posterior.neg_log_prob(h, prior[None, None, :])
+            posterior_term_s = self.posterior.neg_log_prob(h, mu[None, :, :])
+            w = T.exp(-cond_term_s - prior_term_s + posterior_term_s)
+            w = T.clip(w, 1e-8, 1)
+            w_tilda = w / w.sum(axis=0)[None, :]
+            mu = (w_tilda[:, :, None] * h).sum(axis=0)
+            z_ = logit(mu)
+            grad = z - z_
+        else:
+            grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
 
         return cost, grad, cond_term.mean(), kl_term.mean()
 
@@ -308,7 +324,6 @@ class SigmoidBeliefNetwork(Layer):
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
             z__ = logit(mu)
-            #dz = (z - z__)
             z = z__
         else:
             z = z_
