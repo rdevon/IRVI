@@ -308,7 +308,7 @@ class SigmoidBeliefNetwork(Layer):
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
             z__ = logit(mu)
-            dz = (z - z__)
+            #dz = (z - z__)
             z = z__
         else:
             z = z_
