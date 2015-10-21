@@ -304,7 +304,7 @@ class SigmoidBeliefNetwork(Layer):
             prior_term = self.posterior.neg_log_prob(h, prior[None, None, :])
             posterior_term = self.posterior.neg_log_prob(h, mu[None, :, :])
             w = T.exp(-cond_term - prior_term + posterior_term)
-            w = T.clip(w, 1e-8, 1 - 1e-8)
+            w = T.clip(w, 1e-8, 1)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
             z__ = logit(mu)
