@@ -1,5 +1,5 @@
 {
-  name: 'sbn_reweighting',
+  name: 'sbn_reweighting_2',
   prior: 'logistic',
   dim_h: 200,
   recognition_net: {

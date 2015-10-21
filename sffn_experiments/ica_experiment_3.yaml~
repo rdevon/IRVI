@@ -1,28 +1,28 @@
 {
-  name: 'sbn_reweighting',
-  prior: 'logistic',
-  dim_h: 200,
+  name: 'sbn_more_ent_1',
+  prior: 'gaussian',
+  dim_h: 201,
   recognition_net: {
-    dim_h: 200,
+    dim_h: 301,
     h_act: 'T.nnet.softplus',
-    n_layers: 3
+    n_layers: 2
   },
   generation_net: {
-    dim_h: 200,
+    dim_h: 307,
     h_act: 'T.nnet.softplus',
-    n_layers: 3
+    n_layers: 2
   },
   z_init: 'recognition_net',
   learning_rate: 0.1,
   optimizer: 'adam',
-  batch_size: 100,
+  batch_size: 107,
   epochs: 500,
-  inference_samples: 100,
+  inference_samples: 20,
   n_inference_steps: 20,
   inference_decay: 0.99,
-  inference_rate: 0.1,
+  inference_rate: 0.01,
   inference_method: 'momentum',
-  inference_scaling: 'reweight',
+  update_inference_scale: True,
   n_inference_steps_eval: 20,
   dataset: 'mnist',
   dataset_args: {
