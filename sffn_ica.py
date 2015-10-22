@@ -155,7 +155,7 @@ class SigmoidBeliefNetwork(Layer):
         y_size = (steps, y.shape[0], y.shape[1])
 
         x = self.set_input(x, self.x_mode, size=x_size)
-        y = self.set_input(y, self.y_mode, size=y_size)
+        y = x.copy()
         return x, y
 
     def get_params(self):
