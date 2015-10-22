@@ -542,9 +542,6 @@ class GaussianBeliefNet(Layer):
         mu = _slice(z, 0, self.dim_h)
         log_sigma = _slice(z, 1, self.dim_h)
 
-        mu_h = _slice(ph, 0, self.dim_h)
-        log_sigma_h = _slice(ph, 1, self.dim_h)
-
         if n_samples == 0:
             h = mu[None, :, :]
         else:
@@ -553,11 +550,8 @@ class GaussianBeliefNet(Layer):
         py = self.conditional(h)
         py_approx = self.conditional(mu)
 
-        prior_energy = self.kl_divergence(
-            mu, log_sigma, self.mu[None, :], self.log_sigma[None, :]).mean()
-
-        h_energy = self.kl_divergence(mu_h, log_sigma_h, mu, log_sigma).mean()
-
+        prior_energy = self.posterior.neg_log_prob(h, T.concatenate([self.mu, self.log_sigma])[None, None, :]).mean()
+        h_energy = self.posterior.neg_log_prob(h, ph[None, :, :]).mean()
         y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
         y_energy_approx = self.conditional.neg_log_prob(y, py_approx).mean()
         entropy = self.posterior.entropy(z).mean()
