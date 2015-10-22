@@ -250,15 +250,21 @@ class SigmoidBeliefNetwork(Layer):
             pass
         elif self.inference_scaling == 'stochastic':
             pass
+        elif self.inference_scaling == 'conditional_only':
+            pass
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
         else:
             print 'No inference scaling'
 
-        kl_term = self.kl_divergence(
-            mu, prior[None, :], entropy_scale=self.entropy_scale)
-
-        cost = (cond_term + kl_term).sum(axis=0)
+        if self.inference_scaling == 'conditional_only':
+            print 'Conditional-only inference'
+            kl_term = 0. * cond_term
+            cost = cond_term.sum(axis=0)
+        else:
+            kl_term = self.kl_divergence(
+                mu, prior[None, :], entropy_scale=self.entropy_scale)
+            cost = (cond_term + kl_term).sum(axis=0)
 
         if self.inference_scaling == 'stochastic':
             print 'Sampling instead of deriving real gradient'
@@ -268,7 +274,7 @@ class SigmoidBeliefNetwork(Layer):
             prior_term_s = self.posterior.neg_log_prob(h, prior[None, None, :])
             posterior_term_s = self.posterior.neg_log_prob(h, mu[None, :, :])
             w = T.exp(-cond_term_s - prior_term_s + posterior_term_s)
-            w = T.clip(w, 1e-7, 1)
+            w = T.clip(w, 1e-7, 1.0)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
             z_ = logit(mu)
@@ -321,7 +327,7 @@ class SigmoidBeliefNetwork(Layer):
             prior_term = self.posterior.neg_log_prob(h, prior[None, None, :])
             posterior_term = self.posterior.neg_log_prob(h, mu[None, :, :])
             w = T.exp(-cond_term - prior_term + posterior_term)
-            w = T.clip(w, 1e-7, 1)
+            w = T.clip(w, 1e-7, 1.0)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
             z = logit(mu)
@@ -696,12 +702,8 @@ class GaussianBeliefNet(Layer):
         updates = theano.OrderedUpdates()
 
         if end_with_inference:
-            if ph is None:
-                z0 = None
-            else:
-                z0 = logit(ph)
             (zs, i_energy, _, _, _, cs, kls), updates_i = self.infer_q(
-                x, y, n_inference_steps, z0=z0)
+                x, y, n_inference_steps, z0=ph)
             updates.update(updates_i)
             z = zs[-1]
         elif ph is None:
