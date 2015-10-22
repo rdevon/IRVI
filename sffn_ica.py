@@ -132,8 +132,8 @@ class SigmoidBeliefNetwork(Layer):
         return self.trng.binomial(p=p, size=size, n=1, dtype=p.dtype)
 
     def _noise(self, x, amount, size):
-        return x * (1 - self.trng.binomial(p=amount, size=size, n=1,
-                                           dtype=x.dtype))
+        return x * (1 - self.trng.binomial(p=amount,
+                                           size=size, n=1, dtype=x.dtype))
 
     def set_input(self, x, mode, size=None):
         if size is None:
@@ -185,20 +185,20 @@ class SigmoidBeliefNetwork(Layer):
 
         py = self.conditional(h)
         py_approx = self.conditional(mu)
-
-        prior_energy = self.posterior.neg_log_prob(mu, prior[None, :]).mean()
-        h_energy = self.posterior.neg_log_prob(mu, ph).mean()
-
         y_energy_approx = self.conditional.neg_log_prob(y, py_approx).mean()
+
         if self.importance_sampling:
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
+            prior_energy = self.posterior.neg_log_prob(h, prior[None, None, :])
+            entropy_term = self.posterior.neg_log_prob(h, mu[None, :, :])
             w = T.exp(-y_energy
-                      - self.posterior.neg_log_prob(h, prior[None, None, :])
-                      + self.posterior.neg_log_prob(h, mu[None, :, :]))
+                      - prior_energy
+                      + entropy_term)
             w = T.clip(w, 1e-7, 1)
             w_sum = w.sum(axis=0)
             w_tilda = w / w_sum[None, :]
             y_energy = (w_tilda * y_energy).sum(axis=0).mean()
+            prior_energy = (w_tilda * prior_energy).sum(axis=0).mean()
             constants += [w_tilda, w]
         elif self.sample_from_joint:
             raise NotImplementedError()
@@ -208,7 +208,9 @@ class SigmoidBeliefNetwork(Layer):
             h_energy = self.posterior.neg_log_prob(h).mean()
         else:
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
+            prior_energy = self.posterior.neg_log_prob(mu, prior[None, :]).mean()
 
+        h_energy = self.posterior.neg_log_prob(mu, ph).mean()
         entropy = self.posterior.entropy(mu).mean()
 
         return (prior_energy, h_energy, y_energy, y_energy_approx, entropy), constants
@@ -322,8 +324,7 @@ class SigmoidBeliefNetwork(Layer):
             w = T.clip(w, 1e-7, 1)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
-            z__ = logit(mu)
-            z = z__
+            z = logit(mu)
         else:
             z = z_
         l *= self.inference_decay
