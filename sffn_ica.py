@@ -192,11 +192,10 @@ class SigmoidBeliefNetwork(Layer):
         y_energy_approx = self.conditional.neg_log_prob(y, py_approx).mean()
         if self.importance_sampling:
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
-
             w = T.exp(-y_energy
                       - self.posterior.neg_log_prob(h, prior[None, None, :])
                       + self.posterior.neg_log_prob(h, mu[None, :, :]))
-            w = T.clip(w, 1e-8, 1)
+            w = T.clip(w, 1e-7, 1)
             w_sum = w.sum(axis=0)
             w_tilda = w / w_sum[None, :]
             y_energy = (w_tilda * y_energy).sum(axis=0).mean()
@@ -267,7 +266,7 @@ class SigmoidBeliefNetwork(Layer):
             prior_term_s = self.posterior.neg_log_prob(h, prior[None, None, :])
             posterior_term_s = self.posterior.neg_log_prob(h, mu[None, :, :])
             w = T.exp(-cond_term_s - prior_term_s + posterior_term_s)
-            w = T.clip(w, 1e-8, 1)
+            w = T.clip(w, 1e-7, 1)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
             z_ = logit(mu)
@@ -320,7 +319,7 @@ class SigmoidBeliefNetwork(Layer):
             prior_term = self.posterior.neg_log_prob(h, prior[None, None, :])
             posterior_term = self.posterior.neg_log_prob(h, mu[None, :, :])
             w = T.exp(-cond_term - prior_term + posterior_term)
-            w = T.clip(w, 1e-8, 1)
+            w = T.clip(w, 1e-7, 1)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
             z__ = logit(mu)
