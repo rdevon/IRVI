@@ -411,6 +411,7 @@ class SigmoidBeliefNetwork(Layer):
         elif ph is None:
             x = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
             ph = self.posterior(x)
+            y = x.copy()
         else:
             pass
 
