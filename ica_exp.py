@@ -285,24 +285,26 @@ def train_model(
     print 'Getting cost'
     (xs, ys, zs,
      prior_energy, h_energy, y_energy, y_energy_approx, entropy,
-     i_energy, c_term, kl_term), updates, consider_constant = model.inference(
+     i_energy, c_term, kl_term), updates, constants = model.inference(
         X, Y, n_samples=inference_samples)
 
     if prior == 'logistic':
         mu = T.nnet.sigmoid(zs)
     elif prior == 'gaussian':
         mu = _slice(zs, 0, model.dim_h)
+        print 'Not learning sigma for gaussian prior'
+        constants.append(model.log_sigma)
     else:
         raise ValueError()
     py = model.conditional(mu)
 
     pd_i, d_hat_i = concatenate_inputs(model, ys[0], py)
 
-    (py_s, y_energy_s, i_energy2, c_term2, kl_term2), updates_s = model(
+    (py_s, lower_bound, i_energy2, c_term2, kl_term2), updates_s = model(
         X, Y, n_samples=inference_samples_test, n_inference_steps=n_inference_steps_eval)
     updates.update(updates_s)
     pd_s, d_hat_s = concatenate_inputs(model, Y, py_s)
-    f_d_hat = theano.function([X, Y], [y_energy_s, pd_s, d_hat_s, i_energy2, c_term2, kl_term2],
+    f_d_hat = theano.function([X, Y], [lower_bound, pd_s, d_hat_s, i_energy2, c_term2, kl_term2],
         updates=updates_s)
 
     py_p = model.sample_from_prior()
@@ -333,7 +335,7 @@ def train_model(
 
     print 'Getting gradients.'
     grads = T.grad(cost, wrt=itemlist(tparams),
-                   consider_constant=consider_constant)
+                   consider_constant=constants)
 
     print 'Building optimizer'
     lr = T.scalar(name='lr')
