@@ -310,7 +310,10 @@ def train_model(
     py_p = model.sample_from_prior()
     f_py_p = theano.function([], py_p)
 
-    cost = prior_energy + h_energy + y_energy
+    if learn_prior:
+        cost = prior_energy + h_energy + y_energy
+    else:
+        cost = h_energy + y_energy
 
     extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx,
                   y_energy / y_energy_approx, entropy,
