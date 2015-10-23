@@ -159,7 +159,7 @@ class SigmoidBeliefNetwork(Layer):
         return x, y
 
     def get_params(self):
-        params = [self.z] + self.conditional.get_params() + self.posterior.get_param() + [self.inference_scale_factor]
+        params = [self.z] + self.conditional.get_params() + self.posterior.get_params() + [self.inference_scale_factor]
         return params
 
     def p_y_given_h(self, h, *params):
