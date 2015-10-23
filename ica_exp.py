@@ -100,6 +100,7 @@ def unpack(dim_h=None,
            z_init=None,
            recognition_net=None,
            generation_net=None,
+           prior=None,
            dataset=None,
            dataset_args=None,
            noise_amount=None,
@@ -137,11 +138,18 @@ def unpack(dim_h=None,
     else:
         raise ValueError()
 
+    if prior == 'logistic':
+        out_act = 'T.nnet.sigmoid'
+    elif prior == 'gaussian':
+        out_act = 'lambda x: x'
+    else:
+        raise ValueError()
+
     models = []
     if recognition_net is not None:
         recognition_net = recognition_net[()]
         posterior = load_mlp('posterior', dim_in, dim_h,
-                             out_act='T.nnet.sigmoid',
+                             out_act=out_act,
                              **recognition_net)
         models.append(posterior)
     else:
@@ -154,10 +162,17 @@ def unpack(dim_h=None,
                                **generation_net)
         models.append(conditional)
 
-    model = SBN(dim_in, dim_h, dim_out,
+    if prior == 'logistic':
+        C = SBN
+    elif prior == 'gaussian':
+        C = GBN
+    else:
+        raise ValueError()
+
+    model = C(dim_in, dim_h, dim_out,
                 conditional=conditional,
                 posterior=posterior,
-                noise_amount=0.,
+                noise_amount=noise_amount,
                 x_noise_mode=x_noise_mode,
                 y_noise_mode=y_noise_mode,
                 **kwargs)
@@ -362,6 +377,7 @@ def train_model(
             dim_h=dim_h,
             x_noise_mode=x_noise_mode, y_noise_mode=y_noise_mode,
             noise_amout=noise_amout,
+            prior=prior,
             generation_net=generation_net, recognition_net=recognition_net,
             dataset=dataset, dataset_args=dataset_args
         )

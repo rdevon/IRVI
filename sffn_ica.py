@@ -159,11 +159,11 @@ class SigmoidBeliefNetwork(Layer):
         return x, y
 
     def get_params(self):
-        params = [self.z] + self.conditional.get_params() + [self.inference_scale_factor]
+        params = [self.z] + self.conditional.get_params() + self.posterior.get_param() + [self.inference_scale_factor]
         return params
 
     def p_y_given_h(self, h, *params):
-        params = params[1:-1]
+        params = params[1:1+len(self.conditional.get_params())]
         return self.conditional.step_call(h, *params)
 
     def sample_from_prior(self, n_samples=100):
@@ -220,7 +220,7 @@ class SigmoidBeliefNetwork(Layer):
         prior_term = self.posterior.neg_log_prob(p, q)
         return -(entropy_term - prior_term)
 
-    def e_step(self, y, z, *params):
+    def e_step(self, ph, y, z, *params):
         prior = T.nnet.sigmoid(params[0])
         mu = T.nnet.sigmoid(z)
         py = self.p_y_given_h(mu, *params)
@@ -252,6 +252,8 @@ class SigmoidBeliefNetwork(Layer):
             pass
         elif self.inference_scaling == 'conditional_only':
             pass
+        elif self.inference_scaling == 'use_posterior':
+            pass
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
         else:
@@ -261,6 +263,10 @@ class SigmoidBeliefNetwork(Layer):
             print 'Conditional-only inference'
             kl_term = 0. * cond_term
             cost = cond_term.sum(axis=0)
+        elif self.inference_scaling == 'use_posterior':
+            kl_term = self.kl_divergence(
+                ph, prior[None, :], entropy_scale=self.entropy_scale)
+            cost = (cond_term + kl_term).sum(axis=0)
         else:
             kl_term = self.kl_divergence(
                 mu, prior[None, :], entropy_scale=self.entropy_scale)
@@ -297,8 +303,8 @@ class SigmoidBeliefNetwork(Layer):
         raise NotImplementedError()
 
     # SGD
-    def _step_sgd(self, y, z, l, *params):
-        cost, grad, c_term, kl_term = self.e_step(y, z, *params)
+    def _step_sgd(self, ph, y, z, l, *params):
+        cost, grad, c_term, kl_term = self.e_step(ph, y, z, *params)
         z = (z - l * grad).astype(floatX)
         l *= self.inference_decay
         return z, l, cost, c_term, kl_term
@@ -314,8 +320,8 @@ class SigmoidBeliefNetwork(Layer):
         return []
 
     # Momentum
-    def _step_momentum(self, y, z, l, dz_, m, *params):
-        cost, grad, c_term, kl_term = self.e_step(y, z, *params)
+    def _step_momentum(self, ph, y, z, l, dz_, m, *params):
+        cost, grad, c_term, kl_term = self.e_step(ph, y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z_ = (z + dz).astype(floatX)
         if self.inference_scaling == 'reweight':
@@ -358,7 +364,7 @@ class SigmoidBeliefNetwork(Layer):
             else:
                 z0 = T.alloc(0., x.shape[0], self.dim_h).astype(floatX)
 
-        seqs = [ys]
+        seqs = [ph, ys]
         outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None, None, None]
         non_seqs = self.params_infer() + self.get_params()
 
