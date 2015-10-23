@@ -252,7 +252,7 @@ class SigmoidBeliefNetwork(Layer):
             pass
         elif self.inference_scaling == 'conditional_only':
             pass
-        elif self.inference_scaling == 'use_posterior':
+        elif self.inference_scaling == 'recognition_net':
             pass
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
