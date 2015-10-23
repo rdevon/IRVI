@@ -298,17 +298,17 @@ class SigmoidBeliefNetwork(Layer):
 
     # SGD
     def _step_sgd(self, y, z, l, *params):
-        cost, grad = self.e_step(y, z, *params)
+        cost, grad, c_term, kl_term = self.e_step(y, z, *params)
         z = (z - l * grad).astype(floatX)
         l *= self.inference_decay
-        return z, l, cost
+        return z, l, cost, c_term, kl_term
 
     def _init_sgd(self, ph, y, z):
         return [self.inference_rate]
 
     def _unpack_sgd(self, outs):
-        zs, ls, costs = outs
-        return zs, costs
+        zs, ls, costs, c_terms, kl_terms = outs
+        return zs, costs, c_terms, kl_terms
 
     def _params_sgd(self):
         return []
