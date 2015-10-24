@@ -267,6 +267,7 @@ class SigmoidBeliefNetwork(Layer):
             print 'Using recognition as posterior'
             kl_term = self.kl_divergence(
                 mu, ph, entropy_scale=self.entropy_scale)
+            kl_term += self.kl_divergence(mu, prior[None, :])
             cost = (cond_term + kl_term).sum(axis=0)
         else:
             entropy_term = self.entropy_scale * self.posterior.neg_log_prob(mu, ph)
