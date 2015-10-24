@@ -265,7 +265,7 @@ class SigmoidBeliefNetwork(Layer):
             cost = cond_term.sum(axis=0)
         elif self.inference_scaling == 'use_posterior':
             kl_term = self.kl_divergence(
-                ph, prior[None, :], entropy_scale=self.entropy_scale)
+                mu, ph, entropy_scale=self.entropy_scale)
             cost = (cond_term + kl_term).sum(axis=0)
         else:
             kl_term = self.kl_divergence(
