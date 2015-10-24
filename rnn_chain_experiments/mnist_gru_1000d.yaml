@@ -6,9 +6,9 @@
   mode: 'gru',
   learning_rate: 0.01,
   steps: 500000,
-  h_init: 'noise',
+  h_init: 'average',
   metric: 'euclidean_then_energy',
-  noise_input: True,
+  noise_input: False,
   i_net: {
     dim_h: 1000,
     n_layers: 2,
@@ -20,7 +20,7 @@
     dim_h: 1000,
     n_layers: 2,
     h_act: 'T.tanh',
-    h_act: 'T.tanh',
+    out_act: 'T.tanh',
     weight_scale: 0.1
   },
   o_net: {
@@ -31,11 +31,12 @@
   dataset_args: {
     source: '/Users/devon/Data/mnist.pkl.gz',
     window: 20,
-    chain_build_batch: 100,
+    chain_build_batch: 500,
     chain_length: 500,
     chain_stride: 3,
     stop: 5000,
-    trim_end: 5
+    trim_end: 50,
+    restrict_digits: [2, 3]
   }, 
   dataset: 'mnist'
 }

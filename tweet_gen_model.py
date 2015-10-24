@@ -93,7 +93,8 @@ def get_model(pretrained_model=None, limit_unks=0.2, **kwargs):
     dim_emb = 512
     sampling_steps = 20
 
-    train = TwitterFeed(mode='microsoft', batch_size=32, n_tweets=1, limit_unks=limit_unks)
+    train = TwitterFeed(mode='microsoft', batch_size=32, n_tweets=1,
+                        limit_unks=limit_unks)
     valid = TwitterFeed(mode='feed', batch_size=8, n_tweets=1)
     test = None
 
@@ -172,42 +173,12 @@ def get_model(pretrained_model=None, limit_unks=0.2, **kwargs):
     vouts_softmax, _ = softmax(vouts_logit['z'])
     vouts[softmax.name] = vouts_softmax
 
-    def step_sample(x_, h_,
-                    U, W, b, Ux, Wx, bx, Wo, bo,
-                    E, be, EL, bel, L, bl):
-
-        preact = T.dot(h_, U) + T.dot(x_, W) + b
-        r, u = rnn.get_gates(preact)
-        preactx = T.dot(h_, Ux) * r + T.dot(x_, Wx) + bx
-        h = T.tanh(preactx)
-        h = u * h_ + (1. - u) * h
-        o = T.dot(h, Wo) + bo
-
-        x_l = T.dot(x_, EL) + bel
-        l = T.dot(T.tanh(x_l + o), L) + bl
-        p = T.nnet.softmax(l)
-        x = trng.multinomial(pvals=p).argmax(axis=1)
-        y = T.zeros_like(p)
-        y = T.set_subtensor(y[:, x], 1.)
-        x_e = (T.dot(y, E) + be).astype('float32')
-
-        return x_e, h, o, x
-
-    seqs = []
-    outputs_info = [T.alloc(0., 2, rnn.dim_h).astype('float32'),
-        T.alloc(0., 2, rnn.dim_in).astype('float32'), None, None]
-    non_seqs = [rnn.U, rnn.W, rnn.b, rnn.Ux, rnn.Wx, rnn.bx, rnn.Wo, rnn.bo,
-                embedding.W, embedding.b, emb_logit.W, emb_logit.b,
-                logit_ffn.W, logit_ffn.b]
-
-    (x_e, h, o, x), updates_sampler = theano.scan(step_sample,
-                                        sequences=seqs,
-                                        outputs_info=outputs_info,
-                                        non_sequences=non_seqs,
-                                        name='sampling',
-                                        n_steps=sampling_steps,
-                                        profile=False,
-                                        strict=True)
+    (x_e, h, o, x), updates_sampler = make_sampler(X, M,
+                                                   sampling_steps=sampling_steps,
+                                                   rnn=rnn,
+                                                   embedding=embedding,
+                                                   emb_logit=emb_logit,
+                                                   logit_ffn=logit_ffn)
     vupdates.update(updates_sampler)
 
     vouts.update(
@@ -236,8 +207,80 @@ def get_model(pretrained_model=None, limit_unks=0.2, **kwargs):
         exclude_params=exclude_params,
         consider_constant=consider_constant,
         tparams=tparams,
-        data=dict(train=DataIter(train), valid=DataIter(valid), test=None)
+        data=dict(train=DataIter(train), valid=DataIter(valid), test=None),
+        comp=OrderedDict(
+            rnn=rnn,
+            embedding=embedding,
+            emb_logit=emb_logit,
+            logit_ffn=logit_ffn
+        )
     )
+
+def make_sampler(X, M, sampling_steps=20, h0=None, x0=None, rnn=None,
+                 embedding=None, emb_logit=None, logit_ffn=None):
+
+    if h0 is None:
+        h0 = T.alloc(0., X.shape[1], rnn.dim_in).astype('float32')
+    if x0 is None:
+        x0 = T.alloc(0., X.shape[1], rnn.dim_h).astype('float32')
+
+    trng = RandomStreams(7 * 27 * 2015)
+
+    def step_sample(xx, m, x_, h_,
+                    U, W, b, Ux, Wx, bx, Wo, bo,
+                    E, be, EL, bel, L, bl):
+
+        preact = T.dot(h_, U) + T.dot(x_, W) + b
+        r, u = rnn.get_gates(preact)
+        preactx = T.dot(h_, Ux) * r + T.dot(x_, Wx) + bx
+        h = T.tanh(preactx)
+        h = u * h_ + (1. - u) * h
+        o = T.dot(h, Wo) + bo
+
+        x_l = T.dot(x_, EL) + bel
+        l = T.dot(T.tanh(x_l + o), L) + bl
+        p = T.nnet.softmax(l)
+        x = m[:, None] * trng.multinomial(pvals=p) + (1. - m[:, None]) * xx
+        x_p = T.argmax(x, axis=1).astype('int64')
+        y = T.zeros_like(p)
+        y = T.set_subtensor(y[:, x_p], 1.)
+        x_e = (T.dot(y, E) + be).astype('float32')
+
+        return x_e, h, o, x
+
+    seqs = [X, M]
+    outputs_info = [h0, x0, None, None]
+    non_seqs = [rnn.U, rnn.W, rnn.b, rnn.Ux, rnn.Wx, rnn.bx, rnn.Wo, rnn.bo,
+                embedding.W, embedding.b, emb_logit.W, emb_logit.b,
+                logit_ffn.W, logit_ffn.b]
+
+    (x_e, h, o, x), updates_sampler = theano.scan(step_sample,
+                                        sequences=seqs,
+                                        outputs_info=outputs_info,
+                                        non_sequences=non_seqs,
+                                        name='sampling',
+                                        n_steps=sampling_steps,
+                                        profile=False,
+                                        strict=True)
+
+    return (x_e, h, o, x), updates_sampler
+
+def f_fill_sample(model):
+    X = model['inps']['x']
+    M = model['inps']['m']
+
+    comp = model['comp']
+
+    sampling_steps = x.shape[0]
+
+    (x_e, h, _, _), updates = make_sampler(X, M, **comp)
+    (_, _, _, x), updates_2 = make_sampler(X, M, h, x_e,
+                                           sampling_steps=sampling_steps,
+                                           **comps)
+    updates.update(updates_2)
+
+    f_sample = theano.function([X, M], x, updates=updates)
+    return f_sample(x, m)
 
 def get_samplers(inps=None, outs=None, dataset=None):
     trng = RandomStreams(7 * 2 * 2015)

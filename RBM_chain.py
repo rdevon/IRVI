@@ -50,6 +50,8 @@ def unpack(dim_h=None,
            dataset_args=None,
            **model_args):
 
+    dataset_args = dataset_args[()]
+
     dim_h = int(dim_h)
 
     if dataset == 'mnist':
@@ -64,6 +66,7 @@ def unpack(dim_h=None,
     models = [rbm]
 
     return models, model_args, dict(
+        dataset=dataset,
         dataset_args=dataset_args
     )
 
@@ -83,9 +86,75 @@ def load_model_for_sampling(model_file):
     rbm = models['rbm']
 
     tparams = rbm.set_tparams()
-    train.set_f_energy(energy_function, rnn)
+    train.set_f_energy(energy_function, rbm)
 
     return rbm, train, test
+
+def lower_bound(model_file, n_samples=10000, sigma=0.2, from_chain=False):
+
+    models, kwargs = load_model(model_file, unpack)
+    dataset_args = kwargs['dataset_args']
+    dataset = kwargs['dataset']
+
+    rbm, train, test = load_model_for_sampling(model_file)
+    params = rbm.get_sample_params()
+
+    if dataset == 'mnist':
+        test = MNIST_Chains(batch_size=n_samples, mode='test', **dataset_args)
+        valid = MNIST_Chains(batch_size=n_samples / 10, mode='valid', **dataset_args)
+        test.randomize()
+        valid.randomize()
+    elif dataset == 'horses':
+        test = Horses(batch_size=1, crop_image=True, **dataset_args)
+    else:
+        raise ValueError()
+
+    X = T.matrix('x', dtype=floatX)
+
+    x_s, h_s, p_s, q_s = rbm.step_sample(X, *params)
+    f_sam = theano.function([X], [x_s, p_s])
+
+    if from_chain:
+        xs = []
+        x = train.next_simple(batch_size=1)
+        while len(xs) < n_samples:
+            x, p = f_sam(x)
+            xs.append(p)
+        samples = np.array(xs)[:, 0]
+    else:
+        print 'Generating'
+        samples = generate(model_file, n_steps=100, n_samples=n_samples)
+
+    x_v = valid.next_simple(batch_size=n_samples/10)
+
+    print 'Finding best sigma by grid search'
+    best = 0
+    best_sigma = None
+
+    def frange(x, y, jump):
+        while x < y:
+          yield x
+          x += jump
+
+    for sigma in frange(0.2, 0.3, 0.01):
+        print 'Sigma = %.2f' % sigma
+        parzen = lep.theano_parzen(samples, sigma)
+        test_ll = lep.get_ll(x_v, parzen)
+        best_ll = np.mean(test_ll)
+        if best_ll > best:
+            best_sigma = sigma
+            best = best_ll
+
+    print 'Best ll and sigma at validation: %.2f and %.2f' % (best, best_sigma)
+    sigma = best_sigma
+
+    x_t = test.next_simple(batch_size=n_samples)
+    print 'Calculating log likelihood at test by Parzen window'
+    parzen = lep.theano_parzen(samples, sigma)
+    test_ll = lep.get_ll(x_t, parzen)
+    print "Mean Log-Likelihood of test set = %.5f (model)" % np.mean(test_ll)
+    print "Std of Mean Log-Likelihood of test set = %.5f" % (np.std(test_ll) / 100)
+    print 'Calculating log likelihood at test by Parzen window using mnist validation data'
 
 def get_sample_cross_correlation(model_file, n_steps=100):
     rbm, dataset, test = load_model_for_sampling(model_file)
@@ -96,7 +165,8 @@ def get_sample_cross_correlation(model_file, n_steps=100):
     plt.colorbar()
     plt.show()
 
-def generate(model_file, n_steps=20, n_samples=40, out_path=None):
+def generate(model_file, x=None, n_steps=20, n_samples=40, out_path=None,
+             from_data=False):
     rbm, train, test = load_model_for_sampling(model_file)
     params = rbm.get_params()
 
@@ -104,14 +174,26 @@ def generate(model_file, n_steps=20, n_samples=40, out_path=None):
     x_s, h_s, p_s, q_s = rbm._step(X, *params)
     f_sam = theano.function([X], [x_s, h_s, p_s, q_s])
 
-    x = rnn.rng.binomial(p=0.5, size=(n_samples, rbm.dim_in), n=1).astype(floatX)
+    if x is None:
+        if from_data == True:
+            train.randomize()
+            x = train.next_simple(batch_size=n_samples)
+        else:
+            x = rbm.rng.binomial(
+                p=0.5, size=(n_samples, rbm.dim_in), n=1).astype(floatX)
+
     ps = [x]
     for s in xrange(n_steps):
         x, h, p, q = f_sam(x)
         ps.append(p)
 
     if out_path is not None:
-        train.save_images(np.array(ps), path.join(out_path, 'generation_samples.png'))
+        if from_data:
+            out_file = 'generation_samples(from_data).png'
+        else:
+            out_file = 'generation_samples.png'
+        train.save_images(np.array(ps),
+                          path.join(out_path, out_file))
     else:
         return ps[-1]
 
@@ -122,7 +204,7 @@ def visualize(model_file, out_path=None, interval=1, n_samples=-1,
     params = rbm.get_params()
 
     X = T.matrix('x', dtype=floatX)
-    x_s, h_s, p_s, q_s = rnn._step(X, *params)
+    x_s, h_s, p_s, q_s = rbm._step(X, *params)
     f_sam = theano.function([X], [x_s, h_s, p_s, q_s])
     ps = []
     xs = []
@@ -221,7 +303,7 @@ def energy_function(model):
 
     energy = -(x_e * T.log(p + 1e-7) + (1 - x_e) * T.log(1 - p + 1e-7)).sum(axis=2)
 
-    return theano.function([x, x_p, h_p], [energy, x_s, h])
+    return theano.function([x, x_p, h_p], [energy, x_s, h_p])
 
 def euclidean_distance(model):
     '''
@@ -234,7 +316,7 @@ def euclidean_distance(model):
     x_e = T.alloc(0., x_p.shape[0], x.shape[0], x.shape[1]).astype(floatX) + x[None, :, :]
     x_pe = T.alloc(0., x_p.shape[0], x.shape[0], x_p.shape[1]).astype(floatX) + x_p[:, None, :]
 
-    params = model.get_sample_params()
+    params = model.get_params()
     distance = (x_e - x_pe) ** 2
     distance = distance.sum(axis=2)
     return theano.function([x, x_p, h_p], [distance, x, h_p])
@@ -292,10 +374,10 @@ def train_model(save_graphs=False, out_path='', name='',
     print 'Model params: %s' % tparams.keys()
     if metric == 'energy':
         print 'Energy-based metric'
-        train.set_f_energy(energy_function, rnn)
+        train.set_f_energy(energy_function, rbm)
     elif metric in ['euclidean', 'euclidean_then_energy']:
         print 'Euclidean-based metic'
-        train.set_f_energy(euclidean_distance, rnn)
+        train.set_f_energy(euclidean_distance, rbm)
     else:
         raise ValueError(metric)
 
@@ -342,7 +424,7 @@ def train_model(save_graphs=False, out_path='', name='',
                 print 'Epoch {epoch}'.format(epoch=e)
                 if metric == 'euclidean_then_energy' and e == 2:
                     print 'Switching to model energy'
-                    train.set_f_energy(energy_function, rnn)
+                    train.set_f_energy(energy_function, rbm)
                 continue
             rval = f_grad_shared(x)
 
@@ -374,11 +456,9 @@ def train_model(save_graphs=False, out_path='', name='',
                 temp_file = path.join(
                     out_path, '{name}_temp.npz'.format(name=name))
                 d = dict((k, v.get_value()) for k, v in tparams.items())
-                d.update(mode=mode,
-                         dim_h=dim_h,
-                         h_init=h_init,
-                         mlp_a=mlp_a, mlp_b=mlp_b, mlp_o=mlp_o, mlp_c=mlp_c,
-                         dataset=dataset, dataset_args=dataset_args)
+                d.update(dim_h=dim_h,
+                         dataset=dataset,
+                         dataset_args=dataset_args)
                 np.savez(temp_file, **d)
 
             f_grad_updates(learning_rate)
@@ -391,11 +471,9 @@ def train_model(save_graphs=False, out_path='', name='',
 
     print 'Saving the following params: %s' % tparams.keys()
     d = dict((k, v.get_value()) for k, v in tparams.items())
-    d.update(mode=mode,
-             dim_h=dim_h,
-             h_init=h_init,
-             mlp_a=mlp_a, mlp_b=mlp_b, mlp_o=mlp_o, mlp_c=mlp_c,
-             dataset=dataset, dataset_args=dataset_args)
+    d.update(dim_h=dim_h,
+             dataset=dataset,
+             dataset_args=dataset_args)
 
     np.savez(outfile, **d)
     np.savez(last_outfile,  **d)

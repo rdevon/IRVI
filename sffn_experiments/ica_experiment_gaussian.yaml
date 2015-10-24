@@ -25,6 +25,6 @@
   n_inference_steps_eval: 20,
   dataset: 'mnist',
   dataset_args: {
-    source: '/export/mialab/users/dhjelm/data/mnist.pkl.gz'
+    source: '/Users/devon/Data/mnist.pkl.gz'
   }
 }

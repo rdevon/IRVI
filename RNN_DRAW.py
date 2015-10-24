@@ -332,6 +332,46 @@ def euclidean_distance(model):
     distance = distance.sum(axis=2)
     return theano.function([x, x_p, h_p], [distance, x, h_p])
 
+def draw_sample(self, p, size=None):
+    if p.ndim == 2:
+        p_x = p[:, :-4]
+        p_y = p[:, -4:]
+    elif p.ndim == 3:
+        p_x = p[:, :, :-4]
+        p_y = p[:, :, -4:]
+
+    if size is None:
+        x_size = p_x.shape
+        y_size = p_y.shape
+    else:
+        x_size = tuple(size[:])
+        y_size = tuple(size[:])
+        x_size[-1] -= 4
+        y_size[-1] = 4
+
+    x = self._binomial(p_x, size=x_size)
+    y = self._normal(mu=p_y[:2], log_sigma=p_y[2:], size=y_size)
+
+    return T.concatenate([x, y], axis=(x.ndim-1))
+
+def draw_neg_log_prob(d, p, axis=None):
+    assert d.ndim == p.n_dim
+    if p.ndim == 2:
+        p_x = p[:, :-4]
+        p_y = p[:, -4:]
+        y = d[:, -4:]
+        x = d[:, :-4]
+    elif p.ndim == 3:
+        p_x = p[:, :, :-4]
+        p_y = p[:, :, -4:]
+        y = d[:, :, -4:]
+        x = d[:, :, :-4]
+
+    x_energy = self._cross_entropy(x, p_x, axis=axis)
+    y_energy = self._normal_log_prob(y, p_y, axis=axis)
+
+    return x_energy + y_energy
+
 def train_model(save_graphs=False, out_path='', name='',
                 load_last=False, model_to_load=None, save_images=True,
                 source=None,
@@ -354,13 +394,17 @@ def train_model(save_graphs=False, out_path='', name='',
         train = MNIST_Pieces(batch_size=batch_size, out_path=out_path, **dataset_args)
     elif dataset == 'horses':
         raise NotImplementedError()
-        train = Horses_Pieces(batch_size=batch_size, out_path=out_path, crop_image=True, **dataset_args)
+        train = Horses_Pieces(batch_size=batch_size,
+                              out_path=out_path,
+                              crop_image=True,
+                              **dataset_args)
     else:
         raise ValueError()
 
-    dim_in = train.dim
+    dim_in = train.dim + 4
     X = T.tensor3('x', dtype=floatX)
-    Y = T.matrix('y', dtype=floatX)
+    Y = T.tensor3('y', dtype=floatX)
+
     trng = RandomStreams(random.randint(0, 100000))
 
     if mode == 'gru':
@@ -402,8 +446,13 @@ def train_model(save_graphs=False, out_path='', name='',
         else:
             mlps['MLPa'] = MLPb
 
+        f_sample = draw_sample
+        f_neg_log_prob = draw_neg_log_prob
+
         if mlp_o is not None:
-            MLPo = load_mlp('MLPo', dim_h, dim_in, **mlp_o)
+            MLPo = load_mlp('MLPo', dim_h, dim_in,
+                            f_sample=f_sample, f_neg_log_prob=f_neg_log_prob,
+                            **mlp_o)
         else:
             MLPo = None
         mlps['MLPo'] = MLPo
@@ -415,6 +464,7 @@ def train_model(save_graphs=False, out_path='', name='',
         mlps['MLPc'] = MLPc
 
         rnn = C(dim_in, dim_h, trng=trng,
+                f_sample=f_sample, f_neg_log_prob=f_neg_log_prob,
                 **mlps)
         models = OrderedDict()
         models[rnn.name] = rnn
@@ -425,9 +475,16 @@ def train_model(save_graphs=False, out_path='', name='',
 
     X = trng.binomial(p=X, size=X.shape, n=1, dtype=X.dtype)
     X_s = X[:-1]
+    Y_s = Y[:-1]
     updates = theano.OrderedUpdates()
     if noise_input:
         X_s = X_s * (1 - trng.binomial(p=0.1, size=X_s.shape, n=1, dtype=X_s.dtype))
+        Y_s = trng.normal(avg=Y_s, std=0.01, size=Y_s.shape, dtype=Y_s.dtype)
+        D_s = T.concatenate([X_s, Y_s], axis=2)
+    else:
+        D_s = T.concatenate([X_s, Y_s], axis=2)
+
+    D = T.concatenate([X, Y], axis=2)
 
     if h_init is None:
         h0 = None
@@ -453,7 +510,8 @@ def train_model(save_graphs=False, out_path='', name='',
                       out_act='T.tanh',
                       name='MLPh')
         tparams.update(mlp.set_tparams())
-        h0 = mlp(X[0])
+        h0s = mlp(D)
+        h0 = h0s[0]
 
     print 'Model params: %s' % tparams.keys()
     if metric == 'energy':
@@ -465,13 +523,13 @@ def train_model(save_graphs=False, out_path='', name='',
     else:
         raise ValueError(metric)
 
-    outs, updates_1 = rnn(X_s, h0=h0)
+    outs, updates_1 = rnn(D, h0=h0)
     h = outs['h']
     p = outs['p']
     x = outs['y']
     updates.update(updates_1)
 
-    energy = -(X[1:] * T.log(p + 1e-7) + (1 - X[1:]) * T.log(1 - p + 1e-7)).sum(axis=(0, 2))
+    energy = rnn.MLPo.neg_log_prob(D[1:], p).sum(axis=0)
     cost = energy.mean()
     consider_constant = [x]
 
@@ -481,8 +539,8 @@ def train_model(save_graphs=False, out_path='', name='',
         outs_h, updates_h = averager(h)
         updates.update(updates_h)
     elif h_init == 'mlp':
-        h_c = T.zeros_like(h[0]) + h[0]
-        cost += ((h0 - h[0])**2).sum(axis=1).mean()
+        h_c = T.zeros_like(h) + h
+        cost += ((h0s - h_c)**2).sum(axis=2).mean()
         consider_constant.append(h_c)
 
     extra_outs = [energy.mean(), h, p]
@@ -492,13 +550,14 @@ def train_model(save_graphs=False, out_path='', name='',
         if h_init == 'average':
             h0_s = T.alloc(0., window, rnn.dim_h).astype(floatX) + averager.m[None, :]
         elif h_init == 'mlp':
-            h0_s = mlp(X[:, 0])
+            h0_s = mlp(D[:, 0])
         elif h_init == 'last':
             h0_s = h[:, 0]
         else:
             h0_s = None
-        out_s, updates_s = rnn.sample(X[:, 0], h0=h0_s, n_samples=10, n_steps=10)
-        f_sample = theano.function([X], out_s['p'], updates=updates_s)
+        out_s, updates_s = rnn.sample(D[:, 0], h0=h0_s, n_samples=10, n_steps=10)
+        pallet = draw(outs_s['p'])
+        f_sample = theano.function([X], pallet, updates=updates_s)
 
     grad_tparams = OrderedDict((k, v)
         for k, v in tparams.iteritems()

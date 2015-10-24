@@ -268,8 +268,9 @@ class SigmoidBeliefNetwork(Layer):
                 mu, ph, entropy_scale=self.entropy_scale)
             cost = (cond_term + kl_term).sum(axis=0)
         else:
-            kl_term = self.kl_divergence(
-                mu, prior[None, :], entropy_scale=self.entropy_scale)
+            entropy_term = self.entropy_scale * self.posterior.neg_log_prob(mu, ph)
+            prior_term = self.posterior.neg_log_prob(mu, prior[None, :])
+            kl_term = prior_term - entropy_term
             cost = (cond_term + kl_term).sum(axis=0)
 
         if self.inference_scaling == 'stochastic':
