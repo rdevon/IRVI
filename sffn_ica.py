@@ -263,7 +263,7 @@ class SigmoidBeliefNetwork(Layer):
             print 'Conditional-only inference'
             kl_term = 0. * cond_term
             cost = cond_term.sum(axis=0)
-        elif self.inference_scaling == 'use_recognition_net':
+        elif self.inference_scaling == 'recognition_net':
             print 'Using recognition as posterior'
             kl_term = self.kl_divergence(
                 mu, ph, entropy_scale=self.entropy_scale)
