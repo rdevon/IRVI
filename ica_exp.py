@@ -203,7 +203,7 @@ def train_model(
     z_init=None,
     n_inference_steps_eval=0,
     dataset=None, dataset_args=None,
-    model_save_freq=10, show_freq=10
+    model_save_freq=10, show_freq=10, archive_every=0
     ):
 
     kwargs = dict(
@@ -217,9 +217,11 @@ def train_model(
         importance_sampling=importance_sampling
     )
 
+    # ========================================================================
     print 'Dataset args: %s' % pprint.pformat(dataset_args)
     print 'Model args: %s' % pprint.pformat(kwargs)
 
+    # ========================================================================
     print 'Setting up data'
     if dataset == 'mnist':
         train = mnist_iterator(batch_size=batch_size, mode='train', inf=False,
@@ -231,7 +233,8 @@ def train_model(
     else:
         raise ValueError()
 
-    print 'Setting model'
+    # ========================================================================
+    print 'Setting model and variables'
     dim_in = train.dim
     dim_out = train.dim
     D = T.matrix('x', dtype=floatX)
@@ -240,14 +243,15 @@ def train_model(
 
     trng = RandomStreams(random.randint(0, 1000000))
 
+    # ========================================================================
+    print 'Loading model and forming graph'
+
     if model_to_load is not None:
         models, _ = load_model(model_to_load, unpack, **kwargs)
     elif load_last:
         model_file = glob(path.join(out_path, '*last.npz'))[0]
         models, _ = load_model(model_file, unpack, **kwargs)
     else:
-        # The recognition net is a MLP with 2 layers. The intermediate layer is
-        # deterministic.
         if prior == 'logistic':
             out_act = 'T.nnet.sigmoid'
         elif prior == 'gaussian':
@@ -262,8 +266,6 @@ def train_model(
         else:
             posterior = None
 
-        # The generation net has much of the same structure as the recognition net,
-        # with roles reversed.
         if generation_net is not None:
             conditional = load_mlp('conditional', dim_h, dim_in,
                                    out_act='T.nnet.sigmoid',
@@ -288,7 +290,6 @@ def train_model(
         models = OrderedDict()
         models[model.name] = model
 
-    print 'Getting params'
     model = models['sbn']
 
     if not learn_prior:
@@ -297,52 +298,65 @@ def train_model(
         excludes = []
     tparams = model.set_tparams(excludes=excludes)
 
+    # ========================================================================
     print 'Getting cost'
     (xs, ys, zs,
-     prior_energy, h_energy, y_energy, y_energy_approx, entropy,
-     i_energy, c_term, kl_term), updates, constants = model.inference(
+     prior_energy, h_energy, y_energy, y_energy_approx, entropy), updates, constants = model.inference(
         X, Y, n_samples=inference_samples)
-
-    if prior == 'logistic':
-        mu = T.nnet.sigmoid(zs)
-    elif prior == 'gaussian':
-        mu = _slice(zs, 0, model.dim_h)
-        print 'Not learning sigma for gaussian prior'
-        constants.append(model.log_sigma)
-    else:
-        raise ValueError()
-    py = model.conditional(mu)
-
-    pd_i, d_hat_i = concatenate_inputs(model, ys[0], py)
-
-    (py_s, lower_bound, i_energy2, c_term2, kl_term2), updates_s = model(
-        X, Y, n_samples=inference_samples_test, n_inference_steps=n_inference_steps_eval)
-    updates.update(updates_s)
-    pd_s, d_hat_s = concatenate_inputs(model, Y, py_s)
-    f_d_hat = theano.function([X, Y], [lower_bound, pd_s, d_hat_s, i_energy2, c_term2, kl_term2],
-        updates=updates_s)
-
-    py_p = model.sample_from_prior()
-    f_py_p = theano.function([], py_p)
 
     if learn_prior:
         cost = prior_energy + h_energy + y_energy
     else:
         cost = h_energy + y_energy
 
+    # ========================================================================
+    print 'Extra functions'
+
+    if prior == 'logistic':
+        mu = T.nnet.sigmoid(zs)
+        ph = mu
+    elif prior == 'gaussian':
+        ph = zs
+        mu = _slice(zs, 0, model.dim_h)
+        print 'Not learning sigma for gaussian prior'
+        constants.append(model.log_sigma)
+    else:
+        raise ValueError()
+
+    py = model.conditional(mu)
+    pd_i, d_hat_i = concatenate_inputs(model, ys[0], py)
+
+    # Test function with sampling
+    rval, updates_s = model(
+        X, Y, n_samples=inference_samples_test, n_inference_steps=n_inference_steps_eval)
+    py_s = rval['py']
+    lower_bound = rval['lower_bound']
+    conditionals_approx = rval['c_a']
+    conditionals_mc = rval['c_mc']
+    kl_terms = rval['kl']
+
+    pd_s, d_hat_s = concatenate_inputs(model, Y, py_s)
+    f_test = theano.function(
+        [X, Y], [lower_bound, conditionals_approx, conditionals_mc, kl_terms, pd_s, d_hat_s], updates=updates_s)
+
+    # Sample from prior
+    py_p = model.sample_from_prior()
+    f_prior = theano.function([], py_p)
+
+    # ========================================================================
+
     extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx,
-                  y_energy / y_energy_approx, entropy,
-                  i_energy, c_term, kl_term]
+                  y_energy / y_energy_approx, entropy]
     vis_outs = [pd_i, d_hat_i]
 
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
                         'train y energy', 'approx train y energy',
-                        'y to y approx ratio', 'entropy',
-                        'inference energy', 'i cond term', 'i kl term']
+                        'y to y approx ratio', 'entropy']
     vis_outs_names = ['pds', 'd_hats']
 
-    # Remove the parameters found in updates from the ones we will take
-    # gradients of.
+    # ========================================================================
+    print 'Setting final tparams and save function'
+
     all_params = OrderedDict((k, v) for k, v in tparams.iteritems())
 
     tparams = OrderedDict((k, v)
@@ -350,25 +364,7 @@ def train_model(
         if (v not in updates.keys()))
 
     print 'Learned model params: %s' % tparams.keys()
-
-    print 'Getting gradients.'
-    grads = T.grad(cost, wrt=itemlist(tparams),
-                   consider_constant=constants)
-
-    print 'Building optimizer'
-    lr = T.scalar(name='lr')
-    f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
-        lr, tparams, grads, [D], cost,
-        extra_ups=updates,
-        extra_outs=extra_outs+vis_outs)
-
-    monitor = SimpleMonitor()
-
-    print 'Actually running'
-
-    best_cost = float('inf')
-    if out_path is not None:
-        bestfile = path.join(out_path, '{name}_best.npz'.format(name=name))
+    print 'Saved params: %s' % all_params.keys()
 
     def save(tparams, outfile):
         d = dict((k, v.get_value()) for k, v in all_params.items())
@@ -382,6 +378,28 @@ def train_model(
             dataset=dataset, dataset_args=dataset_args
         )
         np.savez(outfile, **d)
+
+    # ========================================================================
+    print 'Getting gradients.'
+    grads = T.grad(cost, wrt=itemlist(tparams),
+                   consider_constant=constants)
+
+    # ========================================================================
+    print 'Building optimizer'
+    lr = T.scalar(name='lr')
+    f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
+        lr, tparams, grads, [D], cost,
+        extra_ups=updates,
+        extra_outs=extra_outs+vis_outs)
+
+    monitor = SimpleMonitor()
+
+    # ========================================================================
+    print 'Actually running'
+
+    best_cost = float('inf')
+    if out_path is not None:
+        bestfile = path.join(out_path, '{name}_best.npz'.format(name=name))
 
     try:
         t0 = time.time()
@@ -410,8 +428,8 @@ def train_model(
                     d_v, _ = valid.next()
                 x_v, y_v = d_v, d_v
 
-                ye_v, pd_v, d_hat_v, ie_v, ct_v, klt_v = f_d_hat(x_v, y_v)
-                ye_t, _, _, _, _, _ = f_d_hat(x, x)
+                lb_v, ca_v, cm_v, kl_v, pd_v, d_hat_v = f_test(x_v, y_v)
+                lb_t, _, _, _, _, _ = f_test(x, x)
 
                 outs = OrderedDict((k, v)
                     for k, v in zip(extra_outs_names,
@@ -419,26 +437,34 @@ def train_model(
 
                 t1 = time.time()
                 outs.update(**{
-                    'train lower bound': ye_t,
-                    'valid lower bound': ye_v,
-                    'elapsed_time': t1-t0,
-                    'inference energy at test': ie_v,
-                    'i cond term at test': ct_v,
-                    'i kl term at test': klt_v}
+                    'train lower bound': lb_t,
+                    'valid lower bound': lb_v,
+                    'elapsed_time': t1-t0}
                 )
                 monitor.update(**outs)
                 t0 = time.time()
 
-                if ye_v < best_cost:
-                    best_cost = ye_v
+                if lb_v < best_cost:
+                    best_cost = lb_v
                     if out_path is not None:
                         save(tparams, bestfile)
+
+                outs_adds = OrderedDict({
+                    'conditionals approx': ca_v,
+                    'conditionals mc': cm_v,
+                    'kls': kl_v
+                })
+                monitor.add(**outs_adds)
 
                 monitor.display(e, s)
 
                 if save_images and s % model_save_freq == 0:
                     monitor.save(path.join(
                         out_path, '{name}_monitor.png').format(name=name))
+                    if archive_every and s % archive_every == 0:
+                        monitor.save(path.join(
+                            out_path, '{name}_monitor(s)'.format(name=name, s=s))
+                        )
 
                     pd_i, d_hat_i = rval[len(extra_outs_names):]
 
@@ -456,7 +482,7 @@ def train_model(
                     train.save_images(d_hat_s, path.join(
                         out_path, '{name}_samples.png'.format(name=name)))
 
-                    pd_p = f_py_p()
+                    pd_p = f_prior()
                     train.save_images(
                         pd_p[:, None], path.join(
                             out_path,
@@ -476,8 +502,8 @@ def train_model(
         d_t, _ = test.next()
         x_t = d_t.copy()
         y_t = d_t.copy()
-        ye_t, _, _, _, _, _ = f_d_hat(x_t, y_t)
-        print 'End test: %.5f' % ye_t
+        lb_t, _, _, _, _, _ = f_test(x_t, y_t)
+        print 'End test: %.5f' % lb_t
     except KeyboardInterrupt:
         print 'Aborting test'
 
