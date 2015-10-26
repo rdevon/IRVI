@@ -143,7 +143,7 @@ def unpack(dim_h=None,
     elif prior == 'gaussian':
         out_act = 'lambda x: x'
     else:
-        raise ValueError()
+        raise ValueError('%s prior not known' % prior)
 
     models = []
     if recognition_net is not None:
