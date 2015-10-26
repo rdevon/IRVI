@@ -360,7 +360,7 @@ class SigmoidBeliefNetwork(Layer):
     def infer_q(self, x, y, n_inference_steps, z0=None):
         updates = theano.OrderedUpdates()
 
-        xs, ys = self.init_inputs(x, y, steps=self.n_inference_steps)
+        xs, ys = self.init_inputs(x, y, steps=n_inference_steps)
         ph = self.posterior(xs)
         if z0 is None:
             if self.z_init == 'recognition_net':
