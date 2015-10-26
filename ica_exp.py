@@ -257,7 +257,7 @@ def train_model(
         elif prior == 'gaussian':
             out_act = 'lambda x: x'
         else:
-            raise ValueError()
+            raise ValueError('%s prior not known' % prior)
 
         if recognition_net is not None:
             posterior = load_mlp('posterior', dim_in, dim_h,
