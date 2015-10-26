@@ -227,7 +227,9 @@ class SigmoidBeliefNetwork(Layer):
 
         consider_constant = [y, prior]
         cond_term = self.conditional.neg_log_prob(y, py)
-        if self.inference_scaling == 'global':
+        if isinstance(self.inference_scaling, float):
+            cond_term = self.inference_scaling * cond_term
+        elif self.inference_scaling == 'global':
             print 'Using global scaling in inference'
             scale_factor = params[-1]
             cond_term = scale_factor * cond_term
