@@ -19,7 +19,7 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import time
 
 from layers import MLP
-from mnist import mnist_iterator
+from mnist import MNIST
 import op
 from sffn_ica import GaussianBeliefNet as GBN
 from sffn_ica import SigmoidBeliefNetwork as SBN
@@ -46,7 +46,7 @@ def lower_bound_curve(
     dataset = kwargs['dataset']
 
     if dataset == 'mnist':
-        test = mnist_iterator(batch_size=n_samples, mode='test', **dataset_args)
+        test = MNIST(batch_size=n_samples, mode='test', **dataset_args)
     else:
         raise ValueError()
 
@@ -224,11 +224,11 @@ def train_model(
     # ========================================================================
     print 'Setting up data'
     if dataset == 'mnist':
-        train = mnist_iterator(batch_size=batch_size, mode='train', inf=False,
+        train = MNIST(batch_size=batch_size, mode='train', inf=False,
                                **dataset_args)
-        valid = mnist_iterator(batch_size=batch_size, mode='valid', inf=True,
+        valid = MNIST(batch_size=batch_size, mode='valid', inf=True,
                                **dataset_args)
-        test = mnist_iterator(batch_size=2000, mode='test', inf=True,
+        test = MNIST(batch_size=2000, mode='test', inf=True,
                               **dataset_args)
     else:
         raise ValueError()
