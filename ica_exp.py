@@ -410,7 +410,7 @@ def train_model(
                 x, _ = train.next()
             except StopIteration:
                 e += 1
-                print 'Epoch {epoch} (name)'.format(epoch=e, name=name)
+                print 'Epoch {epoch} ({name})'.format(epoch=e, name=name)
                 continue
 
             if e > epochs:
@@ -463,7 +463,7 @@ def train_model(
                         out_path, '{name}_monitor.png').format(name=name))
                     if archive_every and s % archive_every == 0:
                         monitor.save(path.join(
-                            out_path, '{name}_monitor(s)'.format(name=name, s=s))
+                            out_path, '{name}_monitor({s})'.format(name=name, s=s))
                         )
 
                     pd_i, d_hat_i = rval[len(extra_outs_names):]
