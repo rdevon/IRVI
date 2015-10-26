@@ -167,7 +167,7 @@ def unpack(dim_h=None,
     elif prior == 'gaussian':
         C = GBN
     else:
-        raise ValueError()
+        raise ValueError('%s prior not known' % prior)
 
     model = C(dim_in, dim_h, dim_out,
                 conditional=conditional,
