@@ -31,12 +31,11 @@
   dataset_args: {
     source: '/Users/devon/Data/mnist.pkl.gz',
     window: 20,
-    chain_build_batch: 500,
-    chain_length: 500,
+    chain_build_batch: 2000,
+    chain_length: 2000,
     chain_stride: 3,
-    stop: 5000,
-    trim_end: 50,
-    restrict_digits: [2, 3]
+    trim_end: 20,
+    restrict_digits:
   }, 
   dataset: 'mnist'
 }
