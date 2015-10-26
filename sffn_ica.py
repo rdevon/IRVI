@@ -272,7 +272,7 @@ class SigmoidBeliefNetwork(Layer):
             kl_term += self.kl_divergence(mu, prior[None, :])
             cost = (cond_term + kl_term).sum(axis=0)
         else:
-            entropy_term = self.entropy_scale * self.posterior.neg_log_prob(mu, ph)
+            entropy_term = self.entropy_scale * self.posterior.neg_log_prob(mu, mu)
             prior_term = self.posterior.neg_log_prob(mu, prior[None, :])
             kl_term = prior_term - entropy_term
             cost = (cond_term + kl_term).sum(axis=0)
