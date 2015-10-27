@@ -522,8 +522,8 @@ def train_model(
         d_t, _ = test.next()
         x_t = d_t.copy()
         y_t = d_t.copy()
-        lb_t, _, _, _, _, _ = f_test(x_t, y_t)
-        print 'End test: %.5f' % lb_t
+        outs_test = f_test(x_t, y_t)
+        print 'End test: %.5f' % outs_test[0]
     except KeyboardInterrupt:
         print 'Aborting test'
 
