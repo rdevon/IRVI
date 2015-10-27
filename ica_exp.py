@@ -515,6 +515,7 @@ def train_model(
         save(tparams, outfile)
         save(tparams, last_outfile)
         print 'Done saving.'
+
     print 'Bye bye!'
 
 def make_argument_parser():
