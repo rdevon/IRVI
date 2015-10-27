@@ -35,7 +35,7 @@ def init_inference_args(model,
                         inference_decay=0.99,
                         entropy_scale=1.0,
                         importance_sampling=False,
-                        n_inference_steps=20,
+                        n_inference_samples=20,
                         inference_scaling=None,
                         inference_method='momentum',
                         sample_from_joint=False,
@@ -44,9 +44,9 @@ def init_inference_args(model,
     model.inference_decay = inference_decay
     model.entropy_scale = entropy_scale
     model.importance_sampling = importance_sampling
-    model.n_inference_steps = T.constant(n_inference_steps).astype('int64')
     model.inference_scaling = inference_scaling
     model.sample_from_joint = sample_from_joint
+    model.n_inference_samples = n_inference_samples
 
     if inference_method == 'sgd':
         model.step_infer = model._step_sgd
@@ -227,13 +227,16 @@ class SigmoidBeliefNetwork(Layer):
 
         consider_constant = [y, prior]
         cond_term = self.conditional.neg_log_prob(y, py)
+
         if isinstance(self.inference_scaling, float):
             cond_term = self.inference_scaling * cond_term
+
         elif self.inference_scaling == 'global':
             print 'Using global scaling in inference'
             scale_factor = params[-1]
             cond_term = scale_factor * cond_term
             consider_constant += [scale_factor]
+
         elif self.inference_scaling == 'inference':
             print 'Calculating scaling during inference'
             h = self.posterior.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
@@ -243,12 +246,16 @@ class SigmoidBeliefNetwork(Layer):
             scale_factor = mc / cond_term_c
             cond_term = scale_factor * cond_term
             consider_constant += [scale_factor, cond_term_c]
+
         elif self.inference_scaling == 'KL':
             raise NotImplementedError()
             print 'Adding KL term to inference'
             mc = self.conditional.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
+
         elif self.inference_scaling == 'reweight':
             print 'Reweighting mus'
+
+        elif self.inference_scaling == 'marginal':
             pass
         elif self.inference_scaling == 'stochastic':
             pass
@@ -407,7 +414,8 @@ class SigmoidBeliefNetwork(Layer):
             constants += [self.inference_scale_factor]
 
         return (xs, ys, zs,
-                prior_energy, h_energy, y_energy, y_energy_approx, entropy), updates, constants
+                prior_energy, h_energy, y_energy,
+                y_energy_approx, entropy), updates, constants
 
     def __call__(self, x, y, ph=None, n_samples=100,
                  n_inference_steps=0, end_with_inference=True):
@@ -436,7 +444,6 @@ class SigmoidBeliefNetwork(Layer):
             else:
                 h = self.posterior.sample(
                     q, size=(n_samples, q.shape[0], q.shape[1], q.shape[2]))
-            h = h
 
             pys = self.conditional(h)
             py_approx = self.conditional(q)
@@ -478,7 +485,7 @@ class GaussianBeliefNet(Layer):
                  posterior=None, conditional=None,
                  z_init=None,
                  x_noise_mode=None, y_noise_mode=None, noise_amount=0.1,
-                 name='sbn',
+                 name='gbn',
                  **kwargs):
 
         self.dim_in = dim_in
@@ -604,57 +611,47 @@ class GaussianBeliefNet(Layer):
 
         return (prior_energy, h_energy, y_energy, y_energy_approx, entropy), constants
 
-    def kl_divergence(self, mu_p, log_sigma_p, mu_q, log_sigma_q,
+    def kl_divergence(self, p, q,
                       entropy_scale=1.0):
+        dim = self.dim_h
+        mu_p = _slice(p, 0, dim)
+        log_sigma_p = _slice(p, 1, dim)
+        mu_q = _slice(q, 0, dim)
+        log_sigma_q = _slice(q, 1, dim)
+
         kl = log_sigma_q - log_sigma_p + 0.5 * (
             (T.exp(2 * log_sigma_p) + (mu_p - mu_q) ** 2) /
             T.exp(2 * log_sigma_q)
             - 1)
         return kl.sum(axis=kl.ndim-1)
 
-    def e_step(self, y, z, *params):
-        mu_p = params[0][None, :]
-        log_sigma_p = params[1][None, :]
+    def e_step(self, y, q, *params):
+        prior = T.concatenate([params[0][None, :], params[1][None, :]], axis=1)
 
-        mu_q = _slice(z, 0, self.dim_h)
-        log_sigma_q = _slice(z, 1, self.dim_h)
+        mu_q = _slice(q, 0, self.dim_h)
+        log_sigma_q = _slice(q, 1, self.dim_h)
 
-        py = self.p_y_given_h(mu_q, *params)
+        epsilon = self.trng.normal(
+            avg=0, std=1.0,
+            size=(self.n_inference_samples, mu_q.shape[0], mu_q.shape[1]))
 
-        consider_constant = [y, mu_p, log_sigma_p]
-        cond_term = self.conditional.neg_log_prob(y, py)
+        h = mu_q + epsilon * T.exp(log_sigma_q)
+        py = self.p_y_given_h(h, *params)
 
-        if self.inference_scaling == 'global':
-            print 'Using global scaling in inference'
-            scale_factor = params[-1]
-            cond_term = scale_factor * cond_term
-            consider_constant += [scale_factor]
-        elif self.inference_scaling == 'inference':
-            print 'Calculating scaling during inference'
-            h = self.posterior.sample(mu, size=(10, mu.shape[0], mu.shape[1]))
-            py_r = self.p_y_given_h(h, *params)
-            mc = self.conditional.neg_log_prob(y[None, :, :], py_r).mean(axis=0)
-            cond_term_c = T.zeros_like(cond_term) + cond_term
-            scale_factor = mc / cond_term_c
-            cond_term = scale_factor * cond_term
-            consider_constant += [scale_factor, cond_term_c]
-        elif self.inference_scaling is not None:
-            raise ValueError(self.inference_scaling)
-        else:
-            print 'No inference scaling'
+        consider_constant = [y] + list(params[:1])
+        cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean()
 
-        kl_term = self.kl_divergence(mu_q, log_sigma_q, mu_p, log_sigma_p,
-                                     entropy_scale=self.entropy_scale)
+        kl_term = self.kl_divergence(q, prior)
 
         cost = (cond_term + kl_term).sum(axis=0)
-        grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
+        grad = theano.grad(cost, wrt=q, consider_constant=consider_constant)
 
-        return cost, grad, cond_term.mean(), kl_term.mean()
+        return cost, grad
 
     def step_infer(self, *params):
         raise NotImplementedError()
 
-    def init_infer(self, z):
+    def init_infer(self, q):
         raise NotImplementedError()
 
     def unpack_infer(self, outs):
@@ -664,37 +661,37 @@ class GaussianBeliefNet(Layer):
         raise NotImplementedError()
 
     # Momentum
-    def _step_momentum(self, y, z, l, dz_, m, *params):
-        cost, grad, c_term, kl_term = self.e_step(y, z, *params)
-        dz = (-l * grad + m * dz_).astype(floatX)
-        z = (z + dz).astype(floatX)
+    def _step_momentum(self, y, q, l, dq_, m, *params):
+        cost, grad = self.e_step(y, q, *params)
+        dq = (-l * grad + m * dq_).astype(floatX)
+        q = (q + dq).astype(floatX)
         l *= self.inference_decay
-        return z, l, dz, cost, c_term, kl_term
+        return q, l, dq, cost
 
-    def _init_momentum(self, ph, y, z):
-        return [self.inference_rate, T.zeros_like(z)]
+    def _init_momentum(self, ph, y, q):
+        return [self.inference_rate, T.zeros_like(q)]
 
     def _unpack_momentum(self, outs):
-        zs, ls, dzs, costs, c_terms, kl_terms = outs
-        return zs, costs, c_terms, kl_terms
+        qs, ls, dqs, costs = outs
+        return qs, costs
 
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
 
-    def infer_q(self, x, y, n_inference_steps, z0=None):
+    def infer_q(self, x, y, n_inference_steps, q0=None):
         updates = theano.OrderedUpdates()
 
-        xs, ys = self.init_inputs(x, y, steps=self.n_inference_steps)
+        xs, ys = self.init_inputs(x, y, steps=n_inference_steps)
         ph = self.posterior(xs)
-        if z0 is None:
+        if q0 is None:
             if self.z_init == 'recognition_net':
-                print 'Starting z0 at recognition net'
-                z0 = ph[0]
+                print 'Starting q0 at recognition net'
+                q0 = ph[0]
             else:
-                z0 = T.alloc(0., x.shape[0], 2 * self.dim_h).astype(floatX)
+                q0 = T.alloc(0., x.shape[0], 2 * self.dim_h).astype(floatX)
 
         seqs = [ys]
-        outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None, None, None]
+        outputs_info = [q0] + self.init_infer(ph[0], ys[0], q0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
         outs, updates_2 = theano.scan(
@@ -709,59 +706,63 @@ class GaussianBeliefNet(Layer):
         )
         updates.update(updates_2)
 
-        zs, i_costs, c_terms, kl_terms = self.unpack_infer(outs)
-        zs = T.concatenate([z0[None, :, :], zs], axis=0)
+        qs, i_costs = self.unpack_infer(outs)
+        qs = T.concatenate([q0[None, :, :], qs], axis=0)
 
-        return (zs, i_costs, ph, xs, ys, c_terms, kl_terms), updates
+        return (ph, xs, ys, qs), updates
 
     # Inference
-    def inference(self, x, y, z0=None, n_samples=100):
-        n_inference_steps = self.n_inference_steps
-
-        (zs, i_costs, ph, xs, ys, c_terms, kl_terms), updates = self.infer_q(
-            x, y, n_inference_steps, z0=z0)
+    def inference(self, x, y, q0=None, n_inference_steps=20, n_samples=100):
+        (ph, xs, ys, qs), updates = self.infer_q(
+            x, y, n_inference_steps, q0=q0)
 
         (prior_energy, h_energy, y_energy,
          y_energy_approx, entropy), m_constants = self.m_step(
-            ph[0], ys[0], zs[-1], n_samples=n_samples)
-        constants = [xs, ys, zs, entropy] + m_constants
+            ph[0], ys[0], qs[-1], n_samples=n_samples)
 
-        if self.inference_scaling == 'global':
-            updates += [(self.inference_scale_factor,
-                         y_energy / y_energy_approx)]
-            constants += [self.inference_scale_factor]
+        constants = [xs, ys, qs, entropy] + m_constants
 
-        return (xs, ys, zs,
-                prior_energy, h_energy, y_energy, y_energy_approx, entropy,
-                i_costs[-1], c_terms[-1], kl_terms[-1]), updates, constants
+        return (xs, ys, qs,
+                prior_energy, h_energy, y_energy,
+                y_energy_approx, entropy), updates, constants
 
     def __call__(self, x, y, ph=None, n_samples=100,
                  n_inference_steps=0, end_with_inference=True):
+
+        outs = OrderedDict()
         updates = theano.OrderedUpdates()
+        prior = T.concatenate([self.mu[None, :], self.log_sigma[None, :]], axis=1)
 
         if end_with_inference:
-            (zs, i_energy, _, _, _, cs, kls), updates_i = self.infer_q(
-                x, y, n_inference_steps, z0=ph)
-            updates.update(updates_i)
-            z = zs[-1]
-        elif ph is None:
-            z = self.posterior(x_n)
-        else:
-            z = ph
+            if ph is None:
+                q0 = None
+            else:
+                q0 = ph
 
-        mu_q = _slice(z, 0, self.dim_h)
-        log_sigma_q = _slice(z, 1, self.dim_h)
+            (ph_x, xs, ys, qs), updates_i = self.infer_q(
+                x, y, n_inference_steps, q0=q0)
+            updates.update(updates_i)
+            q = qs[-1]
+        elif ph is None:
+            x = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
+            q = self.posterior(x)
+            ys = x.copy()
+        else:
+            ys = x.copy()
 
         if n_samples == 0:
-            h = mu_q[None, :, :]
+            h = q[None, :, :]
         else:
             h = self.posterior.sample(
-                z, size=(n_samples, z.shape[0], self.dim_h))
+                q, size=(n_samples, q.shape[0], q.shape[1] / 2))
 
         py = self.conditional(h)
-        y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
-        kl_term = self.kl_divergence(
-            mu_q, log_sigma_q, self.mu[None, :], self.log_sigma[None, :])
+        y_energy = self.conditional.neg_log_prob(ys, py).mean(axis=(0, 1))
+        kl_term = self.kl_divergence(q, prior).mean(axis=0)
 
-        return (py, (y_energy + kl_term).mean(axis=0),
-                     i_energy[-1], cs[-1], kls[-1]), updates
+        outs.update(
+            py=py,
+            lower_bound=(y_energy+kl_term)
+        )
+
+        return outs, updates
