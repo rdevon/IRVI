@@ -23,6 +23,7 @@
   n_mcmc_samples_test: 20,
   dataset: 'mnist',
   dataset_args: {
-    source: '/Users/devon/Data/mnist.pkl.gz'
+    source: '/Users/devon/Data/mnist.pkl.gz',
+    binarize: True
   }
 }

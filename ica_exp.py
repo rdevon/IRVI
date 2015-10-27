@@ -119,6 +119,7 @@ def unpack(dim_h=None,
     '''
 
     kwargs = dict(
+        prior=prior,
         inference_method=inference_method,
         inference_rate=inference_rate,
         n_inference_steps=n_inference_steps,

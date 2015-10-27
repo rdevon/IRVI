@@ -590,24 +590,26 @@ class GaussianBeliefNet(Layer):
         py = self.conditional(h)
         return py
 
-    def m_step(self, ph, y, z, n_samples=10):
+    def m_step(self, ph, y, q, n_samples=10):
         constants = []
-        mu = _slice(z, 0, self.dim_h)
-        log_sigma = _slice(z, 1, self.dim_h)
+        prior = T.concatenate([self.mu[None, :], self.log_sigma[None, :]], axis=1)
 
         if n_samples == 0:
             h = mu[None, :, :]
         else:
-            h = self.posterior.sample(p=z, size=(n_samples, mu.shape[0], mu.shape[1]))
+            h = self.posterior.sample(p=q, size=(n_samples, q.shape[0], q.shape[1] / 2))
 
         py = self.conditional(h)
-        py_approx = self.conditional(mu)
+        py_approx = py
 
-        prior_energy = self.posterior.neg_log_prob(h, T.concatenate([self.mu, self.log_sigma])[None, None, :]).mean()
-        h_energy = self.posterior.neg_log_prob(h, ph[None, :, :]).mean()
+        #prior_energy = self.posterior.neg_log_prob(h, T.concatenate([self.mu, self.log_sigma])[None, None, :]).mean()
+        #h_energy = self.posterior.neg_log_prob(h, ph[None, :, :]).mean()
         y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
         y_energy_approx = self.conditional.neg_log_prob(y, py_approx).mean()
-        entropy = self.posterior.entropy(z).mean()
+        prior_energy = self.kl_divergence(q, prior).mean()
+        h_energy = self.kl_divergence(q, ph).mean()
+
+        entropy = self.posterior.entropy(q).mean()
 
         return (prior_energy, h_energy, y_energy, y_energy_approx, entropy), constants
 
