@@ -185,33 +185,40 @@ def unpack(dim_h=None,
     )
 
 def train_model(
-    out_path='', name='',
-    load_last=False, model_to_load=None, save_images=True,
+    out_path='', name='', load_last=False, model_to_load=None, save_images=True,
+
     learning_rate=0.1, optimizer='adam', batch_size=100, epochs=100,
-    dim_h=300,
-    prior='logistic',
-    learn_prior=True,
+
+    dim_h=300, prior='logistic', learn_prior=True,
+
     x_noise_mode=None, y_noise_mode=None, noise_amout=0.1,
+
     generation_net=None, recognition_net=None,
-    inference_method='momentum',
-    inference_rate=.01, n_inference_steps=100,
-    inference_decay=1.0, inference_samples=20,
-    inference_scaling=None,
-    importance_sampling=False,
-    entropy_scale=1.0,
-    inference_samples_test=20,
+
     z_init=None,
-    n_inference_steps_eval=0,
+    inference_method='momentum',
+    inference_rate=.01,
+    n_inference_steps=100,
+    n_inference_steps_test=0,
+    inference_decay=1.0,
+    n_inference_samples=20,
+    inference_scaling=None,
+    entropy_scale=1.0,
+
+    n_mcmc_samples=20,
+    n_mcmc_samples_test=20,
+    importance_sampling=False,
+
     dataset=None, dataset_args=None,
     model_save_freq=10, show_freq=10, archive_every=0
     ):
 
     kwargs = dict(
+        z_init=z_init,
         inference_method=inference_method,
         inference_rate=inference_rate,
-        n_inference_steps=n_inference_steps,
+        n_inference_samples=n_inference_samples,
         inference_decay=inference_decay,
-        z_init=z_init,
         entropy_scale=entropy_scale,
         inference_scaling=inference_scaling,
         importance_sampling=importance_sampling
@@ -290,7 +297,10 @@ def train_model(
         models = OrderedDict()
         models[model.name] = model
 
-    model = models['sbn']
+    if prior == 'logistic':
+        model = models['sbn']
+    elif prior == 'gaussian':
+        model = models['gbn']
 
     if not learn_prior:
         excludes = ['z']
@@ -301,8 +311,9 @@ def train_model(
     # ========================================================================
     print 'Getting cost'
     (xs, ys, zs,
-     prior_energy, h_energy, y_energy, y_energy_approx, entropy), updates, constants = model.inference(
-        X, Y, n_samples=inference_samples)
+     prior_energy, h_energy, y_energy,
+     y_energy_approx, entropy), updates, constants = model.inference(
+        X, Y, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples)
 
     if learn_prior:
         cost = prior_energy + h_energy + y_energy
@@ -328,16 +339,19 @@ def train_model(
 
     # Test function with sampling
     rval, updates_s = model(
-        X, Y, n_samples=inference_samples_test, n_inference_steps=n_inference_steps_eval)
+        X, Y, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test)
     py_s = rval['py']
     lower_bound = rval['lower_bound']
-    conditionals_approx = rval['c_a']
-    conditionals_mc = rval['c_mc']
-    kl_terms = rval['kl']
-
     pd_s, d_hat_s = concatenate_inputs(model, Y, py_s)
-    f_test = theano.function(
-        [X, Y], [lower_bound, conditionals_approx, conditionals_mc, kl_terms, pd_s, d_hat_s], updates=updates_s)
+
+    outs_s = [lower_bound, pd_s, d_hat_s]
+    if prior == 'logistic':
+        conditionals_approx = rval['c_a']
+        conditionals_mc = rval['c_mc']
+        kl_terms = rval['kl']
+        outs_s += [conditionals_approx, conditionals_mc, kl_terms]
+
+    f_test = theano.function([X, Y], outs_s, updates=updates_s)
 
     # Sample from prior
     py_p = model.sample_from_prior()
@@ -428,8 +442,11 @@ def train_model(
                     d_v, _ = valid.next()
                 x_v, y_v = d_v, d_v
 
-                lb_v, ca_v, cm_v, kl_v, pd_v, d_hat_v = f_test(x_v, y_v)
-                lb_t, _, _, _, _, _ = f_test(x, x)
+                outs_v = f_test(x_v, y_v)
+                outs_t = f_test(x, x)
+
+                lb_v, pd_v, d_hat_v = outs_v[:3]
+                lb_t = outs_t[0]
 
                 outs = OrderedDict((k, v)
                     for k, v in zip(extra_outs_names,
@@ -449,12 +466,14 @@ def train_model(
                     if out_path is not None:
                         save(tparams, bestfile)
 
-                outs_adds = OrderedDict({
-                    'conditionals approx': ca_v,
-                    'conditionals mc': cm_v,
-                    'kls': kl_v
-                })
-                monitor.add(**outs_adds)
+                if prior == 'logistic':
+                    ca_v, cm_v, kl_v = outs_v[3:]
+                    outs_adds = OrderedDict({
+                        'conditionals approx': ca_v,
+                        'conditionals mc': cm_v,
+                        'kls': kl_v
+                    })
+                    monitor.add(**outs_adds)
 
                 monitor.display(e, s)
 
