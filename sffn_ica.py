@@ -631,18 +631,15 @@ class GaussianBeliefNet(Layer):
         mu_q = _slice(q, 0, self.dim_h)
         log_sigma_q = _slice(q, 1, self.dim_h)
 
-        #epsilon = self.trng.normal(
-        #    avg=0, std=1.0,
-        #    size=(self.n_inference_samples, mu_q.shape[0], mu_q.shape[1]))
         epsilon = self.trng.normal(
-            avg=0., std=1.0, size=mu_q.shape
-        )
+            avg=0, std=1.0,
+            size=(self.n_inference_samples, mu_q.shape[0], mu_q.shape[1]))
 
-        h = mu_q# + epsilon * T.exp(log_sigma_q)
+        h = mu_q + epsilon * T.exp(log_sigma_q)
         py = self.p_y_given_h(h, *params)
 
         consider_constant = [y] + list(params[:1])
-        cond_term = self.conditional.neg_log_prob(y, py)
+        cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean()
 
         kl_term = self.kl_divergence(q, prior)
 
