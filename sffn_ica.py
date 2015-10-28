@@ -39,6 +39,7 @@ def init_inference_args(model,
                         inference_scaling=None,
                         inference_method='momentum',
                         sample_from_joint=False,
+                        alpha = 7,
                         **kwargs):
     model.inference_rate = inference_rate
     model.inference_decay = inference_decay
@@ -47,6 +48,7 @@ def init_inference_args(model,
     model.inference_scaling = inference_scaling
     model.sample_from_joint = sample_from_joint
     model.n_inference_samples = n_inference_samples
+    model.alpha = alpha
 
     if inference_method == 'sgd':
         model.step_infer = model._step_sgd
@@ -267,7 +269,7 @@ class SigmoidBeliefNetwork(Layer):
             print 'Approximate continuous Bernoulli'
             u = self.trng.uniform(low=0, high=1, size=(self.n_inference_samples, q.shape[0], q.shape[1])).astype(floatX)
             p = (u + q[None, :, :] - 0.5)
-            alpha = 7
+            alpha = self.alpha
             h = p ** alpha / ((1 - p) ** alpha + p ** alpha)
             h = T.clip(h, .0, 1.)
             py = self.p_y_given_h(h, *params)
