@@ -266,8 +266,8 @@ class SigmoidBeliefNetwork(Layer):
         elif self.inference_scaling == 'continuous':
             print 'Approximate continuous Bernoulli'
             u = self.trng.uniform(low=0, high=1, size=(self.n_inference_samples, q.shape[0], q.shape[1])).astype(floatX)
-            p = (u - q[None, :, :])
-            h = 1. / (1 + (p / (1 - p)) ** 5)
+            p = (u - q[None, :, :] + 0.5)
+            h = (1 - p) ** 5 / ((1 - p) ** 5 + p ** 5)
             py = self.p_y_given_h(h, *params)
             cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=(0))
         elif self.inference_scaling is not None:
