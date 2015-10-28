@@ -269,6 +269,7 @@ class SigmoidBeliefNetwork(Layer):
             p = (u + q[None, :, :] - 0.5)
             alpha = 7
             h = p ** alpha / ((1 - p) ** alpha + p ** alpha)
+            h = T.clip(h, .0, 1.)
             py = self.p_y_given_h(h, *params)
             cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=(0))
         elif self.inference_scaling is not None:
