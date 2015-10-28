@@ -113,6 +113,7 @@ def unpack(dim_h=None,
            entropy_scale=None,
            x_noise_mode=None,
            y_noise_mode=None,
+           alpha=None,
            **model_args):
     '''
     Function to unpack pretrained model into fresh SFFN class.
@@ -127,7 +128,8 @@ def unpack(dim_h=None,
         z_init=z_init,
         entropy_scale=entropy_scale,
         inference_scaling=inference_scaling,
-        importance_sampling=importance_sampling
+        importance_sampling=importance_sampling,
+        alpha=alpha
     )
 
     dim_h = int(dim_h)
@@ -205,6 +207,7 @@ def train_model(
     n_inference_samples=20,
     inference_scaling=None,
     entropy_scale=1.0,
+    alpha=7,
 
     n_mcmc_samples=20,
     n_mcmc_samples_test=20,
@@ -222,7 +225,8 @@ def train_model(
         inference_decay=inference_decay,
         entropy_scale=entropy_scale,
         inference_scaling=inference_scaling,
-        importance_sampling=importance_sampling
+        importance_sampling=importance_sampling,
+        alpha=alpha
     )
 
     # ========================================================================
