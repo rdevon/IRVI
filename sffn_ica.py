@@ -289,7 +289,7 @@ class SigmoidBeliefNetwork(Layer):
 
         return cost, grad
 
-    def sample_e(self, q, *params):
+    def sample_e(self, y, q, *params):
         prior = T.nnet.sigmoid(params[0])
         h = self.posterior.sample(q, size=(100, q.shape[0], q.shape[1]))
 
@@ -298,12 +298,13 @@ class SigmoidBeliefNetwork(Layer):
         cond_term = self.conditional.neg_log_prob(y[None, :, :], py)
         prior_term = self.posterior.neg_log_prob(h, prior[None, None, :])
         posterior_term = self.posterior.neg_log_prob(h, q[None, :, :])
+        cost = cond_term + prior_term - posterior_term
 
-        w = T.exp(-cond_term - prior_term + posterior_term)
+        w = T.exp(-cost)
         w = T.clip(w, 1e-7, 1.0)
         w_tilda = w / w.sum(axis=0)[None, :]
         q = (w_tilda[:, :, None] * h).sum(axis=0)
-        return q
+        return q, cost
 
     def step_infer(self, *params):
         raise NotImplementedError()
@@ -367,7 +368,7 @@ class SigmoidBeliefNetwork(Layer):
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
 
-    def infer_q(self, x, y, n_inference_steps, z0=None):
+    def infer_q(self, x, y, n_inference_steps, n_sampling_steps=0, z0=None):
         updates = theano.OrderedUpdates()
 
         xs, ys = self.init_inputs(x, y, steps=n_inference_steps)
@@ -383,6 +384,7 @@ class SigmoidBeliefNetwork(Layer):
         outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
+        print 'Gradient descent %d steps' % n_inference_steps
         outs, updates_2 = theano.scan(
             self.step_infer,
             sequences=seqs,
@@ -398,13 +400,36 @@ class SigmoidBeliefNetwork(Layer):
         zs, i_costs = self.unpack_infer(outs)
         zs = T.concatenate([z0[None, :, :], zs], axis=0)
 
+        if n_sampling_steps > 0:
+            print 'Importance sampling %d steps' % n_sampling_steps
+            q0 = T.nnet.sigmoid(zs[-1])
+
+            seqs = [ys]
+            outputs_info = [q0, None]
+            non_seqs = self.get_params()
+            outs, updates_3 = theano.scan(
+                self.sample_e,
+                sequences=seqs,
+                outputs_info=outputs_info,
+                non_sequences=non_seqs,
+                name=tools._p(self.name, 'infer_sample'),
+                n_steps=n_sampling_steps,
+                profile=tools.profile,
+                strict=True
+            )
+            updates.update(updates_3)
+
+            qs, s_costs = outs
+            zs = T.concatenate([zs, logit(qs)])
+
         return (ph, xs, ys, zs), updates
 
     # Inference
-    def inference(self, x, y, z0=None, n_inference_steps=20, n_samples=100):
+    def inference(self, x, y, z0=None, n_inference_steps=20,
+                  n_sampling_steps=0, n_samples=100):
 
         (ph, xs, ys, zs), updates = self.infer_q(
-            x, y, n_inference_steps, z0=z0)
+            x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
 
         (prior_energy, h_energy, y_energy,
          y_energy_approx, entropy), m_constants = self.m_step(
@@ -422,7 +447,7 @@ class SigmoidBeliefNetwork(Layer):
                 y_energy_approx, entropy), updates, constants
 
     def __call__(self, x, y, ph=None, n_samples=100,
-                 n_inference_steps=0, end_with_inference=True):
+                 n_inference_steps=0, n_sampling_steps=0, end_with_inference=True):
         outs = OrderedDict()
         updates = theano.OrderedUpdates()
         prior = self.prior #T.nnet.sigmoid(self.z)
@@ -432,7 +457,8 @@ class SigmoidBeliefNetwork(Layer):
                 z0 = None
             else:
                 z0 = logit(ph)
-            (ph_x, xs, ys, zs), updates_i = self.infer_q(x, y, n_inference_steps, z0=z0)
+            (ph_x, xs, ys, zs), updates_i = self.infer_q(
+                x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
             updates.update(updates_i)
             q = T.nnet.sigmoid(zs)
         elif ph is None:

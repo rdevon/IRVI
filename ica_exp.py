@@ -208,6 +208,8 @@ def train_model(
     inference_scaling=None,
     entropy_scale=1.0,
     alpha=7,
+    n_sampling_steps=0,
+    n_sampling_steps_test=0,
 
     n_mcmc_samples=20,
     n_mcmc_samples_test=20,
@@ -318,7 +320,8 @@ def train_model(
     (xs, ys, zs,
      prior_energy, h_energy, y_energy,
      y_energy_approx, entropy), updates, constants = model.inference(
-        X, Y, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples)
+        X, Y, n_inference_steps=n_inference_steps,
+        n_sampling_steps=n_sampling_steps, n_samples=n_mcmc_samples)
 
     if learn_prior:
         cost = prior_energy + h_energy + y_energy
@@ -344,7 +347,8 @@ def train_model(
 
     # Test function with sampling
     rval, updates_s = model(
-        X, Y, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test)
+        X, Y, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test,
+        n_sampling_steps=n_sampling_steps_test)
     py_s = rval['py']
     lower_bound = rval['lower_bound']
     pd_s, d_hat_s = concatenate_inputs(model, Y, py_s)
