@@ -263,6 +263,13 @@ class SigmoidBeliefNetwork(Layer):
             pass
         elif self.inference_scaling == 'recognition_net':
             pass
+        elif self.inference_scaling == 'continuous':
+            print 'Approximate continuous Bernoulli'
+            u = self.trng.uniform(low=0, high=1, size=(self.n_inference_samples, q.shape[0], q.shape[1])).astype(floatX)
+            p = (u - q[None, :, :])
+            h = 1. / (1 + (p / (1 - p)) ** 5)
+            py = self.p_y_given_h(h, *params)
+            cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=(0))
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
         else:
@@ -282,23 +289,25 @@ class SigmoidBeliefNetwork(Layer):
             kl_term = self.kl_divergence(q, prior[None, :], entropy_scale=self.entropy_scale)
             cost = (cond_term + kl_term).sum(axis=0)
 
-        if self.inference_scaling == 'stochastic':
-            print 'Sampling instead of deriving real gradient'
-            h = self.posterior.sample(mu, size=(100, mu.shape[0], mu.shape[1]))
-            py_s = self.p_y_given_h(h, *params)
-            cond_term_s = self.conditional.neg_log_prob(y[None, :, :], py_s)
-            prior_term_s = self.posterior.neg_log_prob(h, prior[None, None, :])
-            posterior_term_s = self.posterior.neg_log_prob(h, mu[None, :, :])
-            w = T.exp(-cond_term_s - prior_term_s + posterior_term_s)
-            w = T.clip(w, 1e-7, 1.0)
-            w_tilda = w / w.sum(axis=0)[None, :]
-            mu = (w_tilda[:, :, None] * h).sum(axis=0)
-            z_ = logit(q)
-            grad = z - z_
-        else:
-            grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
+        grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
 
         return cost, grad
+
+    def sample_e(self, q, *params):
+        prior = T.nnet.sigmoid(params[0])
+        h = self.posterior.sample(q, size=(100, q.shape[0], q.shape[1]))
+
+        py = self.p_y_given_h(h, *params)
+
+        cond_term = self.conditional.neg_log_prob(y[None, :, :], py)
+        prior_term = self.posterior.neg_log_prob(h, prior[None, None, :])
+        posterior_term = self.posterior.neg_log_prob(h, q[None, :, :])
+
+        w = T.exp(-cond_term - prior_term + posterior_term)
+        w = T.clip(w, 1e-7, 1.0)
+        w_tilda = w / w.sum(axis=0)[None, :]
+        q = (w_tilda[:, :, None] * h).sum(axis=0)
+        return q
 
     def step_infer(self, *params):
         raise NotImplementedError()
