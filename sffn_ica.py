@@ -208,9 +208,9 @@ class SigmoidBeliefNetwork(Layer):
             h_energy = self.posterior.neg_log_prob(h).mean()
         else:
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
-            prior_energy = self.posterior.neg_log_prob(h, prior[None, None, :]).mean()
+            prior_energy = self.posterior.neg_log_prob(q, prior[None, :]).mean()
 
-        h_energy = self.posterior.neg_log_prob(h, ph[None, :, :]).mean()
+        h_energy = self.posterior.neg_log_prob(q, ph).mean()
         entropy = self.posterior.entropy(q).mean()
 
         return (prior_energy, h_energy, y_energy, y_energy_approx, entropy), constants
