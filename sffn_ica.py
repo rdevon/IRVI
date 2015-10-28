@@ -290,7 +290,7 @@ class SigmoidBeliefNetwork(Layer):
         return cost, grad
 
     def sample_e(self, y, q, *params):
-        prior = T.nnet.sigmoid(params[0])
+        prior = params[0] #T.nnet.sigmoid(params[0])
         h = self.posterior.sample(q, size=(100, q.shape[0], q.shape[1]))
 
         py = self.p_y_given_h(h, *params)
