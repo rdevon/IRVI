@@ -174,23 +174,23 @@ class SigmoidBeliefNetwork(Layer):
 
     def m_step(self, ph, y, z, n_samples=10):
         constants = []
-        mu = T.nnet.sigmoid(z)
+        q = T.nnet.sigmoid(z)
         prior = T.nnet.sigmoid(self.z)
 
         if n_samples == 0:
-            h = mu[None, :, :]
+            h = q[None, :, :]
         else:
             h = self.posterior.sample(
-                mu, size=(n_samples, mu.shape[0], mu.shape[1]))
+                q, size=(n_samples, q.shape[0], q.shape[1]))
 
         py = self.conditional(h)
-        py_approx = self.conditional(mu)
+        py_approx = self.conditional(q)
         y_energy_approx = self.conditional.neg_log_prob(y, py_approx).mean()
 
         if self.importance_sampling:
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
             prior_energy = self.posterior.neg_log_prob(h, prior[None, None, :])
-            entropy_term = self.posterior.neg_log_prob(h, mu[None, :, :])
+            entropy_term = self.posterior.neg_log_prob(h, q[None, :, :])
             w = T.exp(-y_energy
                       - prior_energy
                       + entropy_term)
@@ -211,7 +211,7 @@ class SigmoidBeliefNetwork(Layer):
             prior_energy = self.posterior.neg_log_prob(h, prior[None, None, :]).mean()
 
         h_energy = self.posterior.neg_log_prob(h, ph[None, :, :]).mean()
-        entropy = self.posterior.entropy(mu).mean()
+        entropy = self.posterior.entropy(q).mean()
 
         return (prior_energy, h_energy, y_energy, y_energy_approx, entropy), constants
 
@@ -222,8 +222,8 @@ class SigmoidBeliefNetwork(Layer):
 
     def e_step(self, ph, y, z, *params):
         prior = T.nnet.sigmoid(params[0])
-        mu = T.nnet.sigmoid(z)
-        py = self.p_y_given_h(mu, *params)
+        q = T.nnet.sigmoid(z)
+        py = self.p_y_given_h(q, *params)
 
         consider_constant = [y, prior]
         cond_term = self.conditional.neg_log_prob(y, py)
@@ -275,11 +275,11 @@ class SigmoidBeliefNetwork(Layer):
         elif self.inference_scaling == 'recognition_net':
             print 'Using recognition as posterior'
             kl_term = self.kl_divergence(
-                mu, ph, entropy_scale=self.entropy_scale)
-            kl_term += self.kl_divergence(mu, prior[None, :])
+                q, ph, entropy_scale=self.entropy_scale)
+            kl_term += self.kl_divergence(q, prior[None, :])
             cost = (cond_term + kl_term).sum(axis=0)
         else:
-            kl_term = self.kl_divergence(mu, prior[None, :], entropy_scale=self.entropy_scale)
+            kl_term = self.kl_divergence(q, prior[None, :], entropy_scale=self.entropy_scale)
             cost = (cond_term + kl_term).sum(axis=0)
 
         if self.inference_scaling == 'stochastic':
@@ -293,7 +293,7 @@ class SigmoidBeliefNetwork(Layer):
             w = T.clip(w, 1e-7, 1.0)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
-            z_ = logit(mu)
+            z_ = logit(q)
             grad = z - z_
         else:
             grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
@@ -335,18 +335,18 @@ class SigmoidBeliefNetwork(Layer):
         dz = (-l * grad + m * dz_).astype(floatX)
         z_ = (z + dz).astype(floatX)
         if self.inference_scaling == 'reweight':
-            mu = T.nnet.sigmoid(z_)
+            q = T.nnet.sigmoid(z_)
             prior = T.nnet.sigmoid(params[0])
-            h = self.posterior.sample(mu, size=(100, mu.shape[0], mu.shape[1]))
+            h = self.posterior.sample(q, size=(100, q.shape[0], q.shape[1]))
             py_r = self.p_y_given_h(h, *params)
             cond_term = self.conditional.neg_log_prob(y[None, :, :], py_r)
             prior_term = self.posterior.neg_log_prob(h, prior[None, None, :])
-            posterior_term = self.posterior.neg_log_prob(h, mu[None, :, :])
+            posterior_term = self.posterior.neg_log_prob(h, q[None, :, :])
             w = T.exp(-cond_term - prior_term + posterior_term)
             w = T.clip(w, 1e-7, 1.0)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
-            z = logit(mu)
+            z = logit(q)
         else:
             z = z_
         l *= self.inference_decay
@@ -396,8 +396,7 @@ class SigmoidBeliefNetwork(Layer):
         return (ph, xs, ys, zs), updates
 
     # Inference
-    def inference(self, x, y, z0=None, n_samples=100):
-        n_inference_steps = self.n_inference_steps
+    def inference(self, x, y, z0=None, n_inference_steps=20, n_samples=100):
 
         (ph, xs, ys, zs), updates = self.infer_q(
             x, y, n_inference_steps, z0=z0)
