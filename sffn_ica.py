@@ -38,7 +38,6 @@ def init_inference_args(model,
                         n_inference_samples=20,
                         inference_scaling=None,
                         inference_method='momentum',
-                        sample_from_joint=False,
                         alpha = 7,
                         **kwargs):
     model.inference_rate = inference_rate
@@ -46,7 +45,6 @@ def init_inference_args(model,
     model.entropy_scale = entropy_scale
     model.importance_sampling = importance_sampling
     model.inference_scaling = inference_scaling
-    model.sample_from_joint = sample_from_joint
     model.n_inference_samples = n_inference_samples
     model.alpha = alpha
 
@@ -96,11 +94,12 @@ class SigmoidBeliefNetwork(Layer):
         super(SigmoidBeliefNetwork, self).__init__(name=name)
 
     def set_params(self):
-        z = np.zeros((self.dim_h,)).astype(floatX)
+        #z = np.zeros((self.dim_h,)).astype(floatX)
         inference_scale_factor = np.float32(1.0)
+        prior = np.zeros((self.dim_h,)).astype(floatX) + 0.5
 
         self.params = OrderedDict(
-            z=z, inference_scale_factor=inference_scale_factor)
+            prior=prior, inference_scale_factor=inference_scale_factor)
 
         if self.posterior is None:
             self.posterior = MLP(self.dim_in, self.dim_h, self.dim_h, 1,
@@ -146,7 +145,6 @@ class SigmoidBeliefNetwork(Layer):
             x = self._sample(x)
             x = self._noise(x[None, :, :], size=size)
         elif mode is None:
-            x = self._sample(x, size=x.shape)
             x = T.alloc(0., *size) + x[None, :, :]
         else:
             raise ValueError('% not supported' % mode)
@@ -161,7 +159,7 @@ class SigmoidBeliefNetwork(Layer):
         return x, y
 
     def get_params(self):
-        params = [self.z] + self.conditional.get_params() + self.posterior.get_params() + [self.inference_scale_factor]
+        params = [self.prior] + self.conditional.get_params() + self.posterior.get_params() + [self.inference_scale_factor]
         return params
 
     def p_y_given_h(self, h, *params):
@@ -169,7 +167,7 @@ class SigmoidBeliefNetwork(Layer):
         return self.conditional.step_call(h, *params)
 
     def sample_from_prior(self, n_samples=100):
-        p = T.nnet.sigmoid(self.z)
+        p = self.prior #T.nnet.sigmoid(self.z)
         h = self.posterior.sample(p=p, size=(n_samples, self.dim_h))
         py = self.conditional(h)
         return py
@@ -177,7 +175,7 @@ class SigmoidBeliefNetwork(Layer):
     def m_step(self, ph, y, z, n_samples=10):
         constants = []
         q = T.nnet.sigmoid(z)
-        prior = T.nnet.sigmoid(self.z)
+        prior = self.prior #T.nnet.sigmoid(self.z)
 
         if n_samples == 0:
             h = q[None, :, :]
@@ -202,12 +200,6 @@ class SigmoidBeliefNetwork(Layer):
             y_energy = (w_tilda * y_energy).sum(axis=0).mean()
             prior_energy = (w_tilda * prior_energy).sum(axis=0).mean()
             constants += [w_tilda, w]
-        elif self.sample_from_joint:
-            raise NotImplementedError()
-            y_hat = self.conditional.sample(
-                py, size=(n_samples, py.shape[0], py.shape[1]))
-            ph = self.posterior(y_hat)
-            h_energy = self.posterior.neg_log_prob(h).mean()
         else:
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
             prior_energy = self.posterior.neg_log_prob(q, prior[None, :]).mean()
@@ -223,7 +215,7 @@ class SigmoidBeliefNetwork(Layer):
         return -(entropy_term - prior_term)
 
     def e_step(self, ph, y, z, *params):
-        prior = T.nnet.sigmoid(params[0])
+        prior = params[0] #T.nnet.sigmoid(params[0])
         q = T.nnet.sigmoid(z)
         py = self.p_y_given_h(q, *params)
 
@@ -433,7 +425,7 @@ class SigmoidBeliefNetwork(Layer):
                  n_inference_steps=0, end_with_inference=True):
         outs = OrderedDict()
         updates = theano.OrderedUpdates()
-        prior = T.nnet.sigmoid(self.z)
+        prior = self.prior #T.nnet.sigmoid(self.z)
 
         if end_with_inference:
             if ph is None:
