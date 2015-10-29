@@ -382,10 +382,10 @@ class SigmoidBeliefNetwork(Layer):
         grad_cond = theano.grad(cond_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
         grad_kl = theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
 
-        q = T.nnet.sigmoid(z - (grad_cond + grad_kl))
+        q = T.nnet.sigmoid(z - l * (grad_cond + grad_kl))
         cond_term_, cond_term_mcmc_ = get_cond_terms(q)
 
-        grad = ((cond_term_mcmc_ - cond_term_mcmc) / (cond_term - cond_term_)).mean() * grad_cond + grad_kl
+        grad = ((cond_term_mcmc - cond_term_mcmc_).sum(axis=0) / (cond_term - cond_term_).sum(axis=0)) * grad_cond + grad_kl
 
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
