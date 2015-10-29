@@ -386,7 +386,7 @@ class SigmoidBeliefNetwork(Layer):
         cond_term_, cond_term_mcmc_ = get_cond_terms(q)
 
         r = (cond_term_mcmc - cond_term_mcmc_) / (cond_term - cond_term_ + 1e-7)
-        r = T.clip(r, .0, 10.0)
+        r = T.clip(r, -10.0, 10.0)
         grad = r[:, None] * grad_cond + grad_kl
 
         dz = (-l * grad + m * dz_).astype(floatX)
