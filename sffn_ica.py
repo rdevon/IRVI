@@ -60,6 +60,12 @@ def init_inference_args(model,
         model.unpack_infer = model._unpack_momentum
         model.params_infer = model._params_momentum
         kwargs = init_momentum_args(model, **kwargs)
+    elif inference_method == 'momentum_2':
+        model.step_infer = model._step_momentum_2
+        model.init_infer = model._init_momentum
+        model.unpack_infer = model._unpack_momentum
+        model.params_infer = model._params_momentum
+        kwargs = init_momentum_args(model, **kwargs)
     else:
         raise ValueError()
 
@@ -94,12 +100,11 @@ class SigmoidBeliefNetwork(Layer):
         super(SigmoidBeliefNetwork, self).__init__(name=name)
 
     def set_params(self):
-        #z = np.zeros((self.dim_h,)).astype(floatX)
+        z = np.zeros((self.dim_h,)).astype(floatX)
         inference_scale_factor = np.float32(1.0)
-        prior = np.zeros((self.dim_h,)).astype(floatX) + 0.5
 
         self.params = OrderedDict(
-            prior=prior, inference_scale_factor=inference_scale_factor)
+            z=z, inference_scale_factor=inference_scale_factor)
 
         if self.posterior is None:
             self.posterior = MLP(self.dim_in, self.dim_h, self.dim_h, 1,
@@ -127,14 +132,18 @@ class SigmoidBeliefNetwork(Layer):
 
         return tparams
 
+    def get_params(self):
+        params = [self.z] + self.conditional.get_params() + self.posterior.get_params() + [self.inference_scale_factor]
+        return params
+
     def _sample(self, p, size=None):
         if size is None:
             size = p.shape
         return self.trng.binomial(p=p, size=size, n=1, dtype=p.dtype)
 
     def _noise(self, x, amount, size):
-        return x * (1 - self.trng.binomial(p=amount,
-                                           size=size, n=1, dtype=x.dtype))
+        return x * (1 - self.trng.binomial(p=amount, size=size, n=1,
+                                           dtype=x.dtype))
 
     def set_input(self, x, mode, size=None):
         if size is None:
@@ -145,6 +154,7 @@ class SigmoidBeliefNetwork(Layer):
             x = self._sample(x)
             x = self._noise(x[None, :, :], size=size)
         elif mode is None:
+            x = self._sample(x, size=x.shape)
             x = T.alloc(0., *size) + x[None, :, :]
         else:
             raise ValueError('% not supported' % mode)
@@ -155,19 +165,15 @@ class SigmoidBeliefNetwork(Layer):
         y_size = (steps, y.shape[0], y.shape[1])
 
         x = self.set_input(x, self.x_mode, size=x_size)
-        y = x.copy()
+        y = self.set_input(y, self.y_mode, size=y_size)
         return x, y
-
-    def get_params(self):
-        params = [self.prior] + self.conditional.get_params() + self.posterior.get_params() + [self.inference_scale_factor]
-        return params
 
     def p_y_given_h(self, h, *params):
         params = params[1:1+len(self.conditional.get_params())]
         return self.conditional.step_call(h, *params)
 
     def sample_from_prior(self, n_samples=100):
-        p = self.prior #T.nnet.sigmoid(self.z)
+        p = T.nnet.sigmoid(self.z)
         h = self.posterior.sample(p=p, size=(n_samples, self.dim_h))
         py = self.conditional(h)
         return py
@@ -175,7 +181,7 @@ class SigmoidBeliefNetwork(Layer):
     def m_step(self, ph, y, z, n_samples=10):
         constants = []
         q = T.nnet.sigmoid(z)
-        prior = self.prior #T.nnet.sigmoid(self.z)
+        prior = T.nnet.sigmoid(self.z)
 
         if n_samples == 0:
             h = q[None, :, :]
@@ -215,7 +221,7 @@ class SigmoidBeliefNetwork(Layer):
         return -(entropy_term - prior_term)
 
     def e_step(self, ph, y, z, *params):
-        prior = params[0] #T.nnet.sigmoid(params[0])
+        prior = T.nnet.sigmoid(params[0])
         q = T.nnet.sigmoid(z)
         py = self.p_y_given_h(q, *params)
 
@@ -249,14 +255,9 @@ class SigmoidBeliefNetwork(Layer):
         elif self.inference_scaling == 'reweight':
             print 'Reweighting mus'
 
-        elif self.inference_scaling == 'marginal':
+        elif self.inference_scaling in ['marginal', 'stochastic', 'conditional_only', 'recognition_net']:
             pass
-        elif self.inference_scaling == 'stochastic':
-            pass
-        elif self.inference_scaling == 'conditional_only':
-            pass
-        elif self.inference_scaling == 'recognition_net':
-            pass
+
         elif self.inference_scaling == 'continuous':
             print 'Approximate continuous Bernoulli'
             u = self.trng.uniform(low=0, high=1, size=(self.n_inference_samples, q.shape[0], q.shape[1])).astype(floatX)
@@ -266,6 +267,7 @@ class SigmoidBeliefNetwork(Layer):
             h = T.clip(h, .0, 1.)
             py = self.p_y_given_h(h, *params)
             cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=(0))
+
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
         else:
@@ -290,9 +292,8 @@ class SigmoidBeliefNetwork(Layer):
         return cost, grad
 
     def sample_e(self, y, q, *params):
-        prior = params[0] #T.nnet.sigmoid(params[0])
+        prior =T.nnet.sigmoid(params[0])
         h = self.posterior.sample(q, size=(100, q.shape[0], q.shape[1]))
-
         py = self.p_y_given_h(h, *params)
 
         cond_term = self.conditional.neg_log_prob(y[None, :, :], py)
@@ -340,6 +341,7 @@ class SigmoidBeliefNetwork(Layer):
         cost, grad = self.e_step(ph, y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z_ = (z + dz).astype(floatX)
+
         if self.inference_scaling == 'reweight':
             q = T.nnet.sigmoid(z_)
             prior = T.nnet.sigmoid(params[0])
@@ -356,6 +358,42 @@ class SigmoidBeliefNetwork(Layer):
         else:
             z = z_
         l *= self.inference_decay
+        return z, l, dz, cost
+
+    def _step_momentum_2(self, ph, y, z, l, dz_, m, *params):
+
+        def get_cond_terms(q):
+            py = self.p_y_given_h(q, *params)
+            cond_term = self.conditional.neg_log_prob(y, py)
+
+            h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+            py_mcmc = self.p_y_given_h(h, *params)
+            cond_term_mcmc = self.conditional.neg_log_prob(y[None, :, :], py_mcmc).mean(axis=0)
+
+            return cond_term, cond_term_mcmc
+
+        prior = T.nnet.sigmoid(params[0])
+        consider_constant = [y, prior, l, ph]
+
+        q = T.nnet.sigmoid(z)
+        cond_term, cond_term_mcmc = get_cond_terms(q)
+        kl_term = self.kl_divergence(q, prior[None, :])
+
+        grad_cond = theano.grad(cond_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
+        grad_kl = theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
+
+        q = T.nnet.sigmoid(z - (grad_cond + grad_kl))
+        cond_term_, cond_term_mcmc_ = get_cond_terms(q)
+
+        grad = ((cond_term_mcmc_ - cond_term_mcmc) / (cond_term - cond_term_)).mean() * grad_cond + grad_kl
+
+        dz = (-l * grad + m * dz_).astype(floatX)
+        z = (z + dz).astype(floatX)
+
+        l *= self.inference_decay
+
+        cost = (cond_term + kl_term).sum(axis=0)
+
         return z, l, dz, cost
 
     def _init_momentum(self, ph, y, z):
@@ -450,7 +488,7 @@ class SigmoidBeliefNetwork(Layer):
                  n_inference_steps=0, n_sampling_steps=0, end_with_inference=True):
         outs = OrderedDict()
         updates = theano.OrderedUpdates()
-        prior = self.prior #T.nnet.sigmoid(self.z)
+        prior = T.nnet.sigmoid(self.z)
 
         if end_with_inference:
             if ph is None:
