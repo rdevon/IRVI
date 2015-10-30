@@ -411,7 +411,7 @@ class SigmoidBeliefNetwork(Layer):
     def infer_q(self, x, y, n_inference_steps, n_sampling_steps=0, z0=None):
         updates = theano.OrderedUpdates()
 
-        xs, ys = self.init_inputs(x, y, steps=n_inference_steps)
+        xs, ys = self.init_inputs(x, y, steps=n_inference_steps+1)
         ph = self.posterior(xs)
         if z0 is None:
             if self.z_init == 'recognition_net':
@@ -424,21 +424,24 @@ class SigmoidBeliefNetwork(Layer):
         outputs_info = [z0] + self.init_infer(ph[0], ys[0], z0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
-        print 'Gradient descent %d steps' % n_inference_steps
-        outs, updates_2 = theano.scan(
-            self.step_infer,
-            sequences=seqs,
-            outputs_info=outputs_info,
-            non_sequences=non_seqs,
-            name=tools._p(self.name, 'infer'),
-            n_steps=n_inference_steps,
-            profile=tools.profile,
-            strict=True
-        )
-        updates.update(updates_2)
+        if n_inference_steps > 0:
+            print 'Gradient descent %d steps' % n_inference_steps
+            outs, updates_2 = theano.scan(
+                self.step_infer,
+                sequences=seqs,
+                outputs_info=outputs_info,
+                non_sequences=non_seqs,
+                name=tools._p(self.name, 'infer'),
+                n_steps=n_inference_steps,
+                profile=tools.profile,
+                strict=True
+            )
+            updates.update(updates_2)
 
-        zs, i_costs = self.unpack_infer(outs)
-        zs = T.concatenate([z0[None, :, :], zs], axis=0)
+            zs, i_costs = self.unpack_infer(outs)
+            zs = T.concatenate([z0[None, :, :], zs], axis=0)
+        else:
+            zs = z0[None, :, :]
 
         if n_sampling_steps > 0:
             print 'Importance sampling %d steps' % n_sampling_steps
@@ -753,7 +756,7 @@ class GaussianBeliefNet(Layer):
     def infer_q(self, x, y, n_inference_steps, q0=None):
         updates = theano.OrderedUpdates()
 
-        xs, ys = self.init_inputs(x, y, steps=n_inference_steps)
+        xs, ys = self.init_inputs(x, y, steps=n_inference_steps+1)
         ph = self.posterior(xs)
         if q0 is None:
             if self.z_init == 'recognition_net':
@@ -766,25 +769,28 @@ class GaussianBeliefNet(Layer):
         outputs_info = [q0] + self.init_infer(ph[0], ys[0], q0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
-        outs, updates_2 = theano.scan(
-            self.step_infer,
-            sequences=seqs,
-            outputs_info=outputs_info,
-            non_sequences=non_seqs,
-            name=tools._p(self.name, 'infer'),
-            n_steps=n_inference_steps,
-            profile=tools.profile,
-            strict=True
-        )
-        updates.update(updates_2)
+        if n_inference_steps > 0:
+            outs, updates_2 = theano.scan(
+                self.step_infer,
+                sequences=seqs,
+                outputs_info=outputs_info,
+                non_sequences=non_seqs,
+                name=tools._p(self.name, 'infer'),
+                n_steps=n_inference_steps,
+                profile=tools.profile,
+                strict=True
+            )
+            updates.update(updates_2)
 
-        qs, i_costs = self.unpack_infer(outs)
-        qs = T.concatenate([q0[None, :, :], qs], axis=0)
+            qs, i_costs = self.unpack_infer(outs)
+            qs = T.concatenate([q0[None, :, :], qs], axis=0)
+        else:
+            qs = q0[None, :, :]
 
         return (ph, xs, ys, qs), updates
 
     # Inference
-    def inference(self, x, y, q0=None, n_inference_steps=20, n_samples=100):
+    def inference(self, x, y, q0=None, n_inference_steps=20, n_sampling_steps=None, n_samples=100):
         (ph, xs, ys, qs), updates = self.infer_q(
             x, y, n_inference_steps, q0=q0)
 
@@ -798,7 +804,7 @@ class GaussianBeliefNet(Layer):
                 prior_energy, h_energy, y_energy,
                 y_energy_approx, entropy), updates, constants
 
-    def __call__(self, x, y, ph=None, n_samples=100,
+    def __call__(self, x, y, ph=None, n_samples=100, n_sampling_steps=None,
                  n_inference_steps=0, end_with_inference=True):
 
         outs = OrderedDict()
