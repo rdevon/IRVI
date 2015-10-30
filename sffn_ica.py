@@ -386,7 +386,7 @@ class SigmoidBeliefNetwork(Layer):
         cond_term_, cond_term_mcmc_ = get_cond_terms(q)
 
         r = (cond_term_mcmc - cond_term_mcmc_) / (cond_term - cond_term_ + 1e-7)
-        r = T.clip(r, -10.0, 10.0)
+        r = T.clip(r, -100.0, 100.0)
         grad = r[:, None] * grad_cond + grad_kl
 
         dz = (-l * grad + m * dz_).astype(floatX)
@@ -714,6 +714,362 @@ class GaussianBeliefNet(Layer):
         py = self.p_y_given_h(h, *params)
 
         consider_constant = [y] + list(params[:1])
+        cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean()
+
+        kl_term = self.kl_divergence(q, prior)
+
+        cost = (cond_term + kl_term).sum(axis=0)
+        grad = theano.grad(cost, wrt=q, consider_constant=consider_constant)
+
+        return cost, grad
+
+    def step_infer(self, *params):
+        raise NotImplementedError()
+
+    def init_infer(self, q):
+        raise NotImplementedError()
+
+    def unpack_infer(self, outs):
+        raise NotImplementedError()
+
+    def params_infer(self):
+        raise NotImplementedError()
+
+    # Momentum
+    def _step_momentum(self, y, q, l, dq_, m, *params):
+        cost, grad = self.e_step(y, q, *params)
+        dq = (-l * grad + m * dq_).astype(floatX)
+        q = (q + dq).astype(floatX)
+        l *= self.inference_decay
+        return q, l, dq, cost
+
+    def _init_momentum(self, ph, y, q):
+        return [self.inference_rate, T.zeros_like(q)]
+
+    def _unpack_momentum(self, outs):
+        qs, ls, dqs, costs = outs
+        return qs, costs
+
+    def _params_momentum(self):
+        return [T.constant(self.momentum).astype('float32')]
+
+    def infer_q(self, x, y, n_inference_steps, q0=None):
+
+        updates = theano.OrderedUpdates()
+
+        xs, ys = self.init_inputs(x, y, steps=n_inference_steps+1)
+        ph = self.posterior(xs)
+        if q0 is None:
+            if self.z_init == 'recognition_net':
+                print 'Starting q0 at recognition net'
+                q0 = ph[0]
+            else:
+                q0 = T.alloc(0., x.shape[0], 2 * self.dim_h).astype(floatX)
+
+        seqs = [ys]
+        outputs_info = [q0] + self.init_infer(ph[0], ys[0], q0) + [None]
+        non_seqs = self.params_infer() + self.get_params()
+
+        if n_inference_steps > 0:
+            print '%d inference steps' % n_inference_steps
+
+            outs, updates_2 = theano.scan(
+                self.step_infer,
+                sequences=seqs,
+                outputs_info=outputs_info,
+                non_sequences=non_seqs,
+                name=tools._p(self.name, 'infer'),
+                n_steps=n_inference_steps,
+                profile=tools.profile,
+                strict=True
+            )
+            updates.update(updates_2)
+
+            qs, i_costs = self.unpack_infer(outs)
+            qs = T.concatenate([q0[None, :, :], qs], axis=0)
+        else:
+            qs = q0[None, :, :]
+
+        return (ph, xs, ys, qs), updates
+
+    # Inference
+    def inference(self, x, y, q0=None, n_inference_steps=20, n_sampling_steps=None, n_samples=100):
+        (ph, xs, ys, qs), updates = self.infer_q(
+            x, y, n_inference_steps, q0=q0)
+
+        (prior_energy, h_energy, y_energy,
+         y_energy_approx, entropy), m_constants = self.m_step(
+            ph[0], ys[0], qs[-1], n_samples=n_samples)
+
+        constants = [xs, ys, qs, entropy] + m_constants
+
+        return (xs, ys, qs,
+                prior_energy, h_energy, y_energy,
+                y_energy_approx, entropy), updates, constants
+
+    def __call__(self, x, y, ph=None, n_samples=100, n_sampling_steps=None,
+                 n_inference_steps=0):
+
+        outs = OrderedDict()
+        updates = theano.OrderedUpdates()
+        prior = T.concatenate([self.mu[None, :], self.log_sigma[None, :]], axis=1)
+
+        if n_inference_steps > 0:
+            if ph is None:
+                q0 = None
+            else:
+                q0 = ph
+
+            (ph_x, xs, ys, qs), updates_i = self.infer_q(
+                x, y, n_inference_steps, q0=q0)
+            updates.update(updates_i)
+            q = qs[-1]
+        elif ph is None:
+            x = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
+            q = self.posterior(x)
+            ys = x.copy()
+        else:
+            ys = x.copy()
+
+        if n_samples == 0:
+            h = q[None, :, :]
+        else:
+            h = self.posterior.sample(
+                q, size=(n_samples, q.shape[0], q.shape[1] / 2))
+
+        py = self.conditional(h)
+        y_energy = self.conditional.neg_log_prob(ys[0][None, :, :], py).mean(axis=(0, 1))
+        kl_term = self.kl_divergence(q, prior).mean(axis=0)
+
+        outs.update(
+            py=py,
+            lower_bound=(y_energy+kl_term)
+        )
+
+        return outs, updates
+
+
+class GaussianBeliefDeepNet(Layer):
+    def __init__(self, dim_in, dim_h, dim_out, n_layers=2,
+                 posteriors=None, conditionals=None,
+                 z_init=None,
+                 x_noise_mode=None, y_noise_mode=None, noise_amount=0.1,
+                 name='gbn',
+                 **kwargs):
+
+        self.dim_in = dim_in
+        self.dim_out = dim_out
+        self.dim_h = dim_h
+
+        self.n_layers = n_layers
+
+        self.posteriors = posteriors
+        self.conditionals = conditionals
+
+        self.z_init = z_init
+
+        self.x_mode = x_noise_mode
+        self.y_mode = y_noise_mode
+        self.noise_amount = noise_amount
+
+        kwargs = init_inference_args(self, **kwargs)
+        kwargs = init_weights(self, **kwargs)
+        kwargs = init_rngs(self, **kwargs)
+
+        super(GaussianBeliefDeepNet, self).__init__(name=name)
+
+    def set_params(self):
+        self.params = OrderedDict()
+
+        if self.posteriors is None:
+            self.posteriors = [None for _ in xrange(self.n_layers)]
+        else:
+            assert len(posteriors) == self.n_layers
+
+        if self.conditionals is None:
+            self.conditionals = [None for _ in xrange(self.n_layers)]
+        else:
+            assert len(conditionals) == self.n_layers
+
+        for l in xrange(self.n_layers):
+
+            if l == 0:
+                dim_in = self.dim_in
+            else:
+                dim_in = self.dim_h
+
+            if l == self.n_layers - 1:
+                dim_out = self.dim_out
+            else:
+                dim_out = self.dim_h
+
+            mu = np.zeros((dim_out,)).astype(floatX)
+            log_sigma = np.zeros((dim_out,)).astype(floatX)
+
+            self.params['mu%d' % l] = mu
+            self.params['log_sigma%d' % l] = log_sigma
+
+            if self.posteriors[l] is None:
+                self.posteriors[l] = MLP(dim_in, dim_out, dim_out, 1,
+                                     rng=self.rng, trng=self.trng,
+                                     h_act='T.nnet.sigmoid',
+                                     out_act='lambda x: x')
+
+            if l == 0:
+                out_act = 'T.nnet.sigmoid'
+            else:
+                out_act = 'lambda x: x'
+
+            if self.conditionals[l] is None:
+                self.conditionals[l] = MLP(dim_out, dim_out, dim_in, 1,
+                                       rng=self.rng, trng=self.trng,
+                                       h_act='T.nnet.sigmoid',
+                                       out_act=out_act)
+
+            self.posteriors[l].name = self.name + '_posterior%d' % l
+            self.conditionals[l].name = self.name + '_conditional%d' % l
+
+    def set_tparams(self, excludes=[]):
+        excludes = ['{name}_{key}'.format(name=self.name, key=key)
+                    for key in excludes]
+        tparams = super(GaussianBeliefDeepNet, self).set_tparams()
+
+        for l in xrange(self.n_layers):
+            tparams.update(**self.posteriors[l].set_tparams())
+            tparams.update(**self.conditionals[l].set_tparams())
+
+        tparams = OrderedDict((k, v) for k, v in tparams.iteritems()
+            if k not in excludes)
+
+        return tparams
+
+    def _sample(self, p, size=None):
+        if size is None:
+            size = p.shape
+        return self.trng.binomial(p=p, size=size, n=1, dtype=p.dtype)
+
+    def _noise(self, x, amount, size):
+        return x * (1 - self.trng.binomial(p=amount, size=size, n=1,
+                                           dtype=x.dtype))
+
+    def set_input(self, x, mode, size=None):
+        if size is None:
+            size = x.shape
+        if mode == 'sample':
+            x = self._sample(x[None, :, :], size=size)
+        elif mode == 'noise':
+            x = self._sample(x)
+            x = self._noise(x[None, :, :], size=size)
+        elif mode is None:
+            x = self._sample(x, size=x.shape)
+            x = T.alloc(0., *size) + x[None, :, :]
+        else:
+            raise ValueError('% not supported' % mode)
+        return x
+
+    def init_inputs(self, x, y, steps=1):
+        x_size = (steps, x.shape[0], x.shape[1])
+        y_size = (steps, y.shape[0], y.shape[1])
+
+        x = self.set_input(x, self.x_mode, size=x_size)
+        y = self.set_input(y, self.y_mode, size=y_size)
+        return x, y
+
+    def get_params(self):
+        params = []
+        for l in xrange(self.n_layers):
+            params += self.conditionals[l].get_params()
+            mu = self.__dict__['mu%d' % l]
+            log_sigma = self.__dict__['mu%d' % l]
+            params += [mu, log_sigma]
+
+        return params
+
+    def get_prior_params(self, level, **params):
+        start = 0
+        for n in xrange(level):
+            start += len(self.conditionals[n].get_params()) + 2
+        start -= 2
+        params = params[start:start+2]
+        return params
+
+    def p_y_given_h(self, h, level, *params):
+        for n in xrange(level):
+            start += len(self.conditionals[n].get_params()) + 2
+        end = start + len(self.conditionals[level].get_params())
+
+        params = params[start:end]
+        return self.conditionals[level].step_call(h, *params)
+
+    def sample_from_prior(self, level, n_samples=100):
+        mu = self.__dict__['mu%d' % level]
+        log_sigma = self.__dict__['mu%d' % level]
+        p = T.concatenate([mu, log_sigma])
+        h = self.posteriors[l].sample(p=p, size=(n_samples, self.dim_h))
+
+        for l in xrange(level - 1, -1, -1):
+            p = self.conditionals[l](h)
+            h = self.conditionals[l].sample(p)
+
+        return p
+
+    def kl_divergence(self, p, q,
+                      entropy_scale=1.0):
+        dim = self.dim_h
+        mu_p = _slice(p, 0, dim)
+        log_sigma_p = _slice(p, 1, dim)
+        mu_q = _slice(q, 0, dim)
+        log_sigma_q = _slice(q, 1, dim)
+
+        kl = log_sigma_q - log_sigma_p + 0.5 * (
+            (T.exp(2 * log_sigma_p) + (mu_p - mu_q) ** 2) /
+            T.exp(2 * log_sigma_q)
+            - 1)
+        return kl.sum(axis=kl.ndim-1)
+
+    def m_step(self, ph, y, q, n_samples=10):
+        constants = []
+        prior = T.concatenate([self.mu[None, :], self.log_sigma[None, :]], axis=1)
+
+        if n_samples == 0:
+            h = mu[None, :, :]
+        else:
+            h = self.posterior.sample(p=q, size=(n_samples, q.shape[0], q.shape[1] / 2))
+
+        py = self.conditional(h)
+        py_approx = py
+
+        y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
+        y_energy_approx = self.conditional.neg_log_prob(y, py_approx).mean()
+        prior_energy = self.kl_divergence(q, prior).mean()
+        h_energy = self.kl_divergence(q, ph).mean()
+
+        entropy = self.posterior.entropy(q).mean()
+
+        return (prior_energy, h_energy, y_energy, y_energy_approx, entropy), constants
+
+    def e_step(self, y, qs, *params):
+        consider_constant = [y]
+
+        cost = T.constant(0.).astype(floatX)
+
+        for l in xrange(self.n_layers):
+            q = qs[l]
+            mu_q = _slice(q, 0, self.dim_h)
+            log_sigma_q = _slice(q, 1, self.dim_h)
+
+            prior = T.concatenate(get_prior_params(l), axis=1)
+            kl_term = self.kl_divergence(q, prior)
+
+            epsilon = self.trng.normal(
+                avg=0, std=1.0,
+                size=(self.n_inference_samples, mu_q.shape[0], mu_q.shape[1]))
+
+            h = mu_q + epsilon * T.exp(log_sigma_q)
+            p = self.p_y_given_h(h, *params)
+
+            cond_term = self.conditional.neg_log_prob()
+
         cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean()
 
         kl_term = self.kl_divergence(q, prior)
