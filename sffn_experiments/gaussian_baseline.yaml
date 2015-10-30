@@ -1,0 +1,29 @@
+{
+  name: 'gbn_simple',
+  prior: 'gaussian',
+  dim_h: 200,
+  recognition_net: {
+    dim_h: 200,
+    h_act: 'T.nnet.softplus',
+    n_layers: 2
+  },
+  generation_net: {
+    dim_h: 200,
+    h_act: 'T.nnet.softplus',
+    n_layers: 2
+  },
+  z_init: 'recognition_net',
+  inference_method: 'momentum',
+  inference_rate: .1,
+  n_inference_steps: 0,
+  n_inference_steps_test: 0,
+  inference_decay: 1.0,
+  n_inference_samples: 20,
+  n_mcmc_samples: 20,
+  n_mcmc_samples_test: 20,
+  dataset: 'mnist',
+  dataset_args: {
+    source: '/Users/devon/Data/mnist.pkl.gz',
+    binarize: True
+  }
+}
