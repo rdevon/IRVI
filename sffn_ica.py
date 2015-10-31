@@ -268,6 +268,11 @@ class SigmoidBeliefNetwork(Layer):
             py = self.p_y_given_h(h, *params)
             cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=(0))
 
+        elif self.inference_scaling == 'symmetrize':
+            print 'Symmetrizing cond'
+            cond_term_neg = self.conditional.neg_log_prob(y, 1 - py)
+            cond_term = 0.5 * (cond_term - cond_term_neg)
+
         elif self.inference_scaling is not None:
             raise ValueError(self.inference_scaling)
         else:
@@ -283,9 +288,6 @@ class SigmoidBeliefNetwork(Layer):
                 q, ph, entropy_scale=self.entropy_scale)
             kl_term += self.kl_divergence(q, prior[None, :])
             cost = (cond_term + kl_term).sum(axis=0)
-        elif self.inference_scaling == 'symmetrize':
-            cond_term_neg = self.conditional.neg_log_prob(y, 1 - py)
-            cond_term = 0.5 * (cond_term - cond_term_neg)
         else:
             kl_term = self.kl_divergence(q, prior[None, :], entropy_scale=self.entropy_scale)
             cost = (cond_term + kl_term).sum(axis=0)
