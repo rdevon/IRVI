@@ -270,7 +270,8 @@ class SigmoidBeliefNetwork(Layer):
 
         elif self.inference_scaling == 'symmetrize':
             print 'Symmetrizing cond'
-            cond_term_neg = self.conditional.neg_log_prob(y, 1 - py)
+            py_neg = self.p_y_given_h(1.0 - q, *params)
+            cond_term_neg = self.conditional.neg_log_prob(y, py_neg)
             cond_term = 0.5 * (cond_term + 1.0 - cond_term_neg)
 
         elif self.inference_scaling is not None:
