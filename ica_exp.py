@@ -65,7 +65,8 @@ def load_data(dataset,
                           mode='valid',
                           inf=True,
                           **dataset_args)
-        valid = None
+        else:
+            valid = None
         if test_batch_size is not None:
             test = MNIST(batch_size=test_batch_size,
                          mode='test',
