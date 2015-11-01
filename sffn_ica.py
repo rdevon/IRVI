@@ -532,7 +532,7 @@ class SigmoidBeliefNetwork(Layer):
         updates = theano.OrderedUpdates()
         prior = T.nnet.sigmoid(self.z)
 
-        if isinstance(n_inference_steps, T.TensorVariable) or n_sampling_steps > 0:
+        if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
             if ph is None:
                 z0 = None
             else:
@@ -571,7 +571,6 @@ class SigmoidBeliefNetwork(Layer):
                 c_mc=conds_mc,
                 kl=kl_terms
             )
-            print outs
 
             if calculate_log_marginal:
                 nll = -log_mean_exp(
@@ -834,7 +833,7 @@ class GaussianBeliefNet(Layer):
         outputs_info = [q0] + self.init_infer(ph[0], ys[0], q0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
-        if isinstance(n_inference_steps, T.TensorVariable) or n_sampling_steps > 0:
+        if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
             if not isinstance(n_inference_steps, T.TensorVariable):
                 print '%d inference steps' % n_inference_steps
 
@@ -879,7 +878,7 @@ class GaussianBeliefNet(Layer):
         updates = theano.OrderedUpdates()
         prior = T.concatenate([self.mu[None, :], self.log_sigma[None, :]], axis=1)
 
-        if isinstance(n_inference_steps, T.TensorVariable) or n_sampling_steps > 0:
+        if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
             if ph is None:
                 q0 = None
             else:
