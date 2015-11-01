@@ -14,6 +14,7 @@ import tools
 from tools import init_rngs
 from tools import init_weights
 from tools import log_mean_exp
+from tools import log_sum_exp
 from tools import logit
 from tools import _slice
 
@@ -911,7 +912,7 @@ class GaussianBeliefNet(Layer):
         )
 
         if calculate_log_marginal:
-            nll = -T.log(T.exp(
+            nll = (-log_sum_exp(
                 -self.conditional.neg_log_prob(
                     y[None, :, :], py)
                 - self.posterior.neg_log_prob(
@@ -920,7 +921,7 @@ class GaussianBeliefNet(Layer):
                 + self.posterior.neg_log_prob(
                     h, q[None, :, :]
                 ),
-                ).mean(axis=0)).mean()
+                axis=0) + T.log(n_samples)).mean()
             outs.update(nll=nll)
 
         return outs, updates
