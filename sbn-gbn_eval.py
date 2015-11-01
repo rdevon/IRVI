@@ -53,7 +53,7 @@ def lower_bound_curve(
     _, _, test = load_data(dataset,
                            None,
                            None,
-                           n_inference_samples,
+                           n_samples,
                            **dataset_args)
 
     if prior == 'logistic':
