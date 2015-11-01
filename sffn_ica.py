@@ -913,7 +913,7 @@ class GaussianBeliefNet(Layer):
         if calculate_log_marginal:
             nll = -T.log(T.exp(
                 -self.conditional.neg_log_prob(
-                    ys[0][None, :, :], py)
+                    y[None, :, :], py)
                 - self.posterior.neg_log_prob(
                     h, prior[None, :, :]
                 )
