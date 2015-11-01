@@ -564,7 +564,7 @@ class SigmoidBeliefNetwork(Layer):
 
             y_energy = conds_mc[-1]
             kl_term = kl_terms[-1]
-            py = pys[-1]
+            py = pys[:, -1]
 
             outs.update(
                 c_a=conds_app,
@@ -573,10 +573,15 @@ class SigmoidBeliefNetwork(Layer):
             )
 
             if calculate_log_marginal:
-                nll = log_mean_exp(
-                    self.conditional.neg_log_prob(
-                        y[None, :, :], pys[-1])
-                    + self.kl_divergence(q[-1], prior[None, :])[None, :],
+                nll = -log_mean_exp(
+                    -self.conditional.neg_log_prob(
+                        y[None, :, :], pys[:, -1])
+                    - self.posterior.neg_log_prob(
+                        h[:, -1], prior[None, None, :]
+                    )
+                    + self.posterior.neg_log_prob(
+                        h[:, -1], q[-1][None, :, :]
+                    ),
                     axis=0).mean()
                 outs.update(nll=nll)
         else:
@@ -591,10 +596,15 @@ class SigmoidBeliefNetwork(Layer):
             kl_term = self.kl_divergence(q, prior[None, :]).mean(axis=0)
 
             if calculate_log_marginal:
-                nll = log_mean_exp(
-                    self.conditional.neg_log_prob(
+                nll = -log_mean_exp(
+                    -self.conditional.neg_log_prob(
                         y[None, :, :], py)
-                    + self.kl_divergence(q, prior[None, :])[None, :],
+                    - self.posterior.neg_log_prob(
+                        h, prior[None, None, :]
+                    )
+                    + self.posterior.neg_log_prob(
+                        h, q[None, :, :]
+                    ),
                     axis=0).mean()
                 outs.update(nll=nll)
 
@@ -901,10 +911,16 @@ class GaussianBeliefNet(Layer):
         )
 
         if calculate_log_marginal:
-            nll = log_mean_exp(
-                self.conditional.neg_log_prob(
+
+            nll = -log_mean_exp(
+                -self.conditional.neg_log_prob(
                     y[None, :, :], py)
-                + self.kl_divergence(q, prior)[None, :],
+                - self.posterior.neg_log_prob(
+                    h, prior[None, :, :]
+                )
+                + self.posterior.neg_log_prob(
+                    h, q[None, :, :]
+                ),
                 axis=0).mean()
             outs.update(nll=nll)
 
