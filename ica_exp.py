@@ -29,57 +29,8 @@ from tools import load_model
 from tools import load_experiment
 from tools import _slice
 
+
 floatX = theano.config.floatX
-
-def lower_bound_curve(
-    model_file, rs=None, n_samples=10000,
-    inference_method='momentum',
-    inference_rate=.01, n_inference_steps=100,
-    inference_decay=1.0, inference_samples=20,
-    ):
-
-    models, kwargs = load_model(model_file, unpack, inference_rate=inference_rate,
-                               n_inference_steps=n_inference_steps,
-                               inference_decay=inference_decay,
-                               inference_method=inference_method)
-    dataset_args = kwargs['dataset_args']
-    dataset = kwargs['dataset']
-
-    if dataset == 'mnist':
-        test = MNIST(batch_size=n_samples, mode='test', **dataset_args)
-    else:
-        raise ValueError()
-
-    model = models['sbn']
-    model.set_tparams()
-
-    if rs is None:
-        rs = range(5, 100, 5)
-
-    x_t, _ = test.next()
-
-    X = T.matrix('x', dtype=floatX)
-    Y = T.matrix('y', dtype=floatX)
-
-    (py_s, y_energy_s), updates_s = model(X, Y, end_with_inference=False)
-
-    f_ll = theano.function([X, Y], y_energy_s)
-
-    lls = [f_ll(x_t, x_t)]
-
-    R = T.scalar('r', dtype='int64')
-
-    (py_s, y_energy_s), updates_s = model(X, Y, n_inference_steps=R)
-
-    f_ll = theano.function([X, Y, R], y_energy_s)
-
-    for r in rs:
-        print 'number of inference steps: %d' % r
-        ll = f_ll(x_t, x_t, r)
-        lls.append(ll)
-        print 'lower bound %.2f' % ll
-
-    return lls
 
 def concatenate_inputs(model, y, py):
     '''
@@ -95,6 +46,37 @@ def concatenate_inputs(model, y, py):
 def load_mlp(name, dim_in, dim_out, dim_h=None, n_layers=None, **kwargs):
     mlp = MLP(dim_in, dim_h, dim_out, n_layers, name=name, **kwargs)
     return mlp
+
+def load_data(dataset,
+              train_batch_size,
+              valid_batch_size,
+              test_batch_size,
+              **dataset_args):
+    if dataset == 'mnist':
+        if train_batch_size is not None:
+            train = MNIST(batch_size=train_batch_size,
+                          mode='train',
+                          inf=False,
+                          **dataset_args)
+        else:
+            train = None
+        if valid_batch_size is not None:
+            valid = MNIST(batch_size=valid_batch_size,
+                          mode='valid',
+                          inf=True,
+                          **dataset_args)
+        valid = None
+        if test_batch_size is not None:
+            test = MNIST(batch_size=test_batch_size,
+                         mode='test',
+                         inf=True,
+                         **dataset_args)
+        else:
+            test = None
+    else:
+        raise ValueError()
+
+    return train, valid, test
 
 def unpack(dim_h=None,
            z_init=None,
@@ -237,15 +219,11 @@ def train_model(
 
     # ========================================================================
     print 'Setting up data'
-    if dataset == 'mnist':
-        train = MNIST(batch_size=batch_size, mode='train', inf=False,
-                               **dataset_args)
-        valid = MNIST(batch_size=batch_size, mode='valid', inf=True,
-                               **dataset_args)
-        test = MNIST(batch_size=2000, mode='test', inf=True,
-                              **dataset_args)
-    else:
-        raise ValueError()
+    train, valid, test = load_data(dataset,
+                                   batch_size,
+                                   batch_size,
+                                   2000,
+                                   **dataset_args)
 
     # ========================================================================
     print 'Setting model and variables'
