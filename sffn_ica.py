@@ -548,7 +548,7 @@ class SigmoidBeliefNetwork(Layer):
         else:
             ys = x.copy()
 
-        if isinstance(n_inference_steps, T.TensorVariable) or n_sampling_steps > 0:
+        if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
             if n_samples == 0:
                 h = q[None, :, :, :]
             else:
@@ -571,6 +571,7 @@ class SigmoidBeliefNetwork(Layer):
                 c_mc=conds_mc,
                 kl=kl_terms
             )
+            print outs
 
             if calculate_log_marginal:
                 nll = -log_mean_exp(
@@ -911,7 +912,6 @@ class GaussianBeliefNet(Layer):
         )
 
         if calculate_log_marginal:
-
             nll = -log_mean_exp(
                 -self.conditional.neg_log_prob(
                     y[None, :, :], py)
