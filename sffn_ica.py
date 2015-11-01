@@ -66,6 +66,12 @@ def init_inference_args(model,
         model.unpack_infer = model._unpack_momentum
         model.params_infer = model._params_momentum
         kwargs = init_momentum_args(model, **kwargs)
+    elif inference_method == 'momentum_3':
+        model.step_infer = model._step_momentum_3
+        model.init_infer = model._init_momentum
+        model.unpack_infer = model._unpack_momentum
+        model.params_infer = model._params_momentum
+        kwargs = init_momentum_args(model, **kwargs)
     else:
         raise ValueError()
 
@@ -403,6 +409,29 @@ class SigmoidBeliefNetwork(Layer):
         cost = (cond_term + kl_term).sum(axis=0)
 
         return z, l, dz, cost
+
+    def _step_momentum_3(self, ph, y, z, l, dz_, m, *params):
+        prior = T.nnet.sigmoid(params[0])
+        consider_constant = [y, prior, l, ph]
+
+        q = T.nnet.sigmoid(z)
+        kl_term = self.kl_divergence(q, prior[None, :])
+
+        h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+        py = self.p_y_given_h(h, *params)
+        cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
+
+        grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
+
+        grad = (grad_h * (T.exp(-z) * T.nnet.sigmoid(z) ** 2)[None, :, :]).mean(axis=0)
+
+        grad += theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
+
+        dz = (-l * grad + m * dz_).astype(floatX)
+        z = (z + dz).astype(floatX)
+        l *= self.inference_decay
+
+        return z, l, dz, (kl_term + cond_term).sum(axis=0)
 
     def _init_momentum(self, ph, y, z):
         return [self.inference_rate, T.zeros_like(z)]
@@ -1218,7 +1247,7 @@ class GaussianBeliefDeepNet(Layer):
                 x, y, n_inference_steps,)
             updates.update(updates_i)
 
-            q = [qs[-1] for qs in qss][0]
+            q = [qs[-1] for qs in qss]
         else:
             ys = x.copy()
 
