@@ -559,12 +559,10 @@ class SigmoidBeliefNetwork(Layer):
             updates.update(updates_i)
             q = T.nnet.sigmoid(zs)
             outs.update(inference_cost=i_cost)
+            x = xs[-1]
         elif ph is None:
             x = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
             q = self.posterior(x)
-            xs = x
-        else:
-            xs = x
 
         if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
             if n_samples == 0:
@@ -876,12 +874,10 @@ class GaussianBeliefNet(Layer):
             updates.update(updates_i)
             q = qs[-1]
             outs.update(inference_cost=i_cost)
+            x = xs[-1]
         elif ph is None:
             x = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
             q = self.posterior(x)
-            xs = x[None, :, :]
-        else:
-            xs = x.copy()
 
         if n_samples == 0:
             h = q[None, :, :]
@@ -890,7 +886,7 @@ class GaussianBeliefNet(Layer):
                 q, size=(n_samples, q.shape[0], q.shape[1] / 2))
 
         py = self.conditional(h)
-        y_energy = self.conditional.neg_log_prob(xs[-1][None, :, :], py).mean(axis=(0, 1))
+        y_energy = self.conditional.neg_log_prob(x[None, :, :], py).mean(axis=(0, 1))
         kl_term = self.kl_divergence(q, prior).mean(axis=0)
 
         outs.update(
