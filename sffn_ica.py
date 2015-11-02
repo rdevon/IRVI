@@ -422,11 +422,11 @@ class SigmoidBeliefNetwork(Layer):
         py = self.p_y_given_h(h, *params)
         cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
 
-        grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
+        grad_h = theano.grad(cond_term.mean(axis=0), wrt=h, consider_constant=consider_constant)
 
         grad = grad_h.mean(axis=0) * q * (1 - q)
 
-        grad += theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
+        grad += theano.grad(kl_term.mean(axis=0), wrt=z, consider_constant=consider_constant)
 
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
