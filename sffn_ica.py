@@ -426,15 +426,16 @@ class SigmoidBeliefNetwork(Layer):
 
         h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
         py = self.p_y_given_h(h, *params)
-        cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
-
-        grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
 
         if self.importance_sampling:
             print 'Importance sampling in E'
             w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
-            grad_h = w[:, :, None] * grad_h
+            cond_term = (w * self.conditional.neg_log_prob(y[None, :, :], py)).sum(axis=0)
+            consider_constant += [w]
+        else:
+            cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
 
+        grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
         grad_q = (grad_h * q * (1 - q)).sum(axis=0)
 
         grad_k = theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
