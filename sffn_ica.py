@@ -182,6 +182,23 @@ class SigmoidBeliefNetwork(Layer):
         py = self.conditional(h)
         return py
 
+    def importance_weights(self, y, h, py, q, prior, normalize=True):
+
+        y_energy = self.conditional.neg_log_prob(y, py)
+        prior_energy = self.posterior.neg_log_prob(h, prior)
+        entropy_term = self.posterior.neg_log_prob(h, q)
+
+        w = T.exp(- y_energy
+                  - prior_energy
+                  + entropy_term)
+
+        if normalize:
+            w = T.clip(w, 1e-7, 1)
+            w_sum = w.sum(axis=0)
+            w = w / w_sum[None, :]
+
+        return w
+
     def m_step(self, ph, y, z, n_samples=10):
         constants = []
         q = T.nnet.sigmoid(z)
@@ -195,25 +212,19 @@ class SigmoidBeliefNetwork(Layer):
 
         py = self.conditional(h)
 
-        if self.importance_sampling:
-            y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
-            prior_energy = self.posterior.neg_log_prob(h, prior[None, None, :])
-            entropy_term = self.posterior.neg_log_prob(h, q[None, :, :])
-            w = T.exp(-y_energy
-                      - prior_energy
-                      + entropy_term)
-            w = T.clip(w, 1e-7, 1)
-            w_sum = w.sum(axis=0)
-            w_tilda = w / w_sum[None, :]
-            y_energy = (w_tilda * y_energy).sum(axis=0).mean()
-            prior_energy = (w_tilda * prior_energy).sum(axis=0).mean()
-            constants += [w_tilda, w]
-        else:
-            y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
-            prior_energy = self.posterior.neg_log_prob(q, prior[None, :]).mean()
-
+        prior_energy = self.posterior.neg_log_prob(q, prior[None, :]).mean()
         h_energy = self.posterior.neg_log_prob(q, ph).mean()
         entropy = self.posterior.entropy(q).mean()
+
+        if self.importance_sampling:
+            print 'Importance sampling in M'
+            w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
+            y_energy = self.conditional.neg_log_prob(y[None, :, :], py)
+
+            y_energy = (w * y_energy).sum(axis=0).mean()
+            constants += [w]
+        else:
+            y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
 
         return (prior_energy, h_energy, y_energy, entropy), constants
 
@@ -418,6 +429,11 @@ class SigmoidBeliefNetwork(Layer):
         cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
 
         grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
+
+        if self.importance_sampling:
+            print 'Importance sampling in E'
+            w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
+            grad_h = w[:, :, None] * grad_h
 
         grad_q = (grad_h * q * (1 - q)).sum(axis=0)
 
