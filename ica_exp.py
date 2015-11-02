@@ -156,7 +156,6 @@ def unpack(dim_h=None,
 
     model = C(dim_in, dim_h, dim_out,
               conditional=conditional, posterior=posterior,
-              input_mode=input_mode,
               **kwargs)
     models.append(model)
 
@@ -225,8 +224,14 @@ def train_model(
     dim_in = train.dim
     dim_out = train.dim
     X = T.matrix('x', dtype=floatX)
-
     trng = RandomStreams(random.randint(0, 1000000))
+
+    if input_mode == 'sample':
+        print 'Sampling datapoints'
+        X = trng.binomial(p=X, size=X.shape, n=1, dtype=X.dtype)
+    elif input_mode == 'noise':
+        print 'Adding noise to data points'
+        X = X * trng.binomial(p=0.1, size=X.shape, n=1, dtype=X.dtype)
 
     # ========================================================================
     print 'Loading model and forming graph'
@@ -267,7 +272,6 @@ def train_model(
         model = C(dim_in, dim_h, dim_out, trng=trng,
                 conditional=conditional,
                 posterior=posterior,
-                input_model=input_mode,
                 **kwargs)
 
         models = OrderedDict()
@@ -286,7 +290,7 @@ def train_model(
 
     # ========================================================================
     print 'Getting cost'
-    (xs, zs, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
+    (zs, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
         X, n_inference_steps=n_inference_steps,
         n_sampling_steps=n_sampling_steps, n_samples=n_mcmc_samples)
 
@@ -310,7 +314,7 @@ def train_model(
         raise ValueError()
 
     py = model.conditional(mu)
-    pd_i, d_hat_i = concatenate_inputs(model, xs[0], py)
+    pd_i, d_hat_i = concatenate_inputs(model, X, py)
 
     # Test function with sampling
     rval, updates_s = model(

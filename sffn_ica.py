@@ -104,7 +104,6 @@ class SigmoidBeliefNetwork(Layer):
     def __init__(self, dim_in, dim_h, dim_out,
                  posterior=None, conditional=None,
                  z_init=None,
-                 input_mode=None,
                  name='sbn',
                  **kwargs):
 
@@ -116,7 +115,6 @@ class SigmoidBeliefNetwork(Layer):
         self.conditional = conditional
 
         self.z_init = z_init
-        self.input_mode = input_mode
 
         kwargs = init_inference_args(self, **kwargs)
         kwargs = init_weights(self, **kwargs)
@@ -161,19 +159,6 @@ class SigmoidBeliefNetwork(Layer):
         params = [self.z] + self.conditional.get_params() + self.posterior.get_params() + [self.inference_scale_factor]
         return params
 
-    def init_inputs(self, x, samples=1):
-        size = (samples, x.shape[0], x.shape[1])
-
-        if isinstance(self.input_mode, list):
-            for mode in self.input_mode:
-                x = set_input(x, mode, trng=self.trng)
-        else:
-            x = set_input(x, self.input_mode, trng=self.trng)
-
-        x = T.alloc(0., *size) + x[None, :, :]
-
-        return x
-
     def p_y_given_h(self, h, *params):
         params = params[1:1+len(self.conditional.get_params())]
         return self.conditional.step_call(h, *params)
@@ -211,13 +196,12 @@ class SigmoidBeliefNetwork(Layer):
                 q, size=(n_samples, q.shape[0], q.shape[1]))
 
         py = self.conditional(h)
-
-
         entropy = self.posterior.entropy(q).mean()
 
         if self.importance_sampling:
             print 'Importance sampling in M'
             w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
+
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py)
             prior_energy = self.posterior.neg_log_prob(h, prior[None, None, :])
             h_energy = self.posterior.neg_log_prob(q, ph)
@@ -472,7 +456,8 @@ class SigmoidBeliefNetwork(Layer):
     def infer_q(self, x, n_inference_steps, n_sampling_steps=0, z0=None):
         updates = theano.OrderedUpdates()
 
-        xs = self.init_inputs(x, samples=n_inference_steps+1)
+        xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
+
         ph = self.posterior(xs)
         if z0 is None:
             if self.z_init == 'recognition_net':
@@ -482,7 +467,7 @@ class SigmoidBeliefNetwork(Layer):
                 z0 = T.alloc(0., x.shape[0], self.dim_h).astype(floatX)
 
         seqs = [ph, xs]
-        outputs_info = [z0] + self.init_infer(ph[0], xs[0], z0) + [None]
+        outputs_info = [z0] + self.init_infer(ph[0], x, z0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
         if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
@@ -528,26 +513,26 @@ class SigmoidBeliefNetwork(Layer):
             qs, s_costs = outs
             zs = T.concatenate([zs, logit(qs)])
 
-        return (ph, xs, zs, i_costs[-1]), updates
+        return (ph, zs, i_costs[-1]), updates
 
     # Inference
     def inference(self, x, z0=None, n_inference_steps=20,
                   n_sampling_steps=0, n_samples=100):
 
-        (ph, xs, zs, _), updates = self.infer_q(
+        (ph, zs, _), updates = self.infer_q(
             x, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
 
         (prior_energy, h_energy, y_energy, entropy), m_constants = self.m_step(
-            ph[0], xs[0], zs[-1], n_samples=n_samples)
+            ph[0], x, zs[-1], n_samples=n_samples)
 
-        constants = [xs, zs, entropy] + m_constants
+        constants = [zs, entropy] + m_constants
 
         if self.inference_scaling == 'global':
             updates += [
                 (self.inference_scale_factor, y_energy / y_energy_approx)]
             constants += [self.inference_scale_factor]
 
-        return (xs, zs, prior_energy, h_energy, y_energy, entropy), updates, constants
+        return (zs, prior_energy, h_energy, y_energy, entropy), updates, constants
 
     def __call__(self, x, ph=None,
                  n_samples=100, n_inference_steps=0, n_sampling_steps=0,
@@ -561,15 +546,15 @@ class SigmoidBeliefNetwork(Layer):
                 z0 = None
             else:
                 z0 = logit(ph)
-            (ph_x, xs, zs, i_cost), updates_i = self.infer_q(
+            (ph_x, zs, i_cost), updates_i = self.infer_q(
                 x, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
             updates.update(updates_i)
             q = T.nnet.sigmoid(zs)
             outs.update(inference_cost=i_cost)
-            x = xs[-1]
         elif ph is None:
-            x = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
             q = self.posterior(x)
+        else:
+            q = ph
 
         if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
             if n_samples == 0:
@@ -614,6 +599,7 @@ class SigmoidBeliefNetwork(Layer):
                 h = self.posterior.sample(
                     q, size=(n_samples, q.shape[0], q.shape[1]))
 
+            xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
             py = self.conditional(h)
             y_energy = self.conditional.neg_log_prob(xs, py).mean(axis=(0, 1))
             kl_term = self.kl_divergence(q, prior[None, :]).mean(axis=0)
@@ -642,7 +628,7 @@ class SigmoidBeliefNetwork(Layer):
 class GaussianBeliefNet(Layer):
     def __init__(self, dim_in, dim_h, dim_out,
                  posterior=None, conditional=None,
-                 z_init=None, input_mode=None,
+                 z_init=None,
                  name='gbn',
                  **kwargs):
 
@@ -654,7 +640,6 @@ class GaussianBeliefNet(Layer):
         self.conditional = conditional
 
         self.z_init = z_init
-        self.input_mode = input_mode
 
         kwargs = init_inference_args(self, **kwargs)
         kwargs = init_weights(self, **kwargs)
@@ -698,19 +683,6 @@ class GaussianBeliefNet(Layer):
             if k not in excludes)
 
         return tparams
-
-    def init_inputs(self, x, samples=1):
-        size = (samples, x.shape[0], x.shape[1])
-
-        if isinstance(self.input_mode, list):
-            for mode in self.input_mode:
-                x = set_input(x, mode, trng=self.trng)
-        else:
-            x = set_input(x, self.input_mode, trng=self.trng)
-
-        x = T.alloc(0., *size) + x[None, :, :]
-
-        return x
 
     def get_params(self):
         params = [self.mu, self.log_sigma] + self.conditional.get_params() + [self.inference_scale_factor]
@@ -816,7 +788,7 @@ class GaussianBeliefNet(Layer):
 
         updates = theano.OrderedUpdates()
 
-        xs = self.init_inputs(x, samples=n_inference_steps+1)
+        xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
         ph = self.posterior(xs)
         if q0 is None:
             if self.z_init == 'recognition_net':
@@ -850,19 +822,18 @@ class GaussianBeliefNet(Layer):
         else:
             qs = q0[None, :, :]
 
-        return (ph, xs, qs, i_costs[-1]), updates
+        return (ph, qs, i_costs[-1]), updates
 
     # Inference
     def inference(self, x, q0=None, n_inference_steps=20, n_sampling_steps=None, n_samples=100):
-        (ph, xs, qs, _), updates = self.infer_q(x, n_inference_steps, q0=q0)
+        (ph, qs, _), updates = self.infer_q(x, n_inference_steps, q0=q0)
 
         (prior_energy, h_energy, y_energy, entropy), m_constants = self.m_step(
-            ph[0], xs[0], qs[-1], n_samples=n_samples)
+            ph[0], x, qs[-1], n_samples=n_samples)
 
-        constants = [xs, qs, entropy] + m_constants
+        constants = [qs, entropy] + m_constants
 
-        return (xs, qs,
-                prior_energy, h_energy,
+        return (qs, prior_energy, h_energy,
                 y_energy, entropy), updates, constants
 
     def __call__(self, x, ph=None, n_samples=100, n_sampling_steps=None,
@@ -878,15 +849,15 @@ class GaussianBeliefNet(Layer):
             else:
                 q0 = ph
 
-            (ph_x, xs, qs, i_cost), updates_i = self.infer_q(
+            (ph_x, qs, i_cost), updates_i = self.infer_q(
                 x, n_inference_steps, q0=q0)
             updates.update(updates_i)
             q = qs[-1]
             outs.update(inference_cost=i_cost)
-            x = xs[-1]
         elif ph is None:
-            x = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
             q = self.posterior(x)
+        else:
+            q = ph
 
         if n_samples == 0:
             h = q[None, :, :]
