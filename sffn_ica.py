@@ -429,7 +429,7 @@ class SigmoidBeliefNetwork(Layer):
         h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
         py = self.p_y_given_h(h, *params)
 
-        if self.importance_sampling:
+        if False or self.importance_sampling:
             print 'Importance sampling in E'
             w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
             cond_term = (w * self.conditional.neg_log_prob(y[None, :, :], py)).sum(axis=0)
