@@ -339,6 +339,9 @@ def train_model(
         kl_terms = rval['kl']
         outs_s += [conditionals_approx, conditionals_mc, kl_terms]
 
+    if 'inference_cost' in rval.keys():
+        outs_s.append(rval['inference_cost'])
+
     f_test = theano.function([X, Y], outs_s, updates=updates_s)
 
     # Sample from prior
@@ -446,8 +449,6 @@ def train_model(
                     'valid lower bound': lb_v,
                     'elapsed_time': t1-t0}
                 )
-                monitor.update(**outs)
-                t0 = time.time()
 
                 if lb_v < best_cost:
                     best_cost = lb_v
@@ -455,13 +456,25 @@ def train_model(
                         save(tparams, bestfile)
 
                 if prior == 'logistic':
-                    ca_v, cm_v, kl_v = outs_v[3:]
+                    ca_v, cm_v, kl_v = outs_v[3:6]
                     outs_adds = OrderedDict({
                         'conditionals approx': ca_v,
                         'conditionals mc': cm_v,
                         'kls': kl_v
                     })
                     monitor.add(**outs_adds)
+
+                try:
+                    if prior == 'logistic':
+                        i_cost = outs_v[6]
+                    elif prior == 'gaussian':
+                        i_cost = outs_v[3]
+                    outs.update(inference_cost=i_cost)
+                except KeyError:
+                    pass
+
+                monitor.update(**outs)
+                t0 = time.time()
 
                 monitor.display(e, s)
 
