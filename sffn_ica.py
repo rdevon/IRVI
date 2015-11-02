@@ -183,19 +183,17 @@ class SigmoidBeliefNetwork(Layer):
         return py
 
     def importance_weights(self, y, h, py, q, prior, normalize=True):
-
         y_energy = self.conditional.neg_log_prob(y, py)
         prior_energy = self.posterior.neg_log_prob(h, prior)
         entropy_term = self.posterior.neg_log_prob(h, q)
 
-        log_p = - y_energy - prior_energy + entropy_term
+        log_p = -y_energy - prior_energy + entropy_term
         log_p_max = T.max(log_p, axis=0, keepdims=True)
         w = T.exp(log_p - log_p_max)
 
         if normalize:
             w = T.clip(w, 1e-7, 1)
-            w_sum = w.sum(axis=0, keepdims=True)
-            w = w / w_sum
+            w = w / w.sum(axis=0, keepdims=True)
 
         return w
 
@@ -212,19 +210,24 @@ class SigmoidBeliefNetwork(Layer):
 
         py = self.conditional(h)
 
-        prior_energy = self.posterior.neg_log_prob(q, prior[None, :]).mean()
-        h_energy = self.posterior.neg_log_prob(q, ph).mean()
+
         entropy = self.posterior.entropy(q).mean()
 
         if self.importance_sampling:
             print 'Importance sampling in M'
             w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py)
+            prior_energy = self.posterior.neg_log_prob(h, prior[None, None, :])
+            h_energy = self.posterior.neg_log_prob(q, ph)
 
             y_energy = (w * y_energy).sum(axis=0).mean()
+            prior_energy = (w * prior_energy).sum(axis=0).mean()
+            h_energy = (w * h_energy).sum(axis=0).mean()
             constants += [w]
         else:
+            prior_energy = self.posterior.neg_log_prob(q, prior[None, :]).mean()
             y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
+            h_energy = self.posterior.neg_log_prob(q, ph).mean()
 
         return (prior_energy, h_energy, y_energy, entropy), constants
 
@@ -422,7 +425,6 @@ class SigmoidBeliefNetwork(Layer):
         consider_constant = [y, prior, ph]
 
         q = T.nnet.sigmoid(z)
-        kl_term = self.kl_divergence(q, prior[None, :])
 
         h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
         py = self.p_y_given_h(h, *params)
@@ -431,8 +433,12 @@ class SigmoidBeliefNetwork(Layer):
             print 'Importance sampling in E'
             w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
             cond_term = (w * self.conditional.neg_log_prob(y[None, :, :], py)).sum(axis=0)
+            prior_term = (w * self.posterior.neg_log_prob(h, prior[None, None, :])).sum(axis=0)
+            posterior_term = (w * self.posterior.neg_log_prob(h, q[None, :, :])).sum(axis=0)
+            kl_term = prior_term - posterior_term
             consider_constant += [w]
         else:
+            kl_term = self.kl_divergence(q, prior[None, :])
             cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
 
         grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
@@ -441,17 +447,11 @@ class SigmoidBeliefNetwork(Layer):
         grad_k = theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
         grad = grad_q + grad_k
 
-        py_approx = self.p_y_given_h(q, *params)
-        cond_term_approx = self.conditional.neg_log_prob(y, py_approx)
-
-        grad_approx = theano.grad(cond_term_approx.sum(axis=0), wrt=z,
-                                  consider_constant=consider_constant)
-
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
         l *= self.inference_decay
 
-        return z, l, dz, (grad_q / grad_approx).mean()
+        return z, l, dz, (grad).mean()
 
     def _init_momentum(self, ph, y, z):
         return [self.inference_rate, T.zeros_like(z)]
@@ -896,7 +896,7 @@ class GaussianBeliefNet(Layer):
         )
 
         if calculate_log_marginal:
-            nll = (-log_sum_exp(
+            nll = -log_mean_exp(
                 -self.conditional.neg_log_prob(
                     x[None, :, :], py)
                 - self.posterior.neg_log_prob(
@@ -905,7 +905,7 @@ class GaussianBeliefNet(Layer):
                 + self.posterior.neg_log_prob(
                     h, q[None, :, :]
                 ),
-                axis=0) + T.log(n_samples)).mean()
+                axis=0)
             outs.update(nll=nll)
 
         return outs, updates
