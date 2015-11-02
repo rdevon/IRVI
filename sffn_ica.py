@@ -864,11 +864,11 @@ class GaussianBeliefNet(Layer):
         else:
             qs = q0[None, :, :]
 
-        return (ph, xs, ys, qs), updates
+        return (ph, xs, ys, qs, i_costs[-1]), updates
 
     # Inference
     def inference(self, x, y, q0=None, n_inference_steps=20, n_sampling_steps=None, n_samples=100):
-        (ph, xs, ys, qs), updates = self.infer_q(
+        (ph, xs, ys, qs, _), updates = self.infer_q(
             x, y, n_inference_steps, q0=q0)
 
         (prior_energy, h_energy, y_energy,
