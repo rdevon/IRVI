@@ -419,21 +419,27 @@ class SigmoidBeliefNetwork(Layer):
         kl_term = self.kl_divergence(q, prior[None, :])
 
         h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
-        h = T.zeros_like(h) + h
         py = self.p_y_given_h(h, *params)
         cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
 
         grad_h = theano.grad(cond_term.mean(axis=0), wrt=h, consider_constant=consider_constant)
 
-        grad = grad_h.mean(axis=0) * q * (1 - q)
+        grad_q = grad_h.mean(axis=0) * q * (1 - q)
 
-        grad += theano.grad(kl_term.mean(axis=0), wrt=z, consider_constant=consider_constant)
+        grad_k = theano.grad(kl_term.mean(axis=0), wrt=z, consider_constant=consider_constant)
+        grad = grad_q + grad_k
+
+        py_approx = self.p_y_given_h(q, *params)
+        cond_term_approx = self.conditional.neg_log_prob(y, py_approx)
+
+        grad_approx = theano.grad(cond_term_approx.sum(axis=0), wrt=z,
+                                  consider_constant=consider_constant)
 
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
         l *= self.inference_decay
 
-        return z, l, dz, (kl_term + cond_term).sum(axis=0)
+        return z, l, dz, (grad_q / grad_approx).mean()
 
     def _init_momentum(self, ph, y, z):
         return [self.inference_rate, T.zeros_like(z)]
@@ -480,6 +486,7 @@ class SigmoidBeliefNetwork(Layer):
             zs = T.concatenate([z0[None, :, :], zs], axis=0)
         else:
             zs = z0[None, :, :]
+            i_costs = T.constant(0.)
 
         if n_sampling_steps > 0:
             print 'Importance sampling %d steps' % n_sampling_steps
@@ -503,13 +510,13 @@ class SigmoidBeliefNetwork(Layer):
             qs, s_costs = outs
             zs = T.concatenate([zs, logit(qs)])
 
-        return (ph, xs, ys, zs), updates
+        return (ph, xs, ys, zs, i_costs[-1]), updates
 
     # Inference
     def inference(self, x, y, z0=None, n_inference_steps=20,
                   n_sampling_steps=0, n_samples=100):
 
-        (ph, xs, ys, zs), updates = self.infer_q(
+        (ph, xs, ys, zs, _), updates = self.infer_q(
             x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
 
         (prior_energy, h_energy, y_energy,
@@ -539,10 +546,11 @@ class SigmoidBeliefNetwork(Layer):
                 z0 = None
             else:
                 z0 = logit(ph)
-            (ph_x, xs, ys, zs), updates_i = self.infer_q(
+            (ph_x, xs, ys, zs, i_cost), updates_i = self.infer_q(
                 x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
             updates.update(updates_i)
             q = T.nnet.sigmoid(zs)
+            outs.update(inference_cost=i_cost)
         elif ph is None:
             x = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
             q = self.posterior(x)
@@ -886,10 +894,11 @@ class GaussianBeliefNet(Layer):
             else:
                 q0 = ph
 
-            (ph_x, xs, ys, qs), updates_i = self.infer_q(
+            (ph_x, xs, ys, qs, i_cost), updates_i = self.infer_q(
                 x, y, n_inference_steps, q0=q0)
             updates.update(updates_i)
             q = qs[-1]
+            outs.update(inference_cost=i_cost)
         elif ph is None:
             x = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
             q = self.posterior(x)
