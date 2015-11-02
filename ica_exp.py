@@ -94,8 +94,7 @@ def unpack(dim_h=None,
            inference_scaling=None,
            importance_sampling=None,
            entropy_scale=None,
-           x_noise_mode=None,
-           y_noise_mode=None,
+           input_mode=None,
            alpha=None,
            **model_args):
     '''
@@ -156,12 +155,9 @@ def unpack(dim_h=None,
         raise ValueError('%s prior not known' % prior)
 
     model = C(dim_in, dim_h, dim_out,
-                conditional=conditional,
-                posterior=posterior,
-                noise_amount=noise_amount,
-                x_noise_mode=x_noise_mode,
-                y_noise_mode=y_noise_mode,
-                **kwargs)
+              conditional=conditional, posterior=posterior,
+              input_mode=input_mode,
+              **kwargs)
     models.append(model)
 
     return models, model_args, dict(
@@ -176,9 +172,7 @@ def train_model(
     learning_rate=0.1, optimizer='adam', batch_size=100, epochs=100,
 
     dim_h=300, prior='logistic', learn_prior=True,
-
-    x_noise_mode=None, y_noise_mode=None, noise_amout=0.1,
-
+    input_mode=None,
     generation_net=None, recognition_net=None,
 
     z_init=None,
@@ -230,9 +224,7 @@ def train_model(
     print 'Setting model and variables'
     dim_in = train.dim
     dim_out = train.dim
-    D = T.matrix('x', dtype=floatX)
-    X = D.copy()
-    Y = X.copy()
+    X = T.matrix('x', dtype=floatX)
 
     trng = RandomStreams(random.randint(0, 1000000))
 
@@ -275,9 +267,7 @@ def train_model(
         model = C(dim_in, dim_h, dim_out, trng=trng,
                 conditional=conditional,
                 posterior=posterior,
-                noise_amount=0.,
-                x_noise_mode=x_noise_mode,
-                y_noise_mode=y_noise_mode,
+                input_model=input_mode,
                 **kwargs)
 
         models = OrderedDict()
@@ -296,10 +286,8 @@ def train_model(
 
     # ========================================================================
     print 'Getting cost'
-    (xs, ys, zs,
-     prior_energy, h_energy, y_energy,
-     y_energy_approx, entropy), updates, constants = model.inference(
-        X, Y, n_inference_steps=n_inference_steps,
+    (xs, zs, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
+        X, n_inference_steps=n_inference_steps,
         n_sampling_steps=n_sampling_steps, n_samples=n_mcmc_samples)
 
     if learn_prior:
@@ -322,15 +310,15 @@ def train_model(
         raise ValueError()
 
     py = model.conditional(mu)
-    pd_i, d_hat_i = concatenate_inputs(model, ys[0], py)
+    pd_i, d_hat_i = concatenate_inputs(model, xs[0], py)
 
     # Test function with sampling
     rval, updates_s = model(
-        X, Y, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test,
+        X, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test,
         n_sampling_steps=n_sampling_steps_test)
     py_s = rval['py']
     lower_bound = rval['lower_bound']
-    pd_s, d_hat_s = concatenate_inputs(model, Y, py_s)
+    pd_s, d_hat_s = concatenate_inputs(model, X, py_s)
 
     outs_s = [lower_bound, pd_s, d_hat_s]
     if prior == 'logistic':
@@ -342,7 +330,7 @@ def train_model(
     if 'inference_cost' in rval.keys():
         outs_s.append(rval['inference_cost'])
 
-    f_test = theano.function([X, Y], outs_s, updates=updates_s)
+    f_test = theano.function([X], outs_s, updates=updates_s)
 
     # Sample from prior
     py_p = model.sample_from_prior()
@@ -350,13 +338,11 @@ def train_model(
 
     # ========================================================================
 
-    extra_outs = [prior_energy, h_energy, y_energy, y_energy_approx,
-                  y_energy / y_energy_approx, entropy]
+    extra_outs = [prior_energy, h_energy, y_energy, entropy]
     vis_outs = [pd_i, d_hat_i]
 
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
-                        'train y energy', 'approx train y energy',
-                        'y to y approx ratio', 'entropy']
+                        'train y energy', 'entropy']
     vis_outs_names = ['pds', 'd_hats']
 
     # ========================================================================
@@ -376,8 +362,7 @@ def train_model(
 
         d.update(
             dim_h=dim_h,
-            x_noise_mode=x_noise_mode, y_noise_mode=y_noise_mode,
-            noise_amout=noise_amout,
+            input_mode=input_mode,
             prior=prior,
             generation_net=generation_net, recognition_net=recognition_net,
             dataset=dataset, dataset_args=dataset_args
@@ -393,7 +378,7 @@ def train_model(
     print 'Building optimizer'
     lr = T.scalar(name='lr')
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
-        lr, tparams, grads, [D], cost,
+        lr, tparams, grads, [X], cost,
         extra_ups=updates,
         extra_outs=extra_outs+vis_outs)
 
@@ -428,13 +413,12 @@ def train_model(
 
             if s % show_freq == 0:
                 try:
-                    d_v, _ = valid.next()
+                    x_v, _ = valid.next()
                 except StopIteration:
-                    d_v, _ = valid.next()
-                x_v, y_v = d_v, d_v
+                    x_v, _ = valid.next()
 
-                outs_v = f_test(x_v, y_v)
-                outs_t = f_test(x, x)
+                outs_v = f_test(x_v)
+                outs_t = f_test(x)
 
                 lb_v, pd_v, d_hat_v = outs_v[:3]
                 lb_t = outs_t[0]
@@ -519,10 +503,8 @@ def train_model(
 
     try:
         print 'Quick test, please wait...'
-        d_t, _ = test.next()
-        x_t = d_t.copy()
-        y_t = d_t.copy()
-        outs_test = f_test(x_t, y_t)
+        x_t, _ = test.next()
+        outs_test = f_test(x_t)
         print 'End test: %.5f' % outs_test[0]
     except KeyboardInterrupt:
         print 'Aborting test'
