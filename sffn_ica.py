@@ -428,24 +428,28 @@ class SigmoidBeliefNetwork(Layer):
 
         h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
         py = self.p_y_given_h(h, *params)
-        '''
-        if False or self.importance_sampling:
+
+        if self.importance_sampling:
             print 'Importance sampling in E'
             w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
             cond_term = (w * self.conditional.neg_log_prob(y[None, :, :], py)).sum(axis=0)
             prior_term = (w * self.posterior.neg_log_prob(h, prior[None, None, :])).sum(axis=0)
-            posterior_term = (w * self.posterior.neg_log_prob(h, q[None, :, :])).sum(axis=0)
-            kl_term = prior_term - posterior_term
+            entropy_term = -self.posterior.entropy(q)
             consider_constant += [w]
-        '''
-        kl_term = self.kl_divergence(q, prior[None, :])
-        cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
 
-        grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
-        grad_q = (grad_h * q * (1 - q)).sum(axis=0)
+            grad_p = theano.grad((prior_term + cond_term).sum(axis=0), wrt=h, consider_constant=consider_constant)
+            grad_q = theano.grad(entropy_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
 
-        grad_k = theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
-        grad = grad_q + grad_k
+            grad = (grad_p * q * (1 - q)).sum(axis=0) + grad_q
+        else:
+            kl_term = self.kl_divergence(q, prior[None, :])
+            cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
+
+            grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
+            grad_q = (grad_h * q * (1 - q)).sum(axis=0)
+
+            grad_k = theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
+            grad = grad_q + grad_k
 
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
