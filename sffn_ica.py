@@ -90,9 +90,9 @@ def _noise(x, amount=0.1, size=None, trng=None):
 
 def set_input(x, mode, trng=None):
     if mode == 'sample':
-        x = self._sample(x, trng=trng)
+        x = _sample(x, trng=trng)
     elif mode == 'noise':
-        x = self._noise(x, trng=trng)
+        x = _noise(x, trng=trng)
     elif mode is None:
         pass
     else:
