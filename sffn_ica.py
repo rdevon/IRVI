@@ -413,12 +413,13 @@ class SigmoidBeliefNetwork(Layer):
 
     def _step_momentum_3(self, ph, y, z, l, dz_, m, *params):
         prior = T.nnet.sigmoid(params[0])
-        consider_constant = [y, prior, l, ph]
+        consider_constant = [y, prior, ph]
 
         q = T.nnet.sigmoid(z)
         kl_term = self.kl_divergence(q, prior[None, :])
 
         h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+        h = T.zeros_like(h) + h
         py = self.p_y_given_h(h, *params)
         cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
 
