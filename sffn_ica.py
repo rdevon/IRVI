@@ -188,14 +188,14 @@ class SigmoidBeliefNetwork(Layer):
         prior_energy = self.posterior.neg_log_prob(h, prior)
         entropy_term = self.posterior.neg_log_prob(h, q)
 
-        w = T.exp(- y_energy
-                  - prior_energy
-                  + entropy_term)
+        log_p = - y_energy - prior_energy + entropy_term
+        log_p_max = T.max(log_p, axis=0, keepdims=True)
+        w = T.exp(log_p - log_p_max)
 
         if normalize:
             w = T.clip(w, 1e-7, 1)
-            w_sum = w.sum(axis=0)
-            w = w / w_sum[None, :]
+            w_sum = w.sum(axis=0, keepdims=True)
+            w = w / w_sum
 
         return w
 
