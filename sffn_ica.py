@@ -163,13 +163,15 @@ class SigmoidBeliefNetwork(Layer):
 
     def init_inputs(self, x, samples=1):
         size = (samples, x.shape[0], x.shape[1])
-        x = T.alloc(0., *size) + x[None, :, :]
 
         if isinstance(self.input_mode, list):
             for mode in self.input_mode:
                 x = set_input(x, mode, trng=self.trng)
         else:
             x = set_input(x, self.input_mode, trng=self.trng)
+
+        x = T.alloc(0., *size) + x[None, :, :]
+
         return x
 
     def p_y_given_h(self, h, *params):
@@ -699,13 +701,15 @@ class GaussianBeliefNet(Layer):
 
     def init_inputs(self, x, samples=1):
         size = (samples, x.shape[0], x.shape[1])
-        x = T.alloc(0., *size) + x[None, :, :]
 
         if isinstance(self.input_mode, list):
             for mode in self.input_mode:
                 x = set_input(x, mode, trng=self.trng)
         else:
             x = set_input(x, self.input_mode, trng=self.trng)
+
+        x = T.alloc(0., *size) + x[None, :, :]
+
         return x
 
     def get_params(self):
