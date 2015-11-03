@@ -420,13 +420,12 @@ class SigmoidBeliefNetwork(Layer):
             w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
             cond_term = (w * self.conditional.neg_log_prob(y[None, :, :], py)).sum(axis=0)
             prior_term = (w * self.posterior.neg_log_prob(h, prior[None, None, :])).sum(axis=0)
-            entropy_term = -self.posterior.entropy(q)
+            entropy_term = -(w * self.posterior.neg_log_prob(h, q[None, :, :])).sum(axis=0)
             consider_constant += [w]
 
-            grad_p = theano.grad((prior_term + cond_term).sum(axis=0), wrt=h, consider_constant=consider_constant)
-            grad_q = theano.grad(entropy_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
+            grad_q = theano.grad((prior_term + cond_term - entropy_term).sum(axis=0), wrt=h, consider_constant=consider_constant)
 
-            grad = (grad_p * q * (1 - q)).sum(axis=0) + grad_q
+            grad = (grad_q * q * (1 - q)).sum(axis=0)
         else:
             kl_term = self.kl_divergence(q, prior[None, :])
             cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
