@@ -179,7 +179,6 @@ class SigmoidBeliefNetwork(Layer):
         w = T.exp(log_p - log_p_max)
 
         if normalize:
-            w = T.clip(w, 1e-7, 1)
             w = w / w.sum(axis=0, keepdims=True)
 
         return w
@@ -300,7 +299,7 @@ class SigmoidBeliefNetwork(Layer):
         return cost, grad
 
     def sample_e(self, y, q, *params):
-        prior =T.nnet.sigmoid(params[0])
+        prior = T.nnet.sigmoid(params[0])
         h = self.posterior.sample(q, size=(100, q.shape[0], q.shape[1]))
         py = self.p_y_given_h(h, *params)
 
@@ -432,7 +431,7 @@ class SigmoidBeliefNetwork(Layer):
 
             grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
             #grad_q = (grad_h * q * (1 - q)).sum(axis=0)
-            grad_q = grad_h.mean(axis=0)
+            grad_q = grad_h.sum(axis=0)
 
             grad_k = theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
             grad = grad_q + grad_k
