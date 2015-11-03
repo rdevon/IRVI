@@ -420,7 +420,7 @@ class SigmoidBeliefNetwork(Layer):
             w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
             cond_term = (w * self.conditional.neg_log_prob(y[None, :, :], py)).sum(axis=0)
             prior_term = (w * self.posterior.neg_log_prob(h, prior[None, None, :])).sum(axis=0)
-            entropy_term = -(w * self.posterior.neg_log_prob(h, q[None, :, :])).sum(axis=0)
+            entropy_term = (w * self.posterior.neg_log_prob(h, q[None, :, :])).sum(axis=0)
             consider_constant += [w]
 
             grad_q = theano.grad((prior_term + cond_term - entropy_term).sum(axis=0), wrt=h, consider_constant=consider_constant)
