@@ -1,4 +1,4 @@
-\documentclass{article}
+\documentclass[preprint, twocolumn]{article}
 \usepackage{mathptmx}
 \usepackage{url,latexsym,amsmath,amsthm,xspace,rotating,multirow,multicol,xspace,amssymb,paralist}
 \usepackage{euscript}
@@ -161,25 +161,28 @@
 
 \begin{document}
 \title{Gradient Backpropagation for Approximate Inference in Directed Belief Networks}
-\author{Hjelm R. D., Jojic, N., Cho, K., Chung, J., Salakhutdinov, R., and Calhoun, V.}
+\author{Hjelm R. D., Jojic, N., Cho, K., \\ Chung, J., Salakhutdinov, R., and Calhoun, V.}
 
-\maketitle
-
-\begin{abstract}
+\twocolumn[
+  \begin{@twocolumnfalse}
+    \maketitle
+    \begin{abstract}
 Deep directed graphical models, while representing a potentially powerful class of generative representations, are challenging to train due to difficult inference. Recent advances in variational inference, notably in variational autoencoders, have advanced well beyond traditional variational inference and MCMC methods. While these techniques offer higher flexibility as well as simpler and faster inference, they are still limited by the choice of the approximate posterior. Recently there has been interest in improving the approximate posterior through flexible priors and more involved inference procedures. We show that when the lower bound can be approximated as a deterministic function of the variational parameters, we can use standard gradient descent with back-propagation to improve the posterior and achieve a tighter lower bound. While our most notable results are with continuous latent variables, we show this can apply to binary latent variables as well with some success.
 \end{abstract}
+  \end{@twocolumnfalse}
+  ]
 
 \pagenumbering{arabic}
 
 \section{Introduction}
 Deep generative models offer the capacity for rich representations of complex data while (something about AI, reasoning, explaining away etc Neb?). Deep directed graphical models in particular have some advantage over their undirected cousins as they do not suffer from learning and evaluation issues arising from an intractable partition function. Despite their representational power, directed graphical models can be difficult to train, as the true posterior is typically intractable when the conditional has a complex or flexible parameterization, such as those modeled by a deep feed forward network with many layers of nonlinearities.
 
-Recently, variational inference methods such as wake-sleep, variational autoencoders (VAE), and neural variational inference and learning (NVIL) have supplanted traditional MCMC and traditional variational methods such as mean field coordinate ascent inference due to flexible and fast inference. This is accomplished by introducing a complex and flexible feed forward network as a parametric function for the approximate posterior. As opposed to traditional methods, these provide a fast and effective means of performing inference and learning which scale very well to large datasets.
+Recently, variational inference methods such as wake-sleep \cite{hinton1995wake, bornschein2014reweighted}, variational autoencoders (VAE) \cite{kingma2013auto}, and neural variational inference and learning (NVIL) \cite{mnih2014neural} have supplanted traditional MCMC and traditional variational methods such as mean field coordinate ascent inference due to flexible and fast inference. This is accomplished by introducing a complex and flexible feed forward network as a parametric function for the approximate posterior. As opposed to traditional methods, these provide a fast and effective means of performing inference and learning which scale very well to large datasets.
 
-While advancements have been significant, these methods are still limited by the choice of approximate posterior: the approximate nature of the posterior translates to a looseness in the lower bound. Some recent work as begun to address limitations in the posterior by either relaxing the factorial condition on the approximate posterior or through the use of auxiliary networks. Alternatively, there is work focusing on improving the inference procedure itself, such as by applying gradient descent to variational inference. Other work on MCMC variational inference improves the approximate posterior through iterative MCMC transitions. We combine approaches of variational inference and gradient descent by augmenting variational inference starting at a parametric function defined by a deep feedforward network, using a gradient descent algorithm to improve inference. This way, we can sacrifice some computational efficiency in favor of a MCMC-like iterative procedure in order to improve the variational lower bound.
+While advancements have been significant, these methods are still limited by the choice of approximate posterior: the approximate nature of the posterior translates to a looseness in the lower bound. Some recent work as begun to address limitations in the posterior by either relaxing the factorial condition \cite{burda2015importance} on the approximate posterior or through the introduction of auxiliary networks. Alternatively, there is work focusing on improving the inference procedure itself, such as by applying gradient descent to variational inference \cite{hoffman2013stochastic}. Other work on MCMC variational inference improves the approximate posterior through iterative MCMC transitions \cite{salimans2014markov}. We combine approaches of variational inference and gradient descent by augmenting variational inference starting at a parametric function defined by a deep feedforward network, using a gradient descent algorithm to improve inference. This way, we can sacrifice some computational efficiency in favor of a MCMC-like iterative procedure in order to improve the variational lower bound.
 
 \section{Gradient Backprop Variational Inference}
-Wake-sleep, VAE, and NVIL all optimize their parameters by minimizing the variational lower bound of the log likelihood:
+Wake-sleep, VAE, and NVIL all optimize model parameters by minimizing the variational lower bound of the log likelihood:
 \begin{align}
     \label{eq:approx_logp}
     \log p(x) =& \log \sum_{h} p(x, h) \nonumber \\
@@ -189,7 +192,7 @@ Wake-sleep, VAE, and NVIL all optimize their parameters by minimizing the variat
     \approx& \frac{1}{N} \sum_{h^n} \log p(x, h^n) - \log
     \tilde{q}(h^n),
 \end{align}
-by introducing an approximate posterior $\tilde{q}_z$ parameterized by variational parameters $z$, where $\HH(\tilde{q})$ is the entropy of the approximate posterior.  Wake-sleep optimizes the approximate expectation of the joint density over samples from the approximate posterior / recognition net / inference net, while maximizing the approximate posterior over samples from the joint density. VAE maximizes both recognition and generation parameters through the lower bound via a clever reparameterization, also using an MCMC approximation for the expectation of the conditional. In addition to taking samples from the approximate posterior, NVIL uses learned baselines to reduce variance when estimating model parameters.
+by introducing an approximate posterior $\tilde{q}_z$ with variational parameters $z$, where $\HH(\tilde{q})$ is the entropy of the approximate posterior.  Wake-sleep optimizes the approximate expectation of the joint density over samples from the approximate posterior / recognition net / inference net, while maximizing the approximate posterior over samples from the joint density. VAE maximizes both recognition and generation parameters through the lower bound via a clever reparameterization, also using an MCMC approximation for the expectation of the conditional. In addition to taking samples from the approximate posterior, NVIL uses learned baselines to reduce variance when estimating model parameters.
 
 We restrict ourselves to the case where there is one latent layer and prior is factorial. In order to augment our inference from those available from the parameterized approximate posterior, we wish to achieve a better posterior by taking a set number of iterative steps in the variational parameters, $z$. That is, given the approximate posterior has the form:
 
@@ -204,8 +207,8 @@ we define the E-step loss function as
 such that we infer the variational parameters by applying iterative steps of gradient descent:
 
 \begin{align}
-\grad_z \LL &= \frac{1}{N} \grad_z \big(\sum_{h^n} \log p(x, h^n) - \log \tilde{q}(h^n)\big)\\
-z_t &= z_{t-1} + \gamma \grad_z \LL
+\grad_z \LL &= \frac{1}{N} \grad_z \big(\sum_{h^n} \log p(x, h^n) - \log \tilde{q}(h^n)\big) \nonumber \\
+z_t &= z_{t-1} + \gamma \grad_z \LL 
 \end{align}
 where $\gamma$ is the "inference rate".
 
@@ -260,19 +263,25 @@ There has been some recent work into passing gradients through binary latent var
 \end{align}
 where $\log p(x | \mu)$ is the log-output of the generation network using the variational parameters $\mu = sigmoid(z)$. Note that the prior and entropy terms can be computed exactly without sampling.
 
-The other option we explore here is to use the \emph{straight through} (ST) estimator introduced in ... This amounts to using the MCMC approximation for the log conditional and approximating the gradient of w.r.t the variational parameters as:
+The other option we explore here is to use the \emph{straight through} (ST) \cite{bengio2013estimating} estimator introduced in ... This amounts to using the MCMC approximation for the log conditional and approximating the gradient of w.r.t the variational parameters as:
 
 \begin{align}
-	\frac{\partial \LL_e}{\partial z} =  -\frac{1}{N} \sum_n \frac{\partial}{\partial h^n} \log p(x|h^n) - \frac{\partial}{\partial z} \big( \qexp{\log p(h)}_{\tilde{q}} - \qexp{\log \tilde{q}} \big)
+	\frac{\partial \LL_e}{\partial z} &=  -\frac{1}{N} \sum_n \frac{\partial}{\partial h^n} \log p(x|h^n) \nonumber \\
+	&- \frac{\partial}{\partial z} \big( \qexp{\log p(h)}_{\tilde{q}} - \qexp{\log \tilde{q}} \big) 
 \end{align}
 
 \section{Related Work}
-While the gradient descent approach uses a recognition network much like wake-sleep, VAE, and NVIL, it is much closer to traditional variational inference. However, 
+Our work combines many elements found in variational inference and MCMC methods. In spirit, it is closest to MCMC variational inference, yet it does not make use of an auxiliary network to perform the MCMC transitions, thus does not require extra parameters nor parameterization choice in inference outside of the normal inference network. In parameterization then it is very similar to VAE, wake-sleep, and NVIL, assuming a factorial prior.
+
+Recent work on stochastic variational inference \cite{hoffman2013stochastic} also uses gradient descent to improve on the variational inference algorithm. However, their work is limited to the exponential family and do not make use of the MCMC approximation for the log conditional, nor a feed forward network to parameterize inference.
 
 \section{Experiments}
-todo
+We test our model on the standard binarized MNIST task on handwritten digits with a train, validation, and test split of 50k, 10k, and 10k samples. For the continuous latent variable case we used the same network structure as in \cite{kingma2013auto, salimans2014markov}, with $200$ continuous latent variables and a generation and recognition network with $500$ deterministic softplus units.
 \section{Discussion}
 todo
+
+\bibliographystyle{abbrv}
+\bibliography{ICLRbib}
 
 \end{document}
 
