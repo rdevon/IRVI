@@ -27,7 +27,7 @@ def lower_bound_curve(
     inference_method='momentum',
     inference_rate=.01,
     inference_decay=1.0,
-    n_inference_samples=20,
+    n_inference_samples=20,r
     entropy_scale=1.0,
     inference_scaling=None,
     alpha=7,
@@ -67,11 +67,10 @@ def lower_bound_curve(
     print 'Setting up Theano graph for lower bound'
 
     X = T.matrix('x', dtype=floatX)
-    Y = T.matrix('y', dtype=floatX)
 
-    outs_s, updates_s = model(X, Y, n_inference_steps=0, n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
+    outs_s, updates_s = model(X, n_inference_steps=0, n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
 
-    f_lower_bound = theano.function([X, Y], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
+    f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
 
     # ========================================================================
     print 'Getting initial lower bound'
@@ -83,9 +82,9 @@ def lower_bound_curve(
 
     R = T.scalar('r', dtype='int64')
 
-    outs_s, updates_s = model(X, Y, n_inference_steps=R, n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
+    outs_s, updates_s = model(X, n_inference_steps=R, n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
 
-    f_lower_bound = theano.function([X, Y, R], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
+    f_lower_bound = theano.function([X, R], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
 
     # ========================================================================
     print 'Calculating lower bounds'
@@ -95,13 +94,33 @@ def lower_bound_curve(
 
     for r in rs:
         print 'number of inference steps: %d' % r
-        lb, nll = f_lower_bound(x_t, x_t, r)
+        lb, nll = f_lower_bound(x_t, r)
         lbs.append(lb)
         nlls.append(nll)
         print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
 
     fig = plt.figure()
     plt.plot(lbs)
+
+    print 'Calculating final lower bound and marginal with 1000 posterior samples'
+
+    outs_s, updates_s = model(X, n_inference_steps=rs[-1], n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
+
+    f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
+
+    xs = [x[i: (i + 100)] for i in range(0, n_samples, 100)]
+
+    N = len(range(0, n_samples, 100))
+    lb_t = 0.
+    nll_t = 0.
+    for x in xs:
+        lb, nll = f_lower_bound(x)
+        lb_t += lb
+        nll_t += nll
+
+    lb_t /= N
+    nll_t /= N
+    print 'Final lower bound and NLL: %.2f and %.2f' % (lb_t, nll_t)
 
     if out_path is not None:
         plt.savefig(out_path)
