@@ -1,4 +1,4 @@
-REPORT=lecture_note
+REPORT=ICLR
 LATEX=pdflatex
 BIBTEX=bibtex
 
@@ -7,7 +7,7 @@ REFS=$(wildcard *.bib)
 
 all: $(REPORT).pdf
 
-$(REPORT).pdf: $(SRCS) $(REFS) ./figures/*
+$(REPORT).pdf: $(SRCS) $(REFS) 
 	$(LATEX) $(REPORT)
 	$(BIBTEX) $(REPORT)
 	$(LATEX) $(REPORT)
