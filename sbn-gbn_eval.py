@@ -20,14 +20,14 @@ from tools import load_model
 floatX = theano.config.floatX
 
 def lower_bound_curve(
-    model_file, rs=None, n_samples=10000,
+    model_file, rs=None, n_samples=1000,
     out_path=None,
     prior='logistic',
     z_init='recognition_net',
     inference_method='momentum',
     inference_rate=.01,
     inference_decay=1.0,
-    n_inference_samples=20,r
+    n_inference_samples=20,
     entropy_scale=1.0,
     inference_scaling=None,
     alpha=7,
@@ -49,6 +49,7 @@ def lower_bound_curve(
     )
 
     models, _ = load_model(model_file, unpack, **model_args)
+    n_mcmc_samples_test = 50
 
     _, _, test = load_data(dataset,
                            None,
@@ -76,7 +77,7 @@ def lower_bound_curve(
     print 'Getting initial lower bound'
 
     x_t, _ = test.next()
-    lb, nll = f_lower_bound(x_t, x_t)
+    lb, nll = f_lower_bound(x_t)
     lbs = [lb]
     nlls = [nll]
 
@@ -108,7 +109,7 @@ def lower_bound_curve(
 
     f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
 
-    xs = [x[i: (i + 100)] for i in range(0, n_samples, 100)]
+    xs = [x_t[i: (i + 100)] for i in range(0, n_samples, 100)]
 
     N = len(range(0, n_samples, 100))
     lb_t = 0.

@@ -17,15 +17,14 @@
   optimizer: 'adam',
   batch_size: 100,
   epochs: 500,
-  inference_samples: 20,
+  inference_samples: 100,
   n_inference_steps: 100,
   inference_decay: 0.99,
-  inference_rate: 0.01,
+  inference_rate: 0.1,
   inference_method: 'momentum',
   n_inference_steps_eval: 100,
   dataset: 'mnist',
   dataset_args: {
-    source: '/Users/devon/Data/mnist.pkl.gz'
-  },
-  archive_every: 5
+    source: '/export/mialab/users/dhjelm/data/mnist.pkl.gz'
+  }
 }

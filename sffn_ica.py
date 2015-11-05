@@ -883,7 +883,7 @@ class GaussianBeliefNet(Layer):
                 + self.posterior.neg_log_prob(
                     h, q[None, :, :]
                 ),
-                axis=0)
+                axis=0).mean()
             outs.update(nll=nll)
 
         return outs, updates
