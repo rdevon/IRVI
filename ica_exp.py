@@ -170,9 +170,10 @@ def train_model(
 
     learning_rate=0.1, optimizer='adam', batch_size=100, epochs=100,
 
-    dim_h=300, prior='logistic', learn_prior=True,
+    dim_h=300, prior='logistic',
     input_mode=None,
     generation_net=None, recognition_net=None,
+    excludes=['log_sigma'],
 
     z_init=None,
     inference_method='momentum',
@@ -282,10 +283,6 @@ def train_model(
     elif prior == 'gaussian':
         model = models['gbn']
 
-    if not learn_prior:
-        excludes = ['z']
-    else:
-        excludes = []
     tparams = model.set_tparams(excludes=excludes)
 
     # ========================================================================
@@ -294,10 +291,7 @@ def train_model(
         X, n_inference_steps=n_inference_steps,
         n_sampling_steps=n_sampling_steps, n_samples=n_mcmc_samples)
 
-    if learn_prior:
-        cost = prior_energy + h_energy + y_energy
-    else:
-        cost = h_energy + y_energy
+    cost = prior_energy + h_energy + y_energy
 
     # ========================================================================
     print 'Extra functions'
