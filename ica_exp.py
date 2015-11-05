@@ -425,7 +425,7 @@ def train_model(
                     try:
                         x_v, _ = valid.next()
                         x_t, _ = train.next()
-                        if x_v.pos > max_valid:
+                        if valid.pos > max_valid:
                             raise StopIteration
 
                         lb_v = f_test(x_v)[0]
