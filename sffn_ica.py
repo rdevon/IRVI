@@ -39,7 +39,8 @@ def init_inference_args(model,
                         n_inference_samples=20,
                         inference_scaling=None,
                         inference_method='momentum',
-                        alpha = 7,
+                        alpha=7,
+                        center_latent=False,
                         **kwargs):
     model.inference_rate = inference_rate
     model.inference_decay = inference_decay
@@ -48,6 +49,7 @@ def init_inference_args(model,
     model.inference_scaling = inference_scaling
     model.n_inference_samples = n_inference_samples
     model.alpha = alpha
+    model.center_latent = center_latent
 
     if inference_method == 'sgd':
         model.step_infer = model._step_sgd
@@ -224,6 +226,10 @@ class SigmoidBeliefNetwork(Layer):
     def e_step(self, ph, y, z, *params):
         prior = T.nnet.sigmoid(params[0])
         q = T.nnet.sigmoid(z)
+
+        if self.center_latent:
+            q -= T.nnet.sigmoid(self.z)
+
         py = self.p_y_given_h(q, *params)
 
         consider_constant = [y, prior]

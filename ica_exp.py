@@ -63,14 +63,14 @@ def load_data(dataset,
         if valid_batch_size is not None:
             valid = MNIST(batch_size=valid_batch_size,
                           mode='valid',
-                          inf=True,
+                          inf=False,
                           **dataset_args)
         else:
             valid = None
         if test_batch_size is not None:
             test = MNIST(batch_size=test_batch_size,
                          mode='test',
-                         inf=True,
+                         inf=False,
                          **dataset_args)
         else:
             test = None
@@ -111,7 +111,8 @@ def unpack(dim_h=None,
         entropy_scale=entropy_scale,
         inference_scaling=inference_scaling,
         importance_sampling=importance_sampling,
-        alpha=alpha
+        alpha=alpha,
+        center_latent=center_latent
     )
 
     dim_h = int(dim_h)
@@ -168,7 +169,9 @@ def unpack(dim_h=None,
 def train_model(
     out_path='', name='', load_last=False, model_to_load=None, save_images=True,
 
-    learning_rate=0.1, optimizer='adam', batch_size=100, epochs=100,
+    learning_rate=0.1, optimizer='adam',
+    batch_size=100, valid_batch_size=100, test_batch_size=1000,
+    epochs=100,
 
     dim_h=300, prior='logistic',
     input_mode=None,
@@ -194,7 +197,7 @@ def train_model(
     importance_sampling=False,
 
     dataset=None, dataset_args=None,
-    model_save_freq=10, show_freq=10, archive_every=0
+    model_save_freq=100, show_freq=100, archive_every=0
     ):
 
     kwargs = dict(
@@ -206,7 +209,8 @@ def train_model(
         entropy_scale=entropy_scale,
         inference_scaling=inference_scaling,
         importance_sampling=importance_sampling,
-        alpha=alpha
+        alpha=alpha,
+        center_latent=center_latent
     )
 
     # ========================================================================
@@ -217,8 +221,8 @@ def train_model(
     print 'Setting up data'
     train, valid, test = load_data(dataset,
                                    batch_size,
-                                   batch_size,
-                                   2000,
+                                   valid_batch_size,
+                                   test_batch_size,
                                    **dataset_args)
 
     # ========================================================================
@@ -405,8 +409,42 @@ def train_model(
             try:
                 x, _ = train.next()
             except StopIteration:
+                print 'End Epoch {epoch} ({name})'.format(epoch=e, name=name)
                 e += 1
+                print '=' * 100
+                valid.reset()
+
+                lb_vs = []
+                lb_ts = []
+
+                while True:
+                    try:
+                        x_v, _ = valid.next()
+                        x_t, _ = train.next()
+
+                        lb_v = f_test(x_v)[0]
+                        lb_t = f_test(x_t)[0]
+
+                        lb_vs.append(lb_t)
+                        lb_ts.append(lb_v)
+
+                    except StopIteration:
+                        break
+
+                lb_v = np.mean(lb_vs)
+                lb_t = np.mean(lb_ts)
+
+                print 'Train / Valid lower bound at end of epoch: %.2f / %.2f' % (lb_t, lb_v)
+                print '=' * 100
                 print 'Epoch {epoch} ({name})'.format(epoch=e, name=name)
+
+                if lb_v < best_cost:
+                    best_cost = lb_v
+                    if out_path is not None:
+                        save(tparams, bestfile)
+
+                valid.reset()
+                train.reset()
                 continue
 
             if e > epochs:
@@ -439,11 +477,6 @@ def train_model(
                     'valid lower bound': lb_v,
                     'elapsed_time': t1-t0}
                 )
-
-                if lb_v < best_cost:
-                    best_cost = lb_v
-                    if out_path is not None:
-                        save(tparams, bestfile)
 
                 if prior == 'logistic':
                     ca_v, cm_v, kl_v = outs_v[3:6]
