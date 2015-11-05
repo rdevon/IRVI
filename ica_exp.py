@@ -10,6 +10,7 @@ import numpy as np
 import os
 from os import path
 import pprint
+from progressbar import ProgressBar
 import random
 import shutil
 import sys
@@ -171,6 +172,7 @@ def train_model(
 
     learning_rate=0.1, optimizer='adam',
     batch_size=100, valid_batch_size=100, test_batch_size=1000,
+    max_valid=10000,
     epochs=100,
 
     dim_h=300, prior='logistic',
@@ -417,16 +419,22 @@ def train_model(
                 lb_vs = []
                 lb_ts = []
 
+                print 'Validating'
+                pbar = ProgressBar(maxval=min(max_valid, valid.n)).start()
                 while True:
                     try:
                         x_v, _ = valid.next()
                         x_t, _ = train.next()
+                        if x_v.pos > max_valid:
+                            raise StopIteration
 
                         lb_v = f_test(x_v)[0]
                         lb_t = f_test(x_t)[0]
 
                         lb_vs.append(lb_t)
                         lb_ts.append(lb_v)
+
+                        pbar.update(valid.pos)
 
                     except StopIteration:
                         break
