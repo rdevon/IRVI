@@ -452,10 +452,11 @@ class SigmoidBeliefNetwork(Layer):
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
 
-    def infer_q(self, x, n_inference_steps, n_sampling_steps=0, z0=None):
+    def infer_q(self, x, y, n_inference_steps, n_sampling_steps=0, z0=None):
         updates = theano.OrderedUpdates()
 
         xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
+        ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
 
         ph = self.posterior(xs)
         if z0 is None:
@@ -465,8 +466,8 @@ class SigmoidBeliefNetwork(Layer):
             else:
                 z0 = T.alloc(0., x.shape[0], self.dim_h).astype(floatX)
 
-        seqs = [ph, xs]
-        outputs_info = [z0] + self.init_infer(ph[0], x, z0) + [None]
+        seqs = [ph, ys]
+        outputs_info = [z0] + self.init_infer(ph[0], y, z0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
         if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
@@ -494,7 +495,7 @@ class SigmoidBeliefNetwork(Layer):
             print 'Importance sampling %d steps' % n_sampling_steps
             q0 = T.nnet.sigmoid(zs[-1])
 
-            seqs = [xs]
+            seqs = [ys]
             outputs_info = [q0, None]
             non_seqs = self.get_params()
             outs, updates_3 = theano.scan(
@@ -515,14 +516,14 @@ class SigmoidBeliefNetwork(Layer):
         return (ph, zs, i_costs[-1]), updates
 
     # Inference
-    def inference(self, x, z0=None, n_inference_steps=20,
+    def inference(self, x, y, z0=None, n_inference_steps=20,
                   n_sampling_steps=0, n_samples=100):
 
         (ph, zs, _), updates = self.infer_q(
-            x, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
+            x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
 
         (prior_energy, h_energy, y_energy, entropy), m_constants = self.m_step(
-            ph[0], x, zs[-1], n_samples=n_samples)
+            ph[0], y, zs[-1], n_samples=n_samples)
 
         constants = [zs, entropy] + m_constants
 
@@ -533,7 +534,7 @@ class SigmoidBeliefNetwork(Layer):
 
         return (zs, prior_energy, h_energy, y_energy, entropy), updates, constants
 
-    def __call__(self, x, ph=None,
+    def __call__(self, x, y, ph=None,
                  n_samples=100, n_inference_steps=0, n_sampling_steps=0,
                  calculate_log_marginal=False):
         outs = OrderedDict()
@@ -546,7 +547,7 @@ class SigmoidBeliefNetwork(Layer):
             else:
                 z0 = logit(ph)
             (ph_x, zs, i_cost), updates_i = self.infer_q(
-                x, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
+                x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
             updates.update(updates_i)
             q = T.nnet.sigmoid(zs)
             outs.update(inference_cost=i_cost)
@@ -565,8 +566,8 @@ class SigmoidBeliefNetwork(Layer):
             pys = self.conditional(h)
             py_approx = self.conditional(q)
 
-            conds_app = self.conditional.neg_log_prob(x[None, :, :], py_approx).mean(axis=1)
-            conds_mc = self.conditional.neg_log_prob(x[None, None, :, :], pys).mean(axis=(0, 2))
+            conds_app = self.conditional.neg_log_prob(y[None, :, :], py_approx).mean(axis=1)
+            conds_mc = self.conditional.neg_log_prob(y[None, None, :, :], pys).mean(axis=(0, 2))
             kl_terms = self.kl_divergence(q, prior[None, None, :]).mean(axis=1)
 
             y_energy = conds_mc[-1]
@@ -598,15 +599,15 @@ class SigmoidBeliefNetwork(Layer):
                 h = self.posterior.sample(
                     q, size=(n_samples, q.shape[0], q.shape[1]))
 
-            xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
+            ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
             py = self.conditional(h)
-            y_energy = self.conditional.neg_log_prob(xs, py).mean(axis=(0, 1))
+            y_energy = self.conditional.neg_log_prob(ys, py).mean(axis=(0, 1))
             kl_term = self.kl_divergence(q, prior[None, :]).mean(axis=0)
 
             if calculate_log_marginal:
                 nll = -log_mean_exp(
                     -self.conditional.neg_log_prob(
-                        x[None, :, :], py)
+                        y[None, :, :], py)
                     - self.posterior.neg_log_prob(
                         h, prior[None, None, :]
                     )
@@ -783,12 +784,14 @@ class GaussianBeliefNet(Layer):
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
 
-    def infer_q(self, x, n_inference_steps, q0=None):
+    def infer_q(self, x, y, n_inference_steps, q0=None):
 
         updates = theano.OrderedUpdates()
 
         xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
+        ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
         ph = self.posterior(xs)
+
         if q0 is None:
             if self.z_init == 'recognition_net':
                 print 'Starting q0 at recognition net'
@@ -796,8 +799,8 @@ class GaussianBeliefNet(Layer):
             else:
                 q0 = T.alloc(0., x.shape[0], 2 * self.dim_h).astype(floatX)
 
-        seqs = [xs]
-        outputs_info = [q0] + self.init_infer(ph[0], xs[0], q0) + [None]
+        seqs = [ys]
+        outputs_info = [q0] + self.init_infer(ph[0], ys[0], q0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
         if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
@@ -824,18 +827,18 @@ class GaussianBeliefNet(Layer):
         return (ph, qs, i_costs[-1]), updates
 
     # Inference
-    def inference(self, x, q0=None, n_inference_steps=20, n_sampling_steps=None, n_samples=100):
-        (ph, qs, _), updates = self.infer_q(x, n_inference_steps, q0=q0)
+    def inference(self, x, y, q0=None, n_inference_steps=20, n_sampling_steps=None, n_samples=100):
+        (ph, qs, _), updates = self.infer_q(x, y, n_inference_steps, q0=q0)
 
         (prior_energy, h_energy, y_energy, entropy), m_constants = self.m_step(
-            ph[0], x, qs[-1], n_samples=n_samples)
+            ph[0], y, qs[-1], n_samples=n_samples)
 
         constants = [qs, entropy] + m_constants
 
         return (qs, prior_energy, h_energy,
                 y_energy, entropy), updates, constants
 
-    def __call__(self, x, ph=None, n_samples=100, n_sampling_steps=None,
+    def __call__(self, x, y, ph=None, n_samples=100, n_sampling_steps=None,
                  n_inference_steps=0, calculate_log_marginal=False):
 
         outs = OrderedDict()
@@ -849,7 +852,7 @@ class GaussianBeliefNet(Layer):
                 q0 = ph
 
             (ph_x, qs, i_cost), updates_i = self.infer_q(
-                x, n_inference_steps, q0=q0)
+                x, y, n_inference_steps, q0=q0)
             updates.update(updates_i)
             q = qs[-1]
             outs.update(inference_cost=i_cost)
@@ -865,7 +868,7 @@ class GaussianBeliefNet(Layer):
                 q, size=(n_samples, q.shape[0], q.shape[1] / 2))
 
         py = self.conditional(h)
-        y_energy = self.conditional.neg_log_prob(x[None, :, :], py).mean(axis=(0, 1))
+        y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=(0, 1))
         kl_term = self.kl_divergence(q, prior).mean(axis=0)
 
         outs.update(
@@ -876,7 +879,7 @@ class GaussianBeliefNet(Layer):
         if calculate_log_marginal:
             nll = -log_mean_exp(
                 -self.conditional.neg_log_prob(
-                    x[None, :, :], py)
+                    y[None, :, :], py)
                 - self.posterior.neg_log_prob(
                     h, prior[None, :, :]
                 )

@@ -174,6 +174,7 @@ def train_model(
     input_mode=None,
     generation_net=None, recognition_net=None,
     excludes=['log_sigma'],
+    center_input=True, center_latent=False,
 
     z_init=None,
     inference_method='momentum',
@@ -234,6 +235,13 @@ def train_model(
         print 'Adding noise to data points'
         X = X * trng.binomial(p=0.1, size=X.shape, n=1, dtype=X.dtype)
 
+    if center_input:
+        print 'Centering input with train dataset mean image'
+        X_mean = theano.shared(train.mean_image.astype(floatX), name='X_mean')
+        X_i = X - X_mean
+    else:
+        X_i = X
+
     # ========================================================================
     print 'Loading model and forming graph'
 
@@ -288,7 +296,7 @@ def train_model(
     # ========================================================================
     print 'Getting cost'
     (zs, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
-        X, n_inference_steps=n_inference_steps,
+        X_i, X, n_inference_steps=n_inference_steps,
         n_sampling_steps=n_sampling_steps, n_samples=n_mcmc_samples)
 
     cost = prior_energy + h_energy + y_energy
@@ -312,7 +320,7 @@ def train_model(
 
     # Test function with sampling
     rval, updates_s = model(
-        X, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test,
+        X_i, X, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test,
         n_sampling_steps=n_sampling_steps_test)
     py_s = rval['py']
     lower_bound = rval['lower_bound']
