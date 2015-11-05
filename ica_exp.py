@@ -448,8 +448,10 @@ def train_model(
                 print 'Epoch {epoch} ({name})'.format(epoch=e, name=name)
 
                 if lb_v < best_cost:
+                    print 'Found best: %.2f' % lb_v
                     best_cost = lb_v
                     if out_path is not None:
+                        print 'Saving best to %s' % bestfile
                         save(tparams, bestfile)
 
                 valid.reset()
