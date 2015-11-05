@@ -199,7 +199,7 @@ def train_model(
     importance_sampling=False,
 
     dataset=None, dataset_args=None,
-    model_save_freq=100, show_freq=100, archive_every=0
+    model_save_freq=1000, show_freq=1000, archive_every=0
     ):
 
     kwargs = dict(
@@ -425,7 +425,7 @@ def train_model(
                     try:
                         x_v, _ = valid.next()
                         x_t, _ = train.next()
-                        if valid.pos > max_valid:
+                        if valid.pos >= max_valid:
                             raise StopIteration
 
                         lb_v = f_test(x_v)[0]
