@@ -423,7 +423,8 @@ def train_model(
                 pbar = ProgressBar(maxval=min(max_valid, valid.n)).start()
                 while True:
                     try:
-                        pbar.update(valid.pos)
+                        if valid.pos != -1:
+                            pbar.update(valid.pos)
 
                         x_v, _ = valid.next()
                         x_t, _ = train.next()
