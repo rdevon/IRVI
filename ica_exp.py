@@ -423,6 +423,8 @@ def train_model(
                 pbar = ProgressBar(maxval=min(max_valid, valid.n)).start()
                 while True:
                     try:
+                        pbar.update(valid.pos)
+
                         x_v, _ = valid.next()
                         x_t, _ = train.next()
                         if valid.pos >= max_valid:
@@ -433,8 +435,6 @@ def train_model(
 
                         lb_vs.append(lb_t)
                         lb_ts.append(lb_v)
-
-                        pbar.update(valid.pos)
 
                     except StopIteration:
                         break
