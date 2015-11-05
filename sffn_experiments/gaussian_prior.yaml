@@ -2,6 +2,7 @@
   name: 'gbn_simple',
   prior: 'gaussian',
   dim_h: 200,
+  input_mode: 'sample',
   recognition_net: {
     dim_h: 200,
     h_act: 'T.nnet.softplus',
@@ -23,7 +24,6 @@
   n_mcmc_samples_test: 20,
   dataset: 'mnist',
   dataset_args: {
-    source: '/Users/devon/Data/mnist.pkl.gz',
-    binarize: True
+    source: '/Users/devon/Data/mnist.pkl.gz'
   }
 }

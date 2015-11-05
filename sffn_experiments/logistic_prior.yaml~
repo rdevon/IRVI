@@ -3,7 +3,6 @@
   prior: 'logistic',
   learning_rate: 0.003,
   dim_h: 201,
-  input_mode: 'sample',
   recognition_net: {
     dim_h: 200,
     h_act: 'T.nnet.softplus',
@@ -17,16 +16,13 @@
   z_init: 'recognition_net',
   inference_method: 'momentum_3',
   inference_rate: 1.0,
-  n_inference_steps: 23,
-  n_inference_steps_test: 23,
-  n_inference_samples: 19,
+  n_inference_steps: 20,
+  n_inference_steps_test: 20,
   inference_decay: 1.0,
-  n_mcmc_samples: 17,
-  n_mcmc_samples_test: 17,
-  importance_sampling: True,
+  n_mcmc_samples: 20,
+  n_mcmc_samples_test: 20,
   dataset: 'mnist',
   dataset_args: {
-    #source: '/Users/devon/Data/mnist_binarized_salakhutdinov.pkl.gz'
-    source: '/Users/devon/Data/mnist.pkl.gz'
+    source: '/Users/devon/Data/mnist_binarized_salakhutdinov.pkl.gz'
   }
 }

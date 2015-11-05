@@ -671,8 +671,8 @@ class GaussianBeliefNet(Layer):
 
     def set_tparams(self, excludes=[]):
         excludes.append('inference_scale_factor')
-        print 'Excluding log sigma from learned params'
-        excludes.append('log_sigma')
+        excludes = [ex for ex in excludes if ex in self.params.keys()]
+        print 'Excluding the following parameters from learning: %s' % excludes
         excludes = ['{name}_{key}'.format(name=self.name, key=key)
                     for key in excludes]
         tparams = super(GaussianBeliefNet, self).set_tparams()
