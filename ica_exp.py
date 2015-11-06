@@ -199,7 +199,7 @@ def train_model(
     importance_sampling=False,
 
     dataset=None, dataset_args=None,
-    model_save_freq=1000, show_freq=1000, archive_every=0
+    model_save_freq=1000, show_freq=100, archive_every=0
     ):
 
     kwargs = dict(
@@ -434,8 +434,8 @@ def train_model(
                         lb_v = f_test(x_v)[0]
                         lb_t = f_test(x_t)[0]
 
-                        lb_vs.append(lb_t)
-                        lb_ts.append(lb_v)
+                        lb_vs.append(lb_v)
+                        lb_ts.append(lb_t)
 
                     except StopIteration:
                         break
