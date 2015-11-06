@@ -97,6 +97,7 @@ def unpack(dim_h=None,
            entropy_scale=None,
            input_mode=None,
            alpha=None,
+           center_latent=None,
            **model_args):
     '''
     Function to unpack pretrained model into fresh SFFN class.
@@ -400,6 +401,11 @@ def train_model(
     print 'Actually running'
 
     best_cost = float('inf')
+    best_epoch = 0
+
+    valid_lbs = []
+    train_lbs = []
+
     if out_path is not None:
         bestfile = path.join(out_path, '{name}_best.npz'.format(name=name))
 
@@ -412,7 +418,6 @@ def train_model(
                 x, _ = train.next()
             except StopIteration:
                 print 'End Epoch {epoch} ({name})'.format(epoch=e, name=name)
-                e += 1
                 print '=' * 100
                 valid.reset()
 
@@ -444,15 +449,29 @@ def train_model(
                 lb_t = np.mean(lb_ts)
 
                 print 'Train / Valid lower bound at end of epoch: %.2f / %.2f' % (lb_t, lb_v)
-                print '=' * 100
-                print 'Epoch {epoch} ({name})'.format(epoch=e, name=name)
 
                 if lb_v < best_cost:
                     print 'Found best: %.2f' % lb_v
                     best_cost = lb_v
+                    best_epoch = e
                     if out_path is not None:
                         print 'Saving best to %s' % bestfile
                         save(tparams, bestfile)
+                else:
+                    print 'Best (%.2f) at epoch %d' % (best_cost, best_epoch)
+
+                valid_lbs.append(lb_v)
+                train_lbs.append(lb_t)
+
+                if out_path is not None:
+                    print 'Saving lower bounds in %s' % out_path
+                    np.save(path.join(out_path, 'valid_lbs.npy'), valid_lbs)
+                    np.save(path.join(out_path, 'train_lbs.npy'), train_lbs)
+
+                e += 1
+
+                print '=' * 100
+                print 'Epoch {epoch} ({name})'.format(epoch=e, name=name)
 
                 valid.reset()
                 train.reset()

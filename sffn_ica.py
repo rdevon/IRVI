@@ -168,7 +168,10 @@ class SigmoidBeliefNetwork(Layer):
     def sample_from_prior(self, n_samples=100):
         p = T.nnet.sigmoid(self.z)
         h = self.posterior.sample(p=p, size=(n_samples, self.dim_h))
-        py = self.conditional(h)
+        if self.center_latent:
+            py = self.conditional(h - p[None, :])
+        else:
+            py = self.conditional(h)
         return py
 
     def importance_weights(self, y, h, py, q, prior, normalize=True):
@@ -196,7 +199,12 @@ class SigmoidBeliefNetwork(Layer):
             h = self.posterior.sample(
                 q, size=(n_samples, q.shape[0], q.shape[1]))
 
-        py = self.conditional(h)
+        if self.center_latent:
+            print 'M step: Centering binary latent variables before passing to generation net'
+            py = self.conditional(h - prior[None, None, :])
+        else:
+            py = self.conditional(h)
+
         entropy = self.posterior.entropy(q).mean()
 
         if self.importance_sampling:
@@ -228,9 +236,10 @@ class SigmoidBeliefNetwork(Layer):
         q = T.nnet.sigmoid(z)
 
         if self.center_latent:
-            q -= T.nnet.sigmoid(self.z)
-
-        py = self.p_y_given_h(q, *params)
+            print 'E step: Centering binary latent variables before passing to generation net'
+            py  = self.p_y_given_h(q - prior[None, :], *params)
+        else:
+            py = self.p_y_given_h(q, *params)
 
         consider_constant = [y, prior]
         cond_term = self.conditional.neg_log_prob(y, py)
@@ -307,7 +316,11 @@ class SigmoidBeliefNetwork(Layer):
     def sample_e(self, y, q, *params):
         prior = T.nnet.sigmoid(params[0])
         h = self.posterior.sample(q, size=(100, q.shape[0], q.shape[1]))
-        py = self.p_y_given_h(h, *params)
+
+        if self.center_latent:
+            py = self.p_y_given_h(h - prior[None, None, :], *params)
+        else:
+            py = self.p_y_given_h(h, *params)
 
         cond_term = self.conditional.neg_log_prob(y[None, :, :], py)
         prior_term = self.posterior.neg_log_prob(h, prior[None, None, :])
@@ -356,8 +369,11 @@ class SigmoidBeliefNetwork(Layer):
         z_ = (z + dz).astype(floatX)
 
         if self.inference_scaling == 'reweight':
+            raise NotImplementedError('fix centering')
             q = T.nnet.sigmoid(z_)
             prior = T.nnet.sigmoid(params[0])
+            if self.center_latent:
+                q -= prior
             h = self.posterior.sample(q, size=(100, q.shape[0], q.shape[1]))
             py_r = self.p_y_given_h(h, *params)
             cond_term = self.conditional.neg_log_prob(y[None, :, :], py_r)
@@ -367,7 +383,7 @@ class SigmoidBeliefNetwork(Layer):
             w = T.clip(w, 1e-7, 1.0)
             w_tilda = w / w.sum(axis=0)[None, :]
             mu = (w_tilda[:, :, None] * h).sum(axis=0)
-            z = logit(q)
+            z = logit(mu + prior)
         else:
             z = z_
         l *= self.inference_decay
@@ -416,8 +432,13 @@ class SigmoidBeliefNetwork(Layer):
         consider_constant = [y, prior, ph]
 
         q = T.nnet.sigmoid(z)
+        if self.center_latent:
+            q -= prior
 
         h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+
+        if self.center_latent:
+            py = self.p_y_given_h(h - prior[None, None, :], *params)
         py = self.p_y_given_h(h, *params)
 
         if self.importance_sampling:
@@ -569,8 +590,13 @@ class SigmoidBeliefNetwork(Layer):
                 h = self.posterior.sample(
                     q, size=(n_samples, q.shape[0], q.shape[1], q.shape[2]))
 
-            pys = self.conditional(h)
-            py_approx = self.conditional(q)
+            if self.center_latent:
+                print 'Centering latents in call'
+                pys = self.conditional(h - prior[None, None, None, :])
+                py_approx = self.conditional(q - prior[None, None, :])
+            else:
+                pys = self.conditional(h)
+                py_approx = self.conditional(q)
 
             conds_app = self.conditional.neg_log_prob(y[None, :, :], py_approx).mean(axis=1)
             conds_mc = self.conditional.neg_log_prob(y[None, None, :, :], pys).mean(axis=(0, 2))
@@ -589,7 +615,7 @@ class SigmoidBeliefNetwork(Layer):
             if calculate_log_marginal:
                 nll = -log_mean_exp(
                     -self.conditional.neg_log_prob(
-                        x[None, :, :], pys[:, -1])
+                        y[None, :, :], pys[:, -1])
                     - self.posterior.neg_log_prob(
                         h[:, -1], prior[None, None, :]
                     )
@@ -606,7 +632,11 @@ class SigmoidBeliefNetwork(Layer):
                     q, size=(n_samples, q.shape[0], q.shape[1]))
 
             ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
-            py = self.conditional(h)
+
+            if self.center_latent:
+                py = self.conditional(h - prior[None, None, :])
+            else:
+                py = self.conditional(h)
             y_energy = self.conditional.neg_log_prob(ys, py).mean(axis=(0, 1))
             kl_term = self.kl_divergence(q, prior[None, :]).mean(axis=0)
 
