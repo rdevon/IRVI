@@ -22,7 +22,7 @@ from tools import load_model
 floatX = theano.config.floatX
 
 def lower_bound_curve(
-    model_file, rs=None, n_samples=1000,
+    model_file, rs=None, n_samples=10000,
     out_path=None,
     mode='valid',
     prior='logistic',
@@ -118,7 +118,7 @@ def lower_bound_curve(
     fig = plt.figure()
     plt.plot(lbs)
 
-    print 'Calculating final lower bound and marginal with 1000 posterior samples'
+    print 'Calculating final lower bound and marginal with %d posterior samples' % x.shape[0]
 
     outs_s, updates_s = model(X_i, X, n_inference_steps=rs[-1], n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
 
