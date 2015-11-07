@@ -1,0 +1,45 @@
+\begin{thebibliography}{1}
+
+\bibitem{bengio2013estimating}
+Y.~Bengio, N.~L{\'e}onard, and A.~Courville.
+\newblock Estimating or propagating gradients through stochastic neurons for
+  conditional computation.
+\newblock {\em arXiv preprint arXiv:1308.3432}, 2013.
+
+\bibitem{bornschein2014reweighted}
+J.~Bornschein and Y.~Bengio.
+\newblock Reweighted wake-sleep.
+\newblock {\em arXiv preprint arXiv:1406.2751}, 2014.
+
+\bibitem{burda2015importance}
+Y.~Burda, R.~Grosse, and R.~Salakhutdinov.
+\newblock Importance weighted autoencoders.
+\newblock {\em arXiv preprint arXiv:1509.00519}, 2015.
+
+\bibitem{hinton1995wake}
+G.~E. Hinton, P.~Dayan, B.~J. Frey, and R.~M. Neal.
+\newblock The" wake-sleep" algorithm for unsupervised neural networks.
+\newblock {\em Science}, 268(5214):1158--1161, 1995.
+
+\bibitem{hoffman2013stochastic}
+M.~D. Hoffman, D.~M. Blei, C.~Wang, and J.~Paisley.
+\newblock Stochastic variational inference.
+\newblock {\em The Journal of Machine Learning Research}, 14(1):1303--1347,
+  2013.
+
+\bibitem{kingma2013auto}
+D.~P. Kingma and M.~Welling.
+\newblock Auto-encoding variational bayes.
+\newblock {\em arXiv preprint arXiv:1312.6114}, 2013.
+
+\bibitem{mnih2014neural}
+A.~Mnih and K.~Gregor.
+\newblock Neural variational inference and learning in belief networks.
+\newblock {\em arXiv preprint arXiv:1402.0030}, 2014.
+
+\bibitem{salimans2014markov}
+T.~Salimans.
+\newblock Markov chain monte carlo and variational inference: Bridging the gap.
+\newblock {\em arXiv preprint arXiv:1410.6460}, 2014.
+
+\end{thebibliography}

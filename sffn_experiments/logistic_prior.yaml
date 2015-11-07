@@ -1,29 +1,32 @@
 {
   name: 'sbn_simple',
   prior: 'logistic',
-  learning_rate: 0.003,
+  learning_rate: 0.03,
   dim_h: 200,
+  epochs: 500,
+  batch_size: 10,
   recognition_net: {
     dim_h: 200,
     h_act: 'T.nnet.softplus',
-    n_layers: 2
+    n_layers: 1
   },
   generation_net: {
     dim_h: 200,
     h_act: 'T.nnet.softplus',
-    n_layers: 2
+    n_layers: 1
   },
   z_init: 'recognition_net',
-  inference_method: 'momentum',
-  inference_rate: .003,
-  n_inference_steps: 20,
-  n_inference_steps_test: 20,
+  inference_method: 'momentum_3',
+  inference_rate: 1.0,
+  n_inference_steps: 23,
+  n_inference_steps_test: 23,
+  n_inference_samples: 19,
   inference_decay: 1.0,
-  n_mcmc_samples: 20,
-  n_mcmc_samples_test: 20,
+  n_mcmc_samples: 17,
+  n_mcmc_samples_test: 17,
+  importance_sampling: True,
   dataset: 'mnist',
   dataset_args: {
-    source: '/Users/devon/Data/mnist.pkl.gz',
-    binarize: True
+    source: '/export/mialab/users/dhjelm/data/mnist_binarized_salakhutdinov.pkl.gz',
   }
 }

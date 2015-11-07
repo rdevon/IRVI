@@ -10,6 +10,7 @@ import numpy as np
 import os
 from os import path
 import pprint
+from progressbar import ProgressBar
 import random
 import shutil
 import sys
@@ -63,14 +64,14 @@ def load_data(dataset,
         if valid_batch_size is not None:
             valid = MNIST(batch_size=valid_batch_size,
                           mode='valid',
-                          inf=True,
+                          inf=False,
                           **dataset_args)
         else:
             valid = None
         if test_batch_size is not None:
             test = MNIST(batch_size=test_batch_size,
                          mode='test',
-                         inf=True,
+                         inf=False,
                          **dataset_args)
         else:
             test = None
@@ -96,6 +97,7 @@ def unpack(dim_h=None,
            entropy_scale=None,
            input_mode=None,
            alpha=None,
+           center_latent=None,
            **model_args):
     '''
     Function to unpack pretrained model into fresh SFFN class.
@@ -111,7 +113,8 @@ def unpack(dim_h=None,
         entropy_scale=entropy_scale,
         inference_scaling=inference_scaling,
         importance_sampling=importance_sampling,
-        alpha=alpha
+        alpha=alpha,
+        center_latent=center_latent
     )
 
     dim_h = int(dim_h)
@@ -168,11 +171,16 @@ def unpack(dim_h=None,
 def train_model(
     out_path='', name='', load_last=False, model_to_load=None, save_images=True,
 
-    learning_rate=0.1, optimizer='adam', batch_size=100, epochs=100,
+    learning_rate=0.1, optimizer='adam',
+    batch_size=100, valid_batch_size=100, test_batch_size=1000,
+    max_valid=10000,
+    epochs=100,
 
-    dim_h=300, prior='logistic', learn_prior=True,
+    dim_h=300, prior='logistic',
     input_mode=None,
     generation_net=None, recognition_net=None,
+    excludes=['log_sigma'],
+    center_input=True, center_latent=False,
 
     z_init=None,
     inference_method='momentum',
@@ -192,7 +200,7 @@ def train_model(
     importance_sampling=False,
 
     dataset=None, dataset_args=None,
-    model_save_freq=10, show_freq=10, archive_every=0
+    model_save_freq=1000, show_freq=100, archive_every=0
     ):
 
     kwargs = dict(
@@ -204,7 +212,8 @@ def train_model(
         entropy_scale=entropy_scale,
         inference_scaling=inference_scaling,
         importance_sampling=importance_sampling,
-        alpha=alpha
+        alpha=alpha,
+        center_latent=center_latent
     )
 
     # ========================================================================
@@ -215,8 +224,8 @@ def train_model(
     print 'Setting up data'
     train, valid, test = load_data(dataset,
                                    batch_size,
-                                   batch_size,
-                                   2000,
+                                   valid_batch_size,
+                                   test_batch_size,
                                    **dataset_args)
 
     # ========================================================================
@@ -232,6 +241,13 @@ def train_model(
     elif input_mode == 'noise':
         print 'Adding noise to data points'
         X = X * trng.binomial(p=0.1, size=X.shape, n=1, dtype=X.dtype)
+
+    if center_input:
+        print 'Centering input with train dataset mean image'
+        X_mean = theano.shared(train.mean_image.astype(floatX), name='X_mean')
+        X_i = X - X_mean
+    else:
+        X_i = X
 
     # ========================================================================
     print 'Loading model and forming graph'
@@ -282,22 +298,15 @@ def train_model(
     elif prior == 'gaussian':
         model = models['gbn']
 
-    if not learn_prior:
-        excludes = ['z']
-    else:
-        excludes = []
     tparams = model.set_tparams(excludes=excludes)
 
     # ========================================================================
     print 'Getting cost'
     (zs, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
-        X, n_inference_steps=n_inference_steps,
+        X_i, X, n_inference_steps=n_inference_steps,
         n_sampling_steps=n_sampling_steps, n_samples=n_mcmc_samples)
 
-    if learn_prior:
-        cost = prior_energy + h_energy + y_energy
-    else:
-        cost = h_energy + y_energy
+    cost = prior_energy + h_energy + y_energy
 
     # ========================================================================
     print 'Extra functions'
@@ -318,7 +327,7 @@ def train_model(
 
     # Test function with sampling
     rval, updates_s = model(
-        X, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test,
+        X_i, X, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test,
         n_sampling_steps=n_sampling_steps_test)
     py_s = rval['py']
     lower_bound = rval['lower_bound']
@@ -392,6 +401,11 @@ def train_model(
     print 'Actually running'
 
     best_cost = float('inf')
+    best_epoch = 0
+
+    valid_lbs = []
+    train_lbs = []
+
     if out_path is not None:
         bestfile = path.join(out_path, '{name}_best.npz'.format(name=name))
 
@@ -403,8 +417,64 @@ def train_model(
             try:
                 x, _ = train.next()
             except StopIteration:
+                print 'End Epoch {epoch} ({name})'.format(epoch=e, name=name)
+                print '=' * 100
+                valid.reset()
+
+                lb_vs = []
+                lb_ts = []
+
+                print 'Validating'
+                pbar = ProgressBar(maxval=min(max_valid, valid.n)).start()
+                while True:
+                    try:
+                        if valid.pos != -1:
+                            pbar.update(valid.pos)
+
+                        x_v, _ = valid.next()
+                        x_t, _ = train.next()
+                        if valid.pos >= max_valid:
+                            raise StopIteration
+
+                        lb_v = f_test(x_v)[0]
+                        lb_t = f_test(x_t)[0]
+
+                        lb_vs.append(lb_v)
+                        lb_ts.append(lb_t)
+
+                    except StopIteration:
+                        break
+
+                lb_v = np.mean(lb_vs)
+                lb_t = np.mean(lb_ts)
+
+                print 'Train / Valid lower bound at end of epoch: %.2f / %.2f' % (lb_t, lb_v)
+
+                if lb_v < best_cost:
+                    print 'Found best: %.2f' % lb_v
+                    best_cost = lb_v
+                    best_epoch = e
+                    if out_path is not None:
+                        print 'Saving best to %s' % bestfile
+                        save(tparams, bestfile)
+                else:
+                    print 'Best (%.2f) at epoch %d' % (best_cost, best_epoch)
+
+                valid_lbs.append(lb_v)
+                train_lbs.append(lb_t)
+
+                if out_path is not None:
+                    print 'Saving lower bounds in %s' % out_path
+                    np.save(path.join(out_path, 'valid_lbs.npy'), valid_lbs)
+                    np.save(path.join(out_path, 'train_lbs.npy'), train_lbs)
+
                 e += 1
+
+                print '=' * 100
                 print 'Epoch {epoch} ({name})'.format(epoch=e, name=name)
+
+                valid.reset()
+                train.reset()
                 continue
 
             if e > epochs:
@@ -437,11 +507,6 @@ def train_model(
                     'valid lower bound': lb_v,
                     'elapsed_time': t1-t0}
                 )
-
-                if lb_v < best_cost:
-                    best_cost = lb_v
-                    if out_path is not None:
-                        save(tparams, bestfile)
 
                 if prior == 'logistic':
                     ca_v, cm_v, kl_v = outs_v[3:6]
