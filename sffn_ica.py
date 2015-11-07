@@ -835,7 +835,6 @@ class GaussianBeliefNet(Layer):
             profile=tools.profile,
             strict=True
         )
-        updates.update(updates_2)
 
         qs, i_costs = self.unpack_infer(outs)
         qs = T.concatenate([q0[None, :, :], qs], axis=0)
