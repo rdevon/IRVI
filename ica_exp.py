@@ -233,6 +233,7 @@ def train_model(
     dim_in = train.dim
     dim_out = train.dim
     X = T.matrix('x', dtype=floatX)
+    X.tag.test_value = np.zeros((batch_size, 784), dtype=X.dtype)
     trng = RandomStreams(random.randint(0, 1000000))
 
     if input_mode == 'sample':
