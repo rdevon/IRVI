@@ -505,7 +505,7 @@ class SigmoidBeliefNetwork(Layer):
             updates.update(updates_i)
             q = T.nnet.sigmoid(zs)
             outs.update(inference_cost=i_cost)
-        elif ph is None:
+        elif p_h is None:
             q = self.posterior(x)
         else:
             q = p_h
@@ -705,15 +705,11 @@ class GaussianBeliefNet(Layer):
             - 1)
         return kl.sum(axis=kl.ndim-1)
 
-    def e_step(self, y, q, *params):
+    def e_step(self, y, epsilon, q, *params):
         prior = T.concatenate([params[0][None, :], params[1][None, :]], axis=1)
 
         mu_q = _slice(q, 0, self.dim_h)
         log_sigma_q = _slice(q, 1, self.dim_h)
-
-        epsilon = self.trng.normal(
-            avg=0, std=1.0,
-            size=(self.n_inference_samples, mu_q.shape[0], mu_q.shape[1]))
 
         h = mu_q + epsilon * T.exp(log_sigma_q)
         py = self.p_y_given_h(h, *params)
@@ -740,22 +736,19 @@ class GaussianBeliefNet(Layer):
     def params_infer(self):
         raise NotImplementedError()
 
-    def _step_adapt(self, y, q, *params):
-        prior = T.concatenate([params[0], params[1]], axis=0)
-        mu_q = _slice(q, 0, self.dim_h)
-        log_sigma_q = _slice(q, 1, self.dim_h)
+    def _step_adapt(self, y, epsilon, q, *params):
+        #prior = T.concatenate([params[0][None, :], params[1]][None, :], axis=1)
+        mu_q = _slice(q, 0, self.dim_h)[None, :, :]
+        log_sigma_q = _slice(q, 1, self.dim_h)[None, :, :]
 
-        epsilon = self.trng.normal(
-            avg=0, std=1.0,
-            size=(self.n_inference_samples, 100, self.dim_h))
         h = mu_q + epsilon * T.exp(log_sigma_q)
         py = self.p_y_given_h(h, *params)
 
         y_energy = self.conditional.neg_log_prob(y, py)
-        prior_energy = (0.5 * ((h - params[0][None, None, :])**2 / (T.exp(2 * params[1][None, None, :])) + 2 * params[1][None, None, :] + T.log(2 * pi))).sum(axis=2)
-        entropy_term = (0.5 * ((h - mu_q[None, :, :])**2 / (T.exp(2 * log_sigma_q[None, :, :])) + 2 * log_sigma_q[None, :, :] + T.log(2 * pi))).sum(axis=2)
+        #prior_energy = (0.5 * ((h - params[0][None, None, :])**2 / (T.exp(2 * params[1][None, None, :])) + 2 * params[1][None, None, :] + T.log(2 * pi))).sum(axis=2)
+        entropy_term = (0.5 * ((h - mu_q)**2 / (T.exp(2 * log_sigma_q)) + 2 * log_sigma_q + T.log(2 * pi))).sum(axis=2)
 
-        log_p = -y_energy + entropy_term - prior_energy
+        log_p = -y_energy + entropy_term# - prior_energy
         log_p_max = T.max(log_p, axis=0, keepdims=True)
         w = T.exp(log_p - log_p_max)
 
@@ -763,7 +756,7 @@ class GaussianBeliefNet(Layer):
 
         cost = w.std()
         mu_q = (w[:, :, None] * h).sum(axis=0)
-        q = T.concatenate([mu_q, log_sigma_q], axis=1)
+        q = T.concatenate([mu_q, log_sigma_q[0]], axis=1)
 
         return q, cost
 
@@ -780,8 +773,8 @@ class GaussianBeliefNet(Layer):
     def _params_adapt(self):
         return []
 
-    def _step_momentum_and_adapt(self, y, q, l, dq_, m, *params):
-        cost, grad = self.e_step(y, q, *params)
+    def _step_momentum_and_adapt(self, y, epsilon, q, l, dq_, m, *params):
+        cost, grad = self.e_step(y, epsilon, q, *params)
         dq = (-l * grad + m * dq_).astype(floatX)
         q = (q + dq).astype(floatX)
         q = self._step_adapt(y, q, *params)
@@ -789,8 +782,8 @@ class GaussianBeliefNet(Layer):
         return q, l, dq, cost
 
     # Momentum
-    def _step_momentum(self, y, q, l, dq_, m, *params):
-        cost, grad = self.e_step(y, q, *params)
+    def _step_momentum(self, y, epsilon, q, l, dq_, m, *params):
+        cost, grad = self.e_step(y, epsilon, q, *params)
         dq = (-l * grad + m * dq_).astype(floatX)
         q = (q + dq).astype(floatX)
         l *= self.inference_decay
@@ -818,7 +811,12 @@ class GaussianBeliefNet(Layer):
             else:
                 q0 = T.alloc(0., x.shape[0], 2 * self.dim_h).astype(floatX)
 
-        seqs = [ys]
+        epsilons = self.trng.normal(
+            avg=0, std=1.0,
+            size=(n_inference_steps + 1, self.n_inference_samples,
+                  x.shape[0], self.dim_h))
+
+        seqs = [ys, epsilons]
         outputs_info = [q0] + self.init_infer(ph[0], ys[0], q0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
