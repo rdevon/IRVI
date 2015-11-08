@@ -11,6 +11,7 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 from layers import Layer
 from layers import MLP
 import tools
+from tools import concatenate
 from tools import init_rngs
 from tools import init_weights
 from tools import log_mean_exp
@@ -706,7 +707,7 @@ class GaussianBeliefNet(Layer):
         return kl.sum(axis=kl.ndim-1)
 
     def e_step(self, y, epsilon, q, *params):
-        prior = T.concatenate([params[0][None, :], params[1][None, :]], axis=1)
+        prior = concatenate([params[0][None, :], params[1][None, :]], axis=1)
 
         mu_q = _slice(q, 0, self.dim_h)
         log_sigma_q = _slice(q, 1, self.dim_h)
@@ -737,26 +738,19 @@ class GaussianBeliefNet(Layer):
         raise NotImplementedError()
 
     def _step_adapt(self, y, epsilon, q, *params):
-        #prior = T.concatenate([params[0][None, :], params[1]][None, :], axis=1)
-        mu_q = _slice(q, 0, self.dim_h)[None, :, :]
-        log_sigma_q = _slice(q, 1, self.dim_h)[None, :, :]
+        prior = T.concatenate([params[0][None, None, :], params[1][None, None, :]], axis=2)
 
-        h = mu_q + epsilon * T.exp(log_sigma_q)
+        mu_q = _slice(q, 0, self.dim_h)
+        log_sigma_q = _slice(q, 1, self.dim_h)
+
+        h = mu_q[None, :, :] + epsilon * T.exp(log_sigma_q[None, :, :])
         py = self.p_y_given_h(h, *params)
 
-        y_energy = self.conditional.neg_log_prob(y, py)
-        #prior_energy = (0.5 * ((h - params[0][None, None, :])**2 / (T.exp(2 * params[1][None, None, :])) + 2 * params[1][None, None, :] + T.log(2 * pi))).sum(axis=2)
-        entropy_term = (0.5 * ((h - mu_q)**2 / (T.exp(2 * log_sigma_q)) + 2 * log_sigma_q + T.log(2 * pi))).sum(axis=2)
-
-        log_p = -y_energy + entropy_term# - prior_energy
-        log_p_max = T.max(log_p, axis=0, keepdims=True)
-        w = T.exp(log_p - log_p_max)
-
-        w = w / w.sum(axis=0, keepdims=True)
+        w = self.importance_weights(y[None, :, :], h, py, q[None, :, :], prior)
 
         cost = w.std()
         mu_q = (w[:, :, None] * h).sum(axis=0)
-        q = T.concatenate([mu_q, log_sigma_q[0]], axis=1)
+        q = concatenate([mu_q, log_sigma_q], axis=1)
 
         return q, cost
 
@@ -814,7 +808,8 @@ class GaussianBeliefNet(Layer):
         epsilons = self.trng.normal(
             avg=0, std=1.0,
             size=(n_inference_steps + 1, self.n_inference_samples,
-                  x.shape[0], self.dim_h))
+                  x.shape[0], self.dim_h),
+            dtype=x.dtype)
 
         seqs = [ys, epsilons]
         outputs_info = [q0] + self.init_infer(ph[0], ys[0], q0) + [None]
@@ -830,8 +825,7 @@ class GaussianBeliefNet(Layer):
             non_sequences=non_seqs,
             name=tools._p(self.name, 'infer'),
             n_steps=n_inference_steps,
-            profile=tools.profile,
-            strict=True
+            profile=tools.profile
         )
 
         qs, i_costs = self.unpack_infer(outs)
