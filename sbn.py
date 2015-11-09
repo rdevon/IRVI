@@ -198,6 +198,17 @@ class SigmoidBeliefNetwork(Layer):
 
         return w
 
+    def log_marginal(self, y, h, py, q, prior):
+        y_energy = self.conditional.neg_log_prob(y, py)
+        prior_energy = self.posterior.neg_log_prob(h, prior)
+        entropy_term = self.posterior.neg_log_prob(h, q)
+
+        log_p = -y_energy - prior_energy + entropy_term
+        log_p_max = T.max(log_p, axis=0, keepdims=True)
+        w = T.exp(log_p - log_p_max)
+
+        return -(T.log(w.sum(axis=0, keepdims=True)) + log_p_max)
+
     def m_step(self, p_h_logit, y, z, n_samples=10):
         constants = []
         q = T.nnet.sigmoid(z)
@@ -530,9 +541,9 @@ class SigmoidBeliefNetwork(Layer):
             )
 
             if calculate_log_marginal:
-                w = self.importance_weights(
-                    y[None, :, :], h[:, -1], py, q[-1][None, :, :], prior[None, None, :])
-                nll = -T.log(w.mean(axis=0)).mean()
+                nll = -self.log_marginal(
+                    y[None, :, :], h[:, -1], py, q[-1][None, :, :], prior[None, None, :],
+                    )
                 outs.update(nll=nll)
         else:
             if n_samples == 0:
@@ -551,9 +562,7 @@ class SigmoidBeliefNetwork(Layer):
             kl_term = self.kl_divergence(q, prior[None, :]).mean(axis=0)
 
             if calculate_log_marginal:
-                w = self.importance_weights(
-                    y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
-                nll = -T.log(w.mean(axis=0)).mean()
+                nll = -self.log_marginal(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
                 outs.update(nll=nll)
 
         outs.update(
