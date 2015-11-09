@@ -336,11 +336,6 @@ def train_model(
     pd_s, d_hat_s = concatenate_inputs(model, X, py_s)
 
     outs_s = [lower_bound, pd_s, d_hat_s]
-    if prior == 'logistic' and n_inference_steps > 0:
-        conditionals_approx = rval['c_a']
-        conditionals_mc = rval['c_mc']
-        kl_terms = rval['kl']
-        outs_s += [conditionals_approx, conditionals_mc, kl_terms]
 
     if 'inference_cost' in rval.keys():
         outs_s.append(rval['inference_cost'])
@@ -510,20 +505,8 @@ def train_model(
                     'elapsed_time': t1-t0}
                 )
 
-                if prior == 'logistic' and n_inference_steps > 0:
-                    ca_v, cm_v, kl_v = outs_v[3:6]
-                    outs_adds = OrderedDict({
-                        'conditionals approx': ca_v,
-                        'conditionals mc': cm_v,
-                        'kls': kl_v
-                    })
-                    monitor.add(**outs_adds)
-
                 try:
-                    if prior == 'logistic':
-                        i_cost = outs_v[6]
-                    elif prior == 'gaussian':
-                        i_cost = outs_v[3]
+                    i_cost = outs_v[3]
                     outs.update(inference_cost=i_cost)
                 except KeyError:
                     pass
