@@ -42,7 +42,7 @@ def init_inference_args(model,
                         inference_method='momentum',
                         alpha=7,
                         center_latent=False,
-                        extra_inference_args=None,
+                        extra_inference_args=dict(),
                         **kwargs):
     model.inference_rate = inference_rate
     model.inference_decay = inference_decay
