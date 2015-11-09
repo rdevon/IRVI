@@ -172,7 +172,7 @@ def unpack(dim_h=None,
 def train_model(
     out_path='', name='', load_last=False, model_to_load=None, save_images=True,
 
-    learning_rate=0.1, optimizer='adam',
+    learning_rate=0.1, optimizer='adam', optimizer_args=dict(),
     batch_size=100, valid_batch_size=100, test_batch_size=1000,
     max_valid=10000,
     epochs=100,
@@ -336,11 +336,6 @@ def train_model(
     pd_s, d_hat_s = concatenate_inputs(model, X, py_s)
 
     outs_s = [lower_bound, pd_s, d_hat_s]
-    if prior == 'logistic':
-        conditionals_approx = rval['c_a']
-        conditionals_mc = rval['c_mc']
-        kl_terms = rval['kl']
-        outs_s += [conditionals_approx, conditionals_mc, kl_terms]
 
     if 'inference_cost' in rval.keys():
         outs_s.append(rval['inference_cost'])
@@ -395,7 +390,7 @@ def train_model(
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [X], cost,
         extra_ups=updates,
-        extra_outs=extra_outs+vis_outs)
+        extra_outs=extra_outs+vis_outs, **optimizer_args)
 
     monitor = SimpleMonitor()
 
@@ -510,20 +505,8 @@ def train_model(
                     'elapsed_time': t1-t0}
                 )
 
-                if prior == 'logistic':
-                    ca_v, cm_v, kl_v = outs_v[3:6]
-                    outs_adds = OrderedDict({
-                        'conditionals approx': ca_v,
-                        'conditionals mc': cm_v,
-                        'kls': kl_v
-                    })
-                    monitor.add(**outs_adds)
-
                 try:
-                    if prior == 'logistic':
-                        i_cost = outs_v[6]
-                    elif prior == 'gaussian':
-                        i_cost = outs_v[3]
+                    i_cost = outs_v[3]
                     outs.update(inference_cost=i_cost)
                 except KeyError:
                     pass
