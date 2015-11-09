@@ -22,14 +22,15 @@ import time
 from layers import MLP
 from mnist import MNIST
 import op
-from sffn_ica import GaussianBeliefNet as GBN
-from sffn_ica import SigmoidBeliefNetwork as SBN
-from tools import check_bad_nums
-from tools import itemlist
-from tools import load_model
-from tools import load_experiment
-from tools import _slice
-
+from gbn import GaussianBeliefNet as GBN
+from sbn import SigmoidBeliefNetwork as SBN
+from tools import (
+    check_bad_nums,
+    itemlist,
+    load_model,
+    load_experiment,
+    _slice
+)
 
 floatX = theano.config.floatX
 
@@ -570,14 +571,6 @@ def train_model(
 
     except KeyboardInterrupt:
         print 'Training interrupted'
-
-    try:
-        print 'Quick test, please wait...'
-        x_t, _ = test.next()
-        outs_test = f_test(x_t)
-        print 'End test: %.5f' % outs_test[0]
-    except KeyboardInterrupt:
-        print 'Aborting test'
 
     if out_path is not None:
         outfile = path.join(out_path, '{name}_{t}.npz'.format(name=name, t=int(time.time())))

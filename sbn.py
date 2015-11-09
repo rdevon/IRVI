@@ -1,247 +1,445 @@
 '''
-Module for sigmoid belief network
+Module of Stochastic Feed Forward Networks
 '''
 
 from collections import OrderedDict
 import numpy as np
 import theano
 from theano import tensor as T
+from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
+from layers import Layer
 from layers import MLP
-from sffn import SFFN
 import tools
+from tools import concatenate
+from tools import init_rngs
+from tools import init_weights
 from tools import log_mean_exp
+from tools import log_sum_exp
+from tools import logit
+from tools import _slice
 
 
 norm_weight = tools.norm_weight
 ortho_weight = tools.ortho_weight
-floatX = 'float32'
+floatX = 'float32' # theano.config.floatX
+pi = theano.shared(np.pi).astype('float32')
+
+def init_momentum_args(model, momentum=0.9, **kwargs):
+    model.momentum = momentum
+    return kwargs
+
+def init_sgd_args(model, **kwargs):
+    return kwargs
+
+def init_inference_args(model,
+                        inference_rate=0.1,
+                        inference_decay=0.99,
+                        entropy_scale=1.0,
+                        importance_sampling=False,
+                        n_inference_samples=20,
+                        inference_scaling=None,
+                        inference_method='momentum',
+                        alpha=7,
+                        center_latent=False,
+                        **kwargs):
+    model.inference_rate = inference_rate
+    model.inference_decay = inference_decay
+    model.entropy_scale = entropy_scale
+    model.importance_sampling = importance_sampling
+    model.inference_scaling = inference_scaling
+    model.n_inference_samples = n_inference_samples
+    model.alpha = alpha
+    model.center_latent = center_latent
+
+    if inference_method == 'sgd':
+        model.step_infer = model._step_sgd
+        model.init_infer = model._init_sgd
+        model.unpack_infer = model._unpack_sgd
+        model.params_infer = model._params_sgd
+        kwargs = init_sgd_args(model, **kwargs)
+    elif inference_method == 'momentum':
+        model.step_infer = model._step_momentum
+        model.init_infer = model._init_momentum
+        model.unpack_infer = model._unpack_momentum
+        model.params_infer = model._params_momentum
+        kwargs = init_momentum_args(model, **kwargs)
+    elif inference_method == 'momentum_straight_through':
+        model.step_infer = model._step_momentum_st
+        model.init_infer = model._init_momentum
+        model.unpack_infer = model._unpack_momentum
+        model.params_infer = model._params_momentum
+        kwargs = init_momentum_args(model, **kwargs)
+    elif inference_method == 'adaptive':
+        model.step_infer = model._step_adapt
+        model.init_infer = model._init_adapt
+        model.unpack_infer = model._unpack_adapt
+        model.params_infer = model._params_adapt
+        model.strict = False
+        model.init_variational_params = model._init_variational_params_adapt
+    elif inference_method == 'momentum_then_adapt':
+        model.step_infer = model._step_momentum_then_adapt
+        model.init_infer = model._init_momentum
+        model.unpack_infer = model._unpack_momentum_then_adapt
+        model.params_infer = model._params_momentum
+        model.init_variational_params = model._init_variational_params_adapt
+        model.strict = False
+        kwargs = init_momentum_args(model, **kwargs)
+    else:
+        raise ValueError()
+
+    return kwargs
+
+def _sample(p, size=None, trng=None):
+    if size is None:
+        size = p.shape
+    return trng.binomial(p=p, size=size, n=1, dtype=p.dtype)
+
+def _noise(x, amount=0.1, size=None, trng=None):
+    if size is None:
+        size = x.shape
+    return x * (1 - trng.binomial(p=amount, size=size, n=1, dtype=x.dtype))
+
+def set_input(x, mode, trng=None):
+    if mode == 'sample':
+        x = _sample(x, trng=trng)
+    elif mode == 'noise':
+        x = _noise(x, trng=trng)
+    elif mode is None:
+        pass
+    else:
+        raise ValueError('% not supported' % mode)
+    return x
 
 
-class SBN(SFFN):
-    def __init__(self, dim_h, dim_out, depth=2,
-                 rng=None, trng=None,
-                 weight_scale=1.0, weight_noise=False,
+class SigmoidBeliefNetwork(Layer):
+    def __init__(self, dim_in, dim_h, dim_out,
+                 posterior=None, conditional=None,
                  z_init=None,
-                 h_conds=None,
-                 x_noise_mode=None, noise_amount=0.1,
-                 momentum=0.9, b1=0.9, b2=0.999,
-                 inference_rates=[0.1], inference_decay=0.99, n_inference_steps=30,
-                 inference_step_scheduler=None,
-                 inference_method='sgd',
-                 name='sffn'):
+                 name='sbn',
+                 **kwargs):
 
+        self.dim_in = dim_in
         self.dim_h = dim_h
         self.dim_out = dim_out
-        self.depth = depth
 
-        self.h_conds = h_conds
-
-        self.weight_noise = weight_noise
-        self.weight_scale = weight_scale
-
-        self.momentum = momentum
-        self.b1 = b1
-        self.b2 = b2
+        self.posterior = posterior
+        self.conditional = conditional
 
         self.z_init = z_init
 
-        self.x_mode = x_noise_mode
-        self.noise_amount = noise_amount
+        kwargs = init_inference_args(self, **kwargs)
+        kwargs = init_weights(self, **kwargs)
+        kwargs = init_rngs(self, **kwargs)
 
-        self.inference_rates = inference_rates
-        self.inference_decay = inference_decay
-        self.n_inference_steps = T.constant(n_inference_steps).astype('int64')
-        self.inference_step_scheduler = inference_step_scheduler
-
-        if inference_method == 'sgd':
-            self.step_infer = self._step_sgd
-            self.init_infer = self._init_sgd
-            self.unpack_infer = self._unpack_sgd
-            self.params_infer = self._params_sgd
-        elif inference_method == 'momentum':
-            self.step_infer = self._step_momentum
-            self.init_infer = self._init_momentum
-            self.unpack_infer = self._unpack_momentum
-            self.params_infer = self._params_momentum
-        elif inference_method == 'adam':
-            self.step_infer = self._step_adam
-            self.init_infer = self._init_adam
-            self.unpack_infer = self._unpack_adam
-            self.params_infer = self._params_adam
-        elif inference_method == 'cg':
-            self.step_infer = self._step_cg
-            self.init_infer = self._init_cg
-            self.unpack_infer = self._unpack_cg
-            self.params_infer = self._params_cg
-        elif inference_method == 'cg2':
-            self.step_infer = self._step_cg2
-            self.init_infer = self._init_cg2
-            self.unpack_infer = self._unpack_cg2
-            self.params_infer = self._params_cg2
-        else:
-            raise ValueError()
-
-        if rng is None:
-            rng = tools.rng_
-        self.rng = rng
-
-        if trng is None:
-            self.trng = RandomStreams(6 * 10 * 2015)
-        else:
-            self.trng = trng
-
-        super(SFFN, self).__init__(name=name)
+        super(SigmoidBeliefNetwork, self).__init__(name=name)
 
     def set_params(self):
-        self.params = OrderedDict()
-        if self.h_conds is None:
-            self.h_conds = []
-            for l in xrange(self.depth):
-                if l == self.depth - 1:
-                    dim_out = self.dim_out
-                else:
-                    dim_out = self.dim_h
+        z = np.zeros((self.dim_h,)).astype(floatX)
+        inference_scale_factor = np.float32(1.0)
 
-                p = MLP(self.dim_h, self.dim_h, dim_out, 1,
-                        rng=self.rng, trng=self.trng,
-                        h_act='T.nnet.sigmoid',
-                        out_act='T.nnet.sigmoid')
-                self.h_conds.append(p)
-        else:
-            assert len(self.h_conds) == self.depth
+        self.params = OrderedDict(
+            z=z, inference_scale_factor=inference_scale_factor)
 
-    def set_tparams(self):
-        tparams = OrderedDict()
-        for p in self.h_conds:
-            tparams.update(**p.set_tparams())
+        if self.posterior is None:
+            self.posterior = MLP(self.dim_in, self.dim_h, self.dim_h, 1,
+                                 rng=self.rng, trng=self.trng,
+                                 h_act='T.nnet.sigmoid',
+                                 out_act='T.nnet.sigmoid')
+        if self.conditional is None:
+            self.conditional = MLP(self.dim_h, self.dim_out, self.dim_out, 1,
+                                   rng=self.rng, trng=self.trng,
+                                   h_act='T.nnet.sigmoid',
+                                   out_act='T.nnet.sigmoid')
+
+        self.posterior.name = self.name + '_posterior'
+        self.conditional.name = self.name + '_conditional'
+
+    def set_tparams(self, excludes=[]):
+        excludes.append('inference_scale_factor')
+        excludes = ['{name}_{key}'.format(name=self.name, key=key)
+                    for key in excludes]
+        tparams = super(SigmoidBeliefNetwork, self).set_tparams()
+        tparams.update(**self.posterior.set_tparams())
+        tparams.update(**self.conditional.set_tparams())
+        tparams = OrderedDict((k, v) for k, v in tparams.iteritems()
+            if k not in excludes)
 
         return tparams
 
-    def init_inputs(self, x, steps=1):
-        x_size = (steps, x.shape[0], x.shape[1])
-        x = self.set_input(x, self.x_mode, size=x_size)
-        return x
-
     def get_params(self):
-        params = []
-        for p in self.h_conds:
-            params += p.get_params()
-
+        params = [self.z] + self.conditional.get_params() + self.posterior.get_params() + [self.inference_scale_factor]
         return params
 
-    def ph_given_h(self, h, level, *params):
-        start = sum([0] + [len(p.get_params()) for p in self.h_conds[:level]])
-        length = len(self.h_conds[level].get_params())
-        ps = params[start:start+length]
-        print params, ps
-        return self.h_conds[level].step_call(h, *ps)
+    def p_y_given_h(self, h, *params):
+        params = params[1:1+len(self.conditional.get_params())]
+        return self.conditional.step_call(h, *params)
 
-    def preact_h_to_h(self, h, level, *params):
-        start = sum([0] + [len(p.get_params()) for p in self.h_conds[:level]])
-        length = len(self.h_conds[level].get_params())
-        ps = params[start:start+length]
-        return self.h_conds[level].preact(h, *ps)
-
-    def sample_energy(self, x, zs, n_samples=10):
-        if n_samples == 0:
-            hs = [T.nnet.sigmoid(z) for z in zs]
+    def sample_from_prior(self, n_samples=100):
+        p = T.nnet.sigmoid(self.z)
+        h = self.posterior.sample(p=p, size=(n_samples, self.dim_h))
+        if self.center_latent:
+            py = self.conditional(h - p[None, :])
         else:
-            mu = T.nnet.sigmoid(zs[0])
-            h = self.trng.binomial(
-                p=mu, size=(n_samples, mu.shape[0], mu.shape[1]), n=1, dtype=mu.dtype)
-            hs = [h]
-            for z, p in zip(zs, self.h_conds[:-1]):
-                mu = eval(p.out_act)(
-                    p(h, return_preact=True) + z[None, :, :])
+            py = self.conditional(h)
+        return py
 
-                h = self.trng.binomial(
-                    p=mu, size=(
-                        n_samples, mu.shape[0], mu.shape[1]), n=1, dtype=mu.dtype)
+    def importance_weights(self, y, h, py, q, prior, normalize=True):
+        y_energy = self.conditional.neg_log_prob(y, py)
+        prior_energy = self.posterior.neg_log_prob(h, prior)
+        entropy_term = self.posterior.neg_log_prob(h, q)
 
-                hs.append(h)
+        log_p = -y_energy - prior_energy + entropy_term
+        log_p_max = T.max(log_p, axis=0, keepdims=True)
+        w = T.exp(log_p - log_p_max)
 
-        xs = hs[1:] + [x[None, :, :]]
+        if normalize:
+            w = w / w.sum(axis=0, keepdims=True)
 
-        energies = []
-        for l, (p, h, x) in enumerate(zip(self.h_conds, hs, xs)):
-            ph = p(h)
-            energy = p.neg_log_prob(x, ph)
-            energy = -log_mean_exp(-energy, axis=0).mean()
-            energies.append(energy)
+        return w
 
-        return energies, hs
+    def m_step(self, p_h_logit, y, z, n_samples=10):
+        constants = []
+        q = T.nnet.sigmoid(z)
+        prior = T.nnet.sigmoid(self.z)
+        p_h = T.nnet.sigmoid(p_h_logit)
 
-    def inference_cost(self, x, zs, *params):
-        mus = [T.nnet.sigmoid(z) for z in zs]
+        if n_samples == 0:
+            h = q[None, :, :]
+        else:
+            h = self.posterior.sample(
+                q, size=(n_samples, q.shape[0], q.shape[1]))
 
-        h = self.trng.binomial(
-            p=mus[-1], size=mus[-1].shape, n=1, dtype=mus[-1].dtype)
-        hs = [h]
-        for l, (z, p) in enumerate(zip(zs, self.h_conds[:-1])):
-            mu = eval(p.out_act)(
-                self.preact_h_to_h(h, l, *params) + z)
+        if self.center_latent:
+            print 'M step: Centering binary latent variables before passing to generation net'
+            py = self.conditional(h - prior[None, None, :])
+        else:
+            py = self.conditional(h)
 
-            h = self.trng.binomial(
-                p=mu, size=mu.shape, n=1, dtype=mu.dtype)
+        entropy = self.posterior.entropy(q).mean()
 
-            hs.append(h)
+        prior_energy = self.posterior.neg_log_prob(q, prior[None, :]).mean()
+        y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
+        h_energy = self.posterior.neg_log_prob(q, p_h).mean()
 
-        xs = hs[1:] + [x]
+        return (prior_energy, h_energy, y_energy, entropy), constants
 
-        cost = T.constant(0.).astype(floatX)
-        for l, (p, mu, x) in enumerate(zip(self.h_conds, mus, xs)):
-            ph = self.ph_given_h(mu, l, *params)
-            energy = p.neg_log_prob(x, ph)
-            cost += energy
-            if l != self.depth - 1:
-                cost += -p.entropy(mu)
+    def kl_divergence(self, p, q, entropy_scale=1.0):
+        entropy_term = entropy_scale * self.posterior.entropy(p)
+        prior_term = self.posterior.neg_log_prob(p, q)
+        return -(entropy_term - prior_term)
 
-        cost = cost.sum(axis=0)
-        grads = theano.grad(cost, wrt=zs, consider_constant=[x])
+    def e_step(self, p_h_logit, y, z, *params):
+        prior = T.nnet.sigmoid(params[0])
+        q = T.nnet.sigmoid(z)
 
-        return cost, grads
+        if self.center_latent:
+            print 'E step: Centering binary latent variables before passing to generation net'
+            py  = self.p_y_given_h(q - prior[None, :], *params)
+        else:
+            py = self.p_y_given_h(q, *params)
 
-    def _step_momentum(self, x, *all_params):
-        all_params = list(all_params)
-        zs = all_params[:self.depth]
-        ls = all_params[self.depth:2*self.depth]
-        dzs_ = all_params[2*self.depth:3*self.depth]
-        m = all_params[3*self.depth]
-        params = all_params[3*self.depth+1:]
+        consider_constant = [y, prior]
+        cond_term = self.conditional.neg_log_prob(y, py)
 
-        cost, grads = self.inference_cost(x, zs, *params)
-        dzs = [-l * grad + m * dz_ for l, grad, dz_ in zip(ls, grads, dzs_)]
-        zs = [(z + dz).astype(floatX) for z, dz in zip(zs, dzs)]
-        ls = [l * self.inference_decay for l in ls]
+        kl_term = self.kl_divergence(q, prior[None, :], entropy_scale=self.entropy_scale)
+        cost = (cond_term + kl_term).sum(axis=0)
 
-        return tuple(zs + ls + dzs + [cost])
+        grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
 
-    def _init_momentum(self, x, zs):
-        return self.inference_rates + [T.zeros_like(z) for z in zs]
+        return cost, grad
+
+    def step_infer(self, *params):
+        raise NotImplementedError()
+
+    def init_infer(self, z):
+        raise NotImplementedError()
+
+    def unpack_infer(self, outs):
+        raise NotImplementedError()
+
+    def params_infer(self):
+        raise NotImplementedError()
+
+    # Importance Sampling
+    def _step_adapt(self, p_h_logit, y, q, *params):
+        prior = T.nnet.sigmoid(params[0])
+        h = self.posterior.sample(
+            q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+
+        if self.center_latent:
+            py = self.p_y_given_h(h - prior[None, None, :], *params)
+        else:
+            py = self.p_y_given_h(h, *params)
+
+        w = self.importance_weights(
+            y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
+
+        cost = w.std()
+        q = (w[:, :, None] * h).sum(axis=0)
+
+        return q, cost
+
+    def _init_adapt(self, ph, y, q):
+        return []
+
+    def _init_variational_params_adapt(self, p_h_logit, z0=None):
+        if z0 is None:
+            if self.z_init == 'recognition_net':
+                print 'Starting z0 at recognition net'
+                q0 = T.nnet.sigmoid(p_h_logit)[0]
+            else:
+                q0 = T.alloc(0.5, p_h_logit.shape[0], self.dim_h).astype(floatX)
+
+        return q0
+
+    def _unpack_adapt(self, outs):
+        qs, costs = outs
+        return logit(qs), costs
+
+    def _params_adapt(self):
+        return []
+
+    # SGD
+    def _step_sgd(self, ph, y, z, l, *params):
+        cost, grad = self.e_step(ph, y, z, *params)
+        z = (z - l * grad).astype(floatX)
+        l *= self.inference_decay
+        return z, l, cost
+
+    def _init_sgd(self, ph, y, z):
+        return [self.inference_rate]
+
+    def _unpack_sgd(self, outs):
+        zs, ls, costs = outs
+        return zs, costs
+
+    def _params_sgd(self):
+        return []
+
+    # Momentum
+    def _step_momentum(self, p_h_logit, y, z, l, dz_, m, *params):
+        cost, grad = self.e_step(p_h_logit, y, z, *params)
+        dz = (-l * grad + m * dz_).astype(floatX)
+        z_ = (z + dz).astype(floatX)
+
+        if self.inference_scaling == 'reweight':
+            raise NotImplementedError('fix centering')
+            q = T.nnet.sigmoid(z_)
+            prior = T.nnet.sigmoid(params[0])
+            if self.center_latent:
+                q -= prior
+            h = self.posterior.sample(q, size=(100, q.shape[0], q.shape[1]))
+            py_r = self.p_y_given_h(h, *params)
+            cond_term = self.conditional.neg_log_prob(y[None, :, :], py_r)
+            prior_term = self.posterior.neg_log_prob(h, prior[None, None, :])
+            posterior_term = self.posterior.neg_log_prob(h, q[None, :, :])
+            w = T.exp(-cond_term - prior_term + posterior_term)
+            w = T.clip(w, 1e-7, 1.0)
+            w_tilda = w / w.sum(axis=0)[None, :]
+            mu = (w_tilda[:, :, None] * h).sum(axis=0)
+            z = logit(mu + prior)
+        else:
+            z = z_
+        l *= self.inference_decay
+        return z, l, dz, cost
+
+    def _step_momentum_st(self, ph, y, z, l, dz_, m, *params):
+        prior = T.nnet.sigmoid(params[0])
+        consider_constant = [y, prior, ph]
+
+        q = T.nnet.sigmoid(z)
+
+        h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+
+        if self.center_latent:
+            py = self.p_y_given_h(h - prior[None, None, :], *params)
+        else:
+            py = self.p_y_given_h(h, *params)
+
+        kl_term = self.kl_divergence(q, prior[None, :])
+        cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
+
+        grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
+        #grad_q = (grad_h * q * (1 - q)).sum(axis=0)
+        grad_q = grad_h.sum(axis=0)
+
+        grad_k = theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
+        grad = grad_q + grad_k
+
+        dz = (-l * grad + m * dz_).astype(floatX)
+        z = (z + dz).astype(floatX)
+        l *= self.inference_decay
+
+        return z, l, dz, (grad).mean()
+
+    def _step_momentum_then_adapt(self, p_h_logit, y, q, l, dz_, m, *params):
+
+        if False:
+            z = logit(q)
+            z, l, dz, cost = self._step_momentum(p_h_logit, y, z, l, dz_, m, *params)
+            q = T.nnet.sigmoid(z)
+            q, cost = self._step_adapt(p_h_logit, y, q, *params)
+        else:
+            prior = T.nnet.sigmoid(params[0])
+            consider_constant = [y, prior, p_h_logit]
+            if self.center_latent:
+                print 'E step: Centering binary latent variables before passing to generation net'
+                py  = self.p_y_given_h(q - prior[None, :], *params)
+            else:
+                py = self.p_y_given_h(q, *params)
+
+            cond_term = self.conditional.neg_log_prob(y, py)
+
+            kl_term = self.kl_divergence(q, prior[None, :], entropy_scale=self.entropy_scale)
+            cost = (cond_term + kl_term).sum(axis=0)
+
+            grad = theano.grad(cost, wrt=q, consider_constant=consider_constant)
+
+            dz = (-l * grad + m * dz_).astype(floatX)
+            q = (q + dz).astype(floatX)
+
+            q, cost = self._step_adapt(p_h_logit, y, q, *params)
+
+        return q, l, dz, cost
+
+    def _init_momentum(self, ph, y, z):
+        return [self.inference_rate, T.zeros_like(z)]
+
+    def _unpack_momentum(self, outs):
+        zs, ls, dzs, costs = outs
+        return zs, costs
+
+    def _unpack_momentum_then_adapt(self, outs):
+        qs, ls, dqs, costs = outs
+        return logit(qs), costs
 
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
 
-    def _unpack_momentum(self, outs):
-        zs = outs[:self.depth]
-        costs = outs[-1]
-        return zs, costs
+    def init_variational_params(self, p_h_logit, z0=None):
+        if z0 is None:
+            if self.z_init == 'recognition_net':
+                print 'Starting z0 at recognition net'
+                z0 = p_h_logit[0]
+            else:
+                z0 = T.alloc(0., p_h_logit.shape[0], self.dim_h).astype(floatX)
 
-    def inference(self, x, n_samples=20):
+        return z0
+
+    def infer_q(self, x, y, n_inference_steps, n_sampling_steps=0, z0=None):
         updates = theano.OrderedUpdates()
 
-        xs = self.init_inputs(x, steps=self.n_inference_steps)
-        z0s = [T.alloc(x.shape[0], self.dim_h).astype(floatX) for _ in xrange(self.depth)]
+        xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
+        ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
+        y_noise = self.trng.binomial(p=0.9, size=ys.shape, n=1, dtype=ys.dtype)
+        ys = ys * y_noise
 
-        if self.inference_step_scheduler is None:
-            n_inference_steps = self.n_inference_steps
-        else:
-            n_inference_steps, updates_c = self.inference_step_scheduler(n_inference_steps)
-            updates.update(updates_c)
+        p_h_logit = self.posterior(xs, return_preact=True)
+        z0 = self.init_variational_params(p_h_logit, z0=z0)
 
-        seqs = [xs]
-        outputs_info = z0s + self.init_infer(xs[0], z0s) + [None]
+        seqs = [p_h_logit, ys]
+        outputs_info = [z0] + self.init_infer(p_h_logit[0], y, z0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
         outs, updates_2 = theano.scan(
@@ -257,20 +455,627 @@ class SBN(SFFN):
         updates.update(updates_2)
 
         zs, i_costs = self.unpack_infer(outs)
+        zs = T.concatenate([z0[None, :, :], zs], axis=0)
 
-        energies, hs = self.sample_energy(x[0], zs, n_samples=n_samples)
-        return (xs, zs, hs, energies, i_costs[-1]), updates
+        return (p_h_logit, zs, i_costs[-1]), updates
 
-    def __call__(self, x, n_samples=100):
-        x_n = self.trng.binomial(p=x, size=x.shape, n=1, dtype=x.dtype)
+    # Inference
+    def inference(self, x, y, z0=None, n_inference_steps=20,
+                  n_sampling_steps=0, n_samples=100):
 
-        h = self.trng.binomial(p=0.5, size=(n_samples, self.dim_h), n=1,
-                               dtype=x.dtype)
-        for p in self.h_conds[:-1]:
-            ph = p(h)
-            h = p.sample(ph)
+        (p_h_logit, zs, _), updates = self.infer_q(
+            x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
 
-        px = self.h_conds[-1](h)
-        x_energy = self.h_conds[-1].neg_log_prob(x[None, :, :], px)
-        x_energy = -log_mean_exp(-x_energy, axis=0).mean()
-        return px, x_energy
+        (prior_energy, h_energy, y_energy, entropy), m_constants = self.m_step(
+            p_h_logit[0], y, zs[-1], n_samples=n_samples)
+
+        constants = [zs, entropy] + m_constants
+
+        if self.inference_scaling == 'global':
+            updates += [
+                (self.inference_scale_factor, y_energy / y_energy_approx)]
+            constants += [self.inference_scale_factor]
+
+        return (zs, prior_energy, h_energy, y_energy, entropy), updates, constants
+
+    def __call__(self, x, y, p_h=None,
+                 n_samples=100, n_inference_steps=0, n_sampling_steps=0,
+                 calculate_log_marginal=False):
+        outs = OrderedDict()
+        updates = theano.OrderedUpdates()
+        prior = T.nnet.sigmoid(self.z)
+
+        if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
+            if p_h is None:
+                z0 = None
+            else:
+                z0 = logit(ph)
+            (p_h_logit, zs, i_cost), updates_i = self.infer_q(
+                x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
+            updates.update(updates_i)
+            q = T.nnet.sigmoid(zs)
+            outs.update(inference_cost=i_cost)
+        elif p_h is None:
+            q = self.posterior(x)
+        else:
+            q = p_h
+
+        if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
+            if n_samples == 0:
+                h = q[None, :, :, :]
+            else:
+                h = self.posterior.sample(
+                    q, size=(n_samples, q.shape[0], q.shape[1], q.shape[2]))
+
+            if self.center_latent:
+                print 'Centering latents in call'
+                pys = self.conditional(h - prior[None, None, None, :])
+                py_approx = self.conditional(q - prior[None, None, :])
+            else:
+                pys = self.conditional(h)
+                py_approx = self.conditional(q)
+
+            conds_app = self.conditional.neg_log_prob(y[None, :, :], py_approx).mean(axis=1)
+            conds_mc = self.conditional.neg_log_prob(y[None, None, :, :], pys).mean(axis=(0, 2))
+            kl_terms = self.kl_divergence(q, prior[None, None, :]).mean(axis=1)
+
+            y_energy = conds_mc[-1]
+            kl_term = kl_terms[-1]
+            py = pys[:, -1]
+
+            outs.update(
+                c_a=conds_app,
+                c_mc=conds_mc,
+                kl=kl_terms
+            )
+
+            if calculate_log_marginal:
+                nll = -log_mean_exp(
+                    -self.conditional.neg_log_prob(
+                        y[None, :, :], pys[:, -1])
+                    - self.posterior.neg_log_prob(
+                        h[:, -1], prior[None, None, :]
+                    )
+                    + self.posterior.neg_log_prob(
+                        h[:, -1], q[-1][None, :, :]
+                    ),
+                    axis=0).mean()
+                outs.update(nll=nll)
+        else:
+            if n_samples == 0:
+                h = q[None, :, :]
+            else:
+                h = self.posterior.sample(
+                    q, size=(n_samples, q.shape[0], q.shape[1]))
+
+            ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
+
+            if self.center_latent:
+                py = self.conditional(h - prior[None, None, :])
+            else:
+                py = self.conditional(h)
+            y_energy = self.conditional.neg_log_prob(ys, py).mean(axis=(0, 1))
+            kl_term = self.kl_divergence(q, prior[None, :]).mean(axis=0)
+
+            if calculate_log_marginal:
+                nll = -log_mean_exp(
+                    -self.conditional.neg_log_prob(
+                        y[None, :, :], py)
+                    - self.posterior.neg_log_prob(
+                        h, prior[None, None, :]
+                    )
+                    + self.posterior.neg_log_prob(
+                        h, q[None, :, :]
+                    ),
+                    axis=0).mean()
+                outs.update(nll=nll)
+
+        outs.update(
+            py=py,
+            lower_bound=(y_energy+kl_term)
+        )
+
+        return outs, updates
+
+
+class DeepSBN(Layer):
+    def __init__(self, dim_in, dim_h, dim_out, n_layers=2,
+                 posteriors=None, conditionals=None,
+                 z_init=None,
+                 name='sbn',
+                 **kwargs):
+
+        self.dim_in = dim_in
+        self.dim_h = dim_h
+        self.dim_out = dim_out
+
+        self.n_layers = n_layers
+
+        self.posteriors = posteriors
+        self.conditionals = conditionals
+
+        self.z_init = z_init
+
+        kwargs = init_inference_args(self, **kwargs)
+        kwargs = init_weights(self, **kwargs)
+        kwargs = init_rngs(self, **kwargs)
+
+        super(DeepSBN, self).__init__(name=name)
+
+    def set_params(self):
+        z = np.zeros((self.dim_h,)).astype(floatX)
+
+        self.params = OrderedDict(z=z)
+
+        if self.posteriors is None:
+            self.posteriors = [None for _ in xrange(self.n_layers)]
+        else:
+            assert len(posteriors) == self.n_layers
+
+        if self.conditionals is None:
+            self.conditionals = [None for _ in xrange(self.n_layers)]
+        else:
+            assert len(conditionals) == self.n_layers
+
+        for l in xrange(self.n_layers):
+            if l == 0:
+                dim_in = self.dim_in
+            else:
+                dim_in = self.dim_h
+
+            if l == self.n_layers - 1:
+                dim_out = self.dim_out
+            else:
+                dim_out = self.dim_h
+
+            if self.posteriors[l] is None:
+                self.posteriors[l] = MLP(
+                    dim_in, dim_out, dim_out, 1,
+                    rng=self.rng, trng=self.trng,
+                    h_act='T.nnet.sigmoid',
+                    out_act='T.nnet.sigmoid')
+
+            if self.conditionals[l] is None:
+                self.conditionals[l] = MLP(
+                    dim_out, dim_out, dim_in, 1,
+                    rng=self.rng, trng=self.trng,
+                    h_act='T.nnet.sigmoid',
+                    out_act='T.nnet.sigmoid')
+
+            self.posteriors[l].name = self.name + '_posterior%d' % l
+            self.conditionals[l].name = self.name + '_conditional%d' % l
+
+    def set_tparams(self, excludes=[]):
+        excludes = ['{name}_{key}'.format(name=self.name, key=key)
+                    for key in excludes]
+        tparams = super(DeepSBN, self).set_tparams()
+
+        for l in xrange(self.n_layers):
+            tparams.update(**self.posteriors[l].set_tparams())
+            tparams.update(**self.conditionals[l].set_tparams())
+
+        tparams = OrderedDict((k, v) for k, v in tparams.iteritems()
+            if k not in excludes)
+
+        return tparams
+
+    def get_params(self):
+        params = [self.z]
+        for l in xrange(self.n_layers):
+            params += self.conditionals[l].get_params()
+        return params
+
+    def p_y_given_h(self, h, level, *params):
+        start = 1
+        for n in xrange(level):
+            start += len(self.conditionals[n].get_params())
+        end = start + len(self.conditionals[level].get_params())
+
+        params = params[start:end]
+        return self.conditionals[level].step_call(h, *params)
+
+    def sample_from_prior(self, n_samples=100):
+        p = T.nnet.sigmoid(self.z)
+        h = self.posteriors[-1].sample(p=p, size=(n_samples, self.dim_h))
+
+        for conditional in self.conditionals[::-1]:
+            p = conditional(h)
+            h = conditional.sample(p)
+
+        return p
+
+    def importance_weights(self, y, h, py, q, prior, level, normalize=True):
+        y_energy = self.conditionals[level].neg_log_prob(y, py)
+        prior_energy = self.posteriors[level].neg_log_prob(h, prior)
+        entropy_term = self.posteriors[level].neg_log_prob(h, q)
+
+        log_p = -y_energy - prior_energy + entropy_term
+        log_p_max = T.max(log_p, axis=0, keepdims=True)
+        w = T.exp(log_p - log_p_max)
+
+        if normalize:
+            w = w / w.sum(axis=0, keepdims=True)
+
+        return w
+
+    def kl_divergence(self, p, q):
+        p_c = T.clip(p, 1e-7, 1.0 - 1e-7)
+        q = T.clip(q, 1e-7, 1.0 - 1e-7)
+
+        entropy_term = T.nnet.binary_crossentropy(p_c, p)
+        prior_term = T.nnet.binary_crossentropy(q, p)
+        return -(entropy_term - prior_term).sum(axis=entropy_term.ndim-1)
+
+    def m_step(self, p_h_logit, y, z, n_samples=10):
+        constants = []
+        q = T.nnet.sigmoid(z)
+        prior = T.nnet.sigmoid(self.z)
+        p_h = T.nnet.sigmoid(p_h_logit)
+
+        if n_samples == 0:
+            h = q[None, :, :]
+        else:
+            h = self.posterior.sample(
+                q, size=(n_samples, q.shape[0], q.shape[1]))
+
+        if self.center_latent:
+            print 'M step: Centering binary latent variables before passing to generation net'
+            py = self.conditional(h - prior[None, None, :])
+        else:
+            py = self.conditional(h)
+
+        entropy = self.posterior.entropy(q).mean()
+
+        prior_energy = self.posterior.neg_log_prob(q, prior[None, :]).mean()
+        y_energy = self.conditional.neg_log_prob(y[None, :, :], py).mean()
+        h_energy = self.posterior.neg_log_prob(q, p_h).mean()
+
+        return (prior_energy, h_energy, y_energy, entropy), constants
+
+    def e_step(self, p_h_logit, y, z, *params):
+        prior = T.nnet.sigmoid(params[0])
+        q = T.nnet.sigmoid(z)
+
+        if self.center_latent:
+            print 'E step: Centering binary latent variables before passing to generation net'
+            py  = self.p_y_given_h(q - prior[None, :], *params)
+        else:
+            py = self.p_y_given_h(q, *params)
+
+        consider_constant = [y, prior]
+        cond_term = self.conditional.neg_log_prob(y, py)
+
+        kl_term = self.kl_divergence(q, prior[None, :], entropy_scale=self.entropy_scale)
+        cost = (cond_term + kl_term).sum(axis=0)
+
+        grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
+
+        return cost, grad
+
+    def step_infer(self, *params):
+        raise NotImplementedError()
+
+    def init_infer(self, z):
+        raise NotImplementedError()
+
+    def unpack_infer(self, outs):
+        raise NotImplementedError()
+
+    def params_infer(self):
+        raise NotImplementedError()
+
+    # Importance Sampling
+    def _step_adapt(self, p_h_logit, y, q, *params):
+        prior = T.nnet.sigmoid(params[0])
+        h = self.posterior.sample(
+            q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+
+        if self.center_latent:
+            py = self.p_y_given_h(h - prior[None, None, :], *params)
+        else:
+            py = self.p_y_given_h(h, *params)
+
+        w = self.importance_weights(
+            y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
+
+        cost = w.std()
+        q = (w[:, :, None] * h).sum(axis=0)
+
+        return q, cost
+
+    def _init_adapt(self, ph, y, q):
+        return []
+
+    def _init_variational_params_adapt(self, p_h_logit, z0=None):
+        if z0 is None:
+            if self.z_init == 'recognition_net':
+                print 'Starting z0 at recognition net'
+                q0 = T.nnet.sigmoid(p_h_logit)[0]
+            else:
+                q0 = T.alloc(0.5, p_h_logit.shape[0], self.dim_h).astype(floatX)
+
+        return q0
+
+    def _unpack_adapt(self, outs):
+        qs, costs = outs
+        return logit(qs), costs
+
+    def _params_adapt(self):
+        return []
+
+    # SGD
+    def _step_sgd(self, ph, y, z, l, *params):
+        cost, grad = self.e_step(ph, y, z, *params)
+        z = (z - l * grad).astype(floatX)
+        l *= self.inference_decay
+        return z, l, cost
+
+    def _init_sgd(self, ph, y, z):
+        return [self.inference_rate]
+
+    def _unpack_sgd(self, outs):
+        zs, ls, costs = outs
+        return zs, costs
+
+    def _params_sgd(self):
+        return []
+
+    # Momentum
+    def _step_momentum(self, p_h_logit, y, z, l, dz_, m, *params):
+        cost, grad = self.e_step(p_h_logit, y, z, *params)
+        dz = (-l * grad + m * dz_).astype(floatX)
+        z_ = (z + dz).astype(floatX)
+
+        if self.inference_scaling == 'reweight':
+            raise NotImplementedError('fix centering')
+            q = T.nnet.sigmoid(z_)
+            prior = T.nnet.sigmoid(params[0])
+            if self.center_latent:
+                q -= prior
+            h = self.posterior.sample(q, size=(100, q.shape[0], q.shape[1]))
+            py_r = self.p_y_given_h(h, *params)
+            cond_term = self.conditional.neg_log_prob(y[None, :, :], py_r)
+            prior_term = self.posterior.neg_log_prob(h, prior[None, None, :])
+            posterior_term = self.posterior.neg_log_prob(h, q[None, :, :])
+            w = T.exp(-cond_term - prior_term + posterior_term)
+            w = T.clip(w, 1e-7, 1.0)
+            w_tilda = w / w.sum(axis=0)[None, :]
+            mu = (w_tilda[:, :, None] * h).sum(axis=0)
+            z = logit(mu + prior)
+        else:
+            z = z_
+        l *= self.inference_decay
+        return z, l, dz, cost
+
+    def _step_momentum_st(self, ph, y, z, l, dz_, m, *params):
+        prior = T.nnet.sigmoid(params[0])
+        consider_constant = [y, prior, ph]
+
+        q = T.nnet.sigmoid(z)
+
+        h = self.posterior.sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+
+        if self.center_latent:
+            py = self.p_y_given_h(h - prior[None, None, :], *params)
+        else:
+            py = self.p_y_given_h(h, *params)
+
+        kl_term = self.kl_divergence(q, prior[None, :])
+        cond_term = self.conditional.neg_log_prob(y[None, :, :], py).mean(axis=0)
+
+        grad_h = theano.grad(cond_term.sum(axis=0), wrt=h, consider_constant=consider_constant)
+        #grad_q = (grad_h * q * (1 - q)).sum(axis=0)
+        grad_q = grad_h.sum(axis=0)
+
+        grad_k = theano.grad(kl_term.sum(axis=0), wrt=z, consider_constant=consider_constant)
+        grad = grad_q + grad_k
+
+        dz = (-l * grad + m * dz_).astype(floatX)
+        z = (z + dz).astype(floatX)
+        l *= self.inference_decay
+
+        return z, l, dz, (grad).mean()
+
+    def _step_momentum_then_adapt(self, p_h_logit, y, q, l, dz_, m, *params):
+
+        if False:
+            z = logit(q)
+            z, l, dz, cost = self._step_momentum(p_h_logit, y, z, l, dz_, m, *params)
+            q = T.nnet.sigmoid(z)
+            q, cost = self._step_adapt(p_h_logit, y, q, *params)
+        else:
+            prior = T.nnet.sigmoid(params[0])
+            consider_constant = [y, prior, p_h_logit]
+            if self.center_latent:
+                print 'E step: Centering binary latent variables before passing to generation net'
+                py  = self.p_y_given_h(q - prior[None, :], *params)
+            else:
+                py = self.p_y_given_h(q, *params)
+
+            cond_term = self.conditional.neg_log_prob(y, py)
+
+            kl_term = self.kl_divergence(q, prior[None, :], entropy_scale=self.entropy_scale)
+            cost = (cond_term + kl_term).sum(axis=0)
+
+            grad = theano.grad(cost, wrt=q, consider_constant=consider_constant)
+
+            dz = (-l * grad + m * dz_).astype(floatX)
+            q = (q + dz).astype(floatX)
+
+            q, cost = self._step_adapt(p_h_logit, y, q, *params)
+
+        return q, l, dz, cost
+
+    def _init_momentum(self, ph, y, z):
+        return [self.inference_rate, T.zeros_like(z)]
+
+    def _unpack_momentum(self, outs):
+        zs, ls, dzs, costs = outs
+        return zs, costs
+
+    def _unpack_momentum_then_adapt(self, outs):
+        qs, ls, dqs, costs = outs
+        return logit(qs), costs
+
+    def _params_momentum(self):
+        return [T.constant(self.momentum).astype('float32')]
+
+    def init_variational_params(self, p_h_logit, z0=None):
+        if z0 is None:
+            if self.z_init == 'recognition_net':
+                print 'Starting z0 at recognition net'
+                z0 = p_h_logit[0]
+            else:
+                z0 = T.alloc(0., p_h_logit.shape[0], self.dim_h).astype(floatX)
+
+        return z0
+
+    def infer_q(self, x, y, n_inference_steps, n_sampling_steps=0, z0=None):
+        updates = theano.OrderedUpdates()
+
+        xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
+        ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
+        y_noise = self.trng.binomial(p=0.9, size=ys.shape, n=1, dtype=ys.dtype)
+        ys = ys * y_noise
+
+        p_h_logit = self.posterior(xs, return_preact=True)
+        z0 = self.init_variational_params(p_h_logit, z0=z0)
+
+        seqs = [p_h_logit, ys]
+        outputs_info = [z0] + self.init_infer(p_h_logit[0], y, z0) + [None]
+        non_seqs = self.params_infer() + self.get_params()
+
+        outs, updates_2 = theano.scan(
+            self.step_infer,
+            sequences=seqs,
+            outputs_info=outputs_info,
+            non_sequences=non_seqs,
+            name=tools._p(self.name, 'infer'),
+            n_steps=n_inference_steps,
+            profile=tools.profile,
+            strict=True
+        )
+        updates.update(updates_2)
+
+        zs, i_costs = self.unpack_infer(outs)
+        zs = T.concatenate([z0[None, :, :], zs], axis=0)
+
+        return (p_h_logit, zs, i_costs[-1]), updates
+
+    # Inference
+    def inference(self, x, y, z0=None, n_inference_steps=20,
+                  n_sampling_steps=0, n_samples=100):
+
+        (p_h_logit, zs, _), updates = self.infer_q(
+            x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
+
+        (prior_energy, h_energy, y_energy, entropy), m_constants = self.m_step(
+            p_h_logit[0], y, zs[-1], n_samples=n_samples)
+
+        constants = [zs, entropy] + m_constants
+
+        if self.inference_scaling == 'global':
+            updates += [
+                (self.inference_scale_factor, y_energy / y_energy_approx)]
+            constants += [self.inference_scale_factor]
+
+        return (zs, prior_energy, h_energy, y_energy, entropy), updates, constants
+
+    def __call__(self, x, y, p_h=None,
+                 n_samples=100, n_inference_steps=0, n_sampling_steps=0,
+                 calculate_log_marginal=False):
+        outs = OrderedDict()
+        updates = theano.OrderedUpdates()
+        prior = T.nnet.sigmoid(self.z)
+
+        if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
+            if p_h is None:
+                z0 = None
+            else:
+                z0 = logit(ph)
+            (p_h_logit, zs, i_cost), updates_i = self.infer_q(
+                x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
+            updates.update(updates_i)
+            q = T.nnet.sigmoid(zs)
+            outs.update(inference_cost=i_cost)
+        elif p_h is None:
+            q = self.posterior(x)
+        else:
+            q = p_h
+
+        if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 0:
+            if n_samples == 0:
+                h = q[None, :, :, :]
+            else:
+                h = self.posterior.sample(
+                    q, size=(n_samples, q.shape[0], q.shape[1], q.shape[2]))
+
+            if self.center_latent:
+                print 'Centering latents in call'
+                pys = self.conditional(h - prior[None, None, None, :])
+                py_approx = self.conditional(q - prior[None, None, :])
+            else:
+                pys = self.conditional(h)
+                py_approx = self.conditional(q)
+
+            conds_app = self.conditional.neg_log_prob(y[None, :, :], py_approx).mean(axis=1)
+            conds_mc = self.conditional.neg_log_prob(y[None, None, :, :], pys).mean(axis=(0, 2))
+            kl_terms = self.kl_divergence(q, prior[None, None, :]).mean(axis=1)
+
+            y_energy = conds_mc[-1]
+            kl_term = kl_terms[-1]
+            py = pys[:, -1]
+
+            outs.update(
+                c_a=conds_app,
+                c_mc=conds_mc,
+                kl=kl_terms
+            )
+
+            if calculate_log_marginal:
+                nll = -log_mean_exp(
+                    -self.conditional.neg_log_prob(
+                        y[None, :, :], pys[:, -1])
+                    - self.posterior.neg_log_prob(
+                        h[:, -1], prior[None, None, :]
+                    )
+                    + self.posterior.neg_log_prob(
+                        h[:, -1], q[-1][None, :, :]
+                    ),
+                    axis=0).mean()
+                outs.update(nll=nll)
+        else:
+            if n_samples == 0:
+                h = q[None, :, :]
+            else:
+                h = self.posterior.sample(
+                    q, size=(n_samples, q.shape[0], q.shape[1]))
+
+            ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
+
+            if self.center_latent:
+                py = self.conditional(h - prior[None, None, :])
+            else:
+                py = self.conditional(h)
+            y_energy = self.conditional.neg_log_prob(ys, py).mean(axis=(0, 1))
+            kl_term = self.kl_divergence(q, prior[None, :]).mean(axis=0)
+
+            if calculate_log_marginal:
+                nll = -log_mean_exp(
+                    -self.conditional.neg_log_prob(
+                        y[None, :, :], py)
+                    - self.posterior.neg_log_prob(
+                        h, prior[None, None, :]
+                    )
+                    + self.posterior.neg_log_prob(
+                        h, q[None, :, :]
+                    ),
+                    axis=0).mean()
+                outs.update(nll=nll)
+
+        outs.update(
+            py=py,
+            lower_bound=(y_energy+kl_term)
+        )
+
+        return outs, updates
