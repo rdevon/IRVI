@@ -107,10 +107,17 @@ def lower_bound_curve(
     if rs is None:
         rs = range(5, 50, 5)
 
+    best_r = 0
+    best_lb = lb
     try:
         for r in rs:
             print 'number of inference steps: %d' % r
-            lb, nll = f_lower_bound(x[:1000], r)
+            lb, nll = f_lower_bound(x[:500], r)
+
+            if lb < best_lb:
+                best_lb = lb
+                best_r = r
+
             lbs.append(lb)
             nlls.append(nll)
             print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
@@ -122,7 +129,7 @@ def lower_bound_curve(
 
     print 'Calculating final lower bound and marginal with %d posterior samples' % x.shape[0]
 
-    outs_s, updates_s = model(X_i, X, n_inference_steps=rs[-1], n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
+    outs_s, updates_s = model(X_i, X, n_inference_steps=best_r, n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
 
     f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
 
