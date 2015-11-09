@@ -42,6 +42,7 @@ def init_inference_args(model,
                         inference_method='momentum',
                         alpha=7,
                         center_latent=False,
+                        extra_inference_args=None,
                         **kwargs):
     model.inference_rate = inference_rate
     model.inference_decay = inference_decay
@@ -57,19 +58,19 @@ def init_inference_args(model,
         model.init_infer = model._init_sgd
         model.unpack_infer = model._unpack_sgd
         model.params_infer = model._params_sgd
-        kwargs = init_sgd_args(model, **kwargs)
+        kwargs = init_sgd_args(model, **extra_inference_args)
     elif inference_method == 'momentum':
         model.step_infer = model._step_momentum
         model.init_infer = model._init_momentum
         model.unpack_infer = model._unpack_momentum
         model.params_infer = model._params_momentum
-        kwargs = init_momentum_args(model, **kwargs)
+        kwargs = init_momentum_args(model, **extra_inference_args)
     elif inference_method == 'momentum_straight_through':
         model.step_infer = model._step_momentum_st
         model.init_infer = model._init_momentum
         model.unpack_infer = model._unpack_momentum
         model.params_infer = model._params_momentum
-        kwargs = init_momentum_args(model, **kwargs)
+        kwargs = init_momentum_args(model, **extra_inference_args)
     elif inference_method == 'adaptive':
         model.step_infer = model._step_adapt
         model.init_infer = model._init_adapt
@@ -84,7 +85,7 @@ def init_inference_args(model,
         model.params_infer = model._params_momentum
         model.init_variational_params = model._init_variational_params_adapt
         model.strict = False
-        kwargs = init_momentum_args(model, **kwargs)
+        kwargs = init_momentum_args(model, **extra_inference_args)
     else:
         raise ValueError()
 
@@ -790,7 +791,6 @@ class DeepSBN(Layer):
 
     # Momentum
     def _step_momentum(self, y, *params):
-        print params
         params = list(params)
         zs = params[:self.n_layers]
         l = params[self.n_layers]
@@ -873,7 +873,7 @@ class DeepSBN(Layer):
         (prior_energy, h_energy, y_energy), m_constants = self.m_step(
             p_h_logits, y, zs, n_samples=n_samples)
 
-        constants = [zss] + m_constants
+        constants = zss + m_constants
 
         return (zss, prior_energy, h_energy, y_energy), updates, constants
 
