@@ -99,6 +99,7 @@ def unpack(dim_h=None,
            input_mode=None,
            alpha=None,
            center_latent=None,
+           extra_inference_args=None,
            **model_args):
     '''
     Function to unpack pretrained model into fresh SFFN class.
@@ -115,7 +116,8 @@ def unpack(dim_h=None,
         inference_scaling=inference_scaling,
         importance_sampling=importance_sampling,
         alpha=alpha,
-        center_latent=center_latent
+        center_latent=center_latent,
+        extra_inference_args=extra_inference_args,
     )
 
     dim_h = int(dim_h)
@@ -195,6 +197,7 @@ def train_model(
     alpha=7,
     n_sampling_steps=0,
     n_sampling_steps_test=0,
+    extra_inference_args=None,
 
     n_mcmc_samples=20,
     n_mcmc_samples_test=20,
@@ -214,7 +217,8 @@ def train_model(
         inference_scaling=inference_scaling,
         importance_sampling=importance_sampling,
         alpha=alpha,
-        center_latent=center_latent
+        center_latent=center_latent,
+        extra_inference_args=extra_inference_args
     )
 
     # ========================================================================
@@ -313,20 +317,6 @@ def train_model(
     # ========================================================================
     print 'Extra functions'
 
-    if prior == 'logistic':
-        mu = T.nnet.sigmoid(zs)
-        ph = mu
-    elif prior == 'gaussian':
-        ph = zs
-        mu = _slice(zs, 0, model.dim_h)
-        print 'Not learning sigma for gaussian prior'
-        constants.append(model.log_sigma)
-    else:
-        raise ValueError()
-
-    py = model.conditional(mu)
-    pd_i, d_hat_i = concatenate_inputs(model, X, py)
-
     # Test function with sampling
     rval, updates_s = model(
         X_i, X, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test,
@@ -349,11 +339,9 @@ def train_model(
     # ========================================================================
 
     extra_outs = [prior_energy, h_energy, y_energy, entropy]
-    vis_outs = [pd_i, d_hat_i]
 
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
                         'train y energy', 'entropy']
-    vis_outs_names = ['pds', 'd_hats']
 
     # ========================================================================
     print 'Setting final tparams and save function'
@@ -390,7 +378,7 @@ def train_model(
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [X], cost,
         extra_ups=updates,
-        extra_outs=extra_outs+vis_outs, **optimizer_args)
+        extra_outs=extra_outs, **optimizer_args)
 
     monitor = SimpleMonitor()
 
@@ -479,7 +467,7 @@ def train_model(
 
             rval = f_grad_shared(x)
 
-            if check_bad_nums(rval, extra_outs_names+vis_outs_names):
+            if check_bad_nums(rval, extra_outs_names):
                 return
 
             if s % show_freq == 0:
@@ -524,16 +512,6 @@ def train_model(
                             out_path, '{name}_monitor({s})'.format(name=name, s=s))
                         )
 
-                    pd_i, d_hat_i = rval[len(extra_outs_names):]
-
-                    idx = np.random.randint(pd_i.shape[1])
-                    pd_i = pd_i[:, idx]
-                    d_hat_i = d_hat_i[:, idx]
-                    d_hat_i = np.concatenate([pd_i[:, None, :],
-                                              d_hat_i[:, None, :]], axis=1)
-                    train.save_images(
-                        d_hat_i, path.join(
-                            out_path, '{name}_inference.png').format(name=name))
                     d_hat_s = np.concatenate([pd_v[:10],
                                               d_hat_v[1][None, :, :]], axis=0)
                     d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]

@@ -42,6 +42,7 @@ def init_inference_args(model,
                         inference_method='momentum',
                         alpha=7,
                         center_latent=False,
+                        extra_inference_args=dict(),
                         **kwargs):
     model.inference_rate = inference_rate
     model.inference_decay = inference_decay
@@ -57,19 +58,19 @@ def init_inference_args(model,
         model.init_infer = model._init_sgd
         model.unpack_infer = model._unpack_sgd
         model.params_infer = model._params_sgd
-        kwargs = init_sgd_args(model, **kwargs)
+        kwargs = init_sgd_args(model, **extra_inference_args)
     elif inference_method == 'momentum':
         model.step_infer = model._step_momentum
         model.init_infer = model._init_momentum
         model.unpack_infer = model._unpack_momentum
         model.params_infer = model._params_momentum
-        kwargs = init_momentum_args(model, **kwargs)
+        kwargs = init_momentum_args(model, **extra_inference_args)
     elif inference_method == 'momentum_straight_through':
         model.step_infer = model._step_momentum_st
         model.init_infer = model._init_momentum
         model.unpack_infer = model._unpack_momentum
         model.params_infer = model._params_momentum
-        kwargs = init_momentum_args(model, **kwargs)
+        kwargs = init_momentum_args(model, **extra_inference_args)
     elif inference_method == 'adaptive':
         model.step_infer = model._step_adapt
         model.init_infer = model._init_adapt
@@ -84,7 +85,7 @@ def init_inference_args(model,
         model.params_infer = model._params_momentum
         model.init_variational_params = model._init_variational_params_adapt
         model.strict = False
-        kwargs = init_momentum_args(model, **kwargs)
+        kwargs = init_momentum_args(model, **extra_inference_args)
     else:
         raise ValueError()
 
@@ -491,7 +492,8 @@ class SigmoidBeliefNetwork(Layer):
         if p_h is None:
             z0 = None
         else:
-            z0 = logit(ph)
+            z0 = logit(p_h)
+
         (p_h_logit, zs, i_cost), updates_i = self.infer_q(
             x, y, n_inference_steps, n_sampling_steps=n_sampling_steps, z0=z0)
         updates.update(updates_i)
@@ -517,6 +519,10 @@ class SigmoidBeliefNetwork(Layer):
             py=py,
             lower_bound=(cond_term+kl_term)
         )
+
+        if calculate_log_marginal:
+            nll = -self.log_marginal(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
+            outs.update(nll=nll)
 
         return outs, updates
 
@@ -556,12 +562,12 @@ class DeepSBN(Layer):
         if self.posteriors is None:
             self.posteriors = [None for _ in xrange(self.n_layers)]
         else:
-            assert len(posteriors) == self.n_layers
+            assert len(self.posteriors) == self.n_layers
 
         if self.conditionals is None:
             self.conditionals = [None for _ in xrange(self.n_layers)]
         else:
-            assert len(conditionals) == self.n_layers
+            assert len(self.conditionals) == self.n_layers
 
         for l in xrange(self.n_layers):
             if l == 0:
@@ -613,8 +619,8 @@ class DeepSBN(Layer):
 
     def p_y_given_h(self, h, level, *params):
         start = 1
-        for n in xrange(level):
-            start += len(self.conditionals[n].get_params())
+        for l in xrange(level):
+            start += len(self.conditionals[l].get_params())
         end = start + len(self.conditionals[level].get_params())
 
         params = params[start:end]
@@ -670,7 +676,7 @@ class DeepSBN(Layer):
             if n_samples == 0:
                 h = q[None, :, :]
             else:
-                h = self.posterior.sample(
+                h = self.posteriors[l].sample(
                     q, size=(n_samples, q.shape[0], q.shape[1]))
 
             p_y = self.conditionals[l](h)
@@ -690,15 +696,15 @@ class DeepSBN(Layer):
 
         grads = []
         for l in xrange(self.n_layers):
-            py_c = p_y.copy()
+            p_y_c = p_y.copy()
+            consider_constant = [p_y_c]
 
             z = zs[l]
             q = T.nnet.sigmoid(z)
             kl_term = self.kl_divergence(q, p_y_c)
 
-            p_y = self.p_y_given_h(q, *params)
+            p_y = self.p_y_given_h(q, l, *params)
 
-            consider_constant = [py_c]
             if l == 0:
                 cond_term = self.conditionals[l].neg_log_prob(y, p_y)
                 consider_constant.append(y)
@@ -798,7 +804,7 @@ class DeepSBN(Layer):
         qz = [(z + dz).astype(floatX) for z, dz in zip(zs, dzs)]
 
         l *= self.inference_decay
-        return zs + (l,) + dzs + (cost,)
+        return tuple(zs) + (l,) + tuple(dzs) + (cost,)
 
     def _init_momentum(self, zs):
         return [self.inference_rate] + [T.zeros_like(z) for z in zs]
@@ -816,20 +822,17 @@ class DeepSBN(Layer):
         xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
         ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
 
-
         state = xs
         z0s = []
-        ph_logits = []
+        p_h_logits = []
 
         for l in xrange(self.n_layers):
-            ph_logit = self.posteriors[l](state, return_preact=True)
-
+            p_h_logit = self.posteriors[l](state, return_preact=True)
             p_h = T.nnet.sigmoid(p_h_logit)
-            ph_logits.append(ph_logit)
+            p_h_logits.append(p_h_logit)
             state = self.posteriors[l].sample(p_h)
 
-            z0 = ph_logit
-            z0s.append(z0)
+            z0s.append(p_h_logit[0])
 
         seqs = [ys]
         outputs_info = z0s + self.init_infer(z0s) + [None]
@@ -870,7 +873,7 @@ class DeepSBN(Layer):
         (prior_energy, h_energy, y_energy), m_constants = self.m_step(
             p_h_logits, y, zs, n_samples=n_samples)
 
-        constants = [zss] + m_constants
+        constants = zss + m_constants
 
         return (zss, prior_energy, h_energy, y_energy), updates, constants
 
