@@ -443,9 +443,7 @@ class SigmoidBeliefNetwork(Layer):
 
         xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
         ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
-        y_noise = self.trng.binomial(p=0.9, size=ys.shape, n=1, dtype=ys.dtype)
-        ys = ys * y_noise
-
+        
         p_h_logit = self.posterior(xs, return_preact=True)
         z0 = self.init_variational_params(p_h_logit, z0=z0)
 
@@ -825,7 +823,8 @@ class GaussianBeliefNet(Layer):
             non_sequences=non_seqs,
             name=tools._p(self.name, 'infer'),
             n_steps=n_inference_steps,
-            profile=tools.profile
+            profile=tools.profile,
+            strict=True
         )
 
         qs, i_costs = self.unpack_infer(outs)
