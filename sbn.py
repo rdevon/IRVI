@@ -207,7 +207,7 @@ class SigmoidBeliefNetwork(Layer):
         log_p_max = T.max(log_p, axis=0, keepdims=True)
         w = T.exp(log_p - log_p_max)
 
-        return -(T.log(w.sum(axis=0, keepdims=True)) + log_p_max)
+        return (T.log(w.sum(axis=0, keepdims=True)) + log_p_max).mean()
 
     def m_step(self, p_h_logit, y, z, n_samples=10):
         constants = []
