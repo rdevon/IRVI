@@ -15,8 +15,7 @@ from theano import tensor as T
 from ica_exp import load_data
 from ica_exp import unpack
 from mnist import MNIST
-from tools import load_experiment
-from tools import load_model
+from tools import load_experiment, load_model
 
 
 floatX = theano.config.floatX
@@ -108,12 +107,15 @@ def lower_bound_curve(
     if rs is None:
         rs = range(5, 50, 5)
 
-    for r in rs:
-        print 'number of inference steps: %d' % r
-        lb, nll = f_lower_bound(x[:1000], r)
-        lbs.append(lb)
-        nlls.append(nll)
-        print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
+    try:
+        for r in rs:
+            print 'number of inference steps: %d' % r
+            lb, nll = f_lower_bound(x[:1000], r)
+            lbs.append(lb)
+            nlls.append(nll)
+            print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
+    except MemoryError:
+        print 'Memory Error. Stopped early.'
 
     fig = plt.figure()
     plt.plot(lbs)
@@ -143,8 +145,16 @@ def lower_bound_curve(
 
     if out_path is not None:
         plt.savefig(out_path)
-    else:
-        plt.show()
+        print 'Sampling from the prior'
+
+        py_p = model.sample_from_prior()
+        f_prior = theano.function([], py_p)
+
+        samples = f_prior()
+        data_iter.save_images(
+            pd_p[:, None],
+            path.join(out_path, 'samples_from_prior.png'),
+            x_limit=10)
 
 def make_argument_parser():
     parser = argparse.ArgumentParser()
