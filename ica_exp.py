@@ -172,7 +172,7 @@ def unpack(dim_h=None,
 def train_model(
     out_path='', name='', load_last=False, model_to_load=None, save_images=True,
 
-    learning_rate=0.1, optimizer='adam',
+    learning_rate=0.1, optimizer='adam', optimizer_args=dict(),
     batch_size=100, valid_batch_size=100, test_batch_size=1000,
     max_valid=10000,
     epochs=100,
@@ -390,7 +390,7 @@ def train_model(
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [X], cost,
         extra_ups=updates,
-        extra_outs=extra_outs+vis_outs)
+        extra_outs=extra_outs+vis_outs, **optimizer_args)
 
     monitor = SimpleMonitor()
 
