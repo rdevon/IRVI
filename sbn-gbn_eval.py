@@ -152,7 +152,7 @@ def lower_bound_curve(
 
         samples = f_prior()
         data_iter.save_images(
-            pd_p[:, None],
+            samples[:, None],
             path.join(out_path, 'samples_from_prior.png'),
             x_limit=10)
 
