@@ -336,7 +336,7 @@ def train_model(
     pd_s, d_hat_s = concatenate_inputs(model, X, py_s)
 
     outs_s = [lower_bound, pd_s, d_hat_s]
-    if prior == 'logistic':
+    if prior == 'logistic' and n_inference_steps > 0:
         conditionals_approx = rval['c_a']
         conditionals_mc = rval['c_mc']
         kl_terms = rval['kl']
@@ -510,7 +510,7 @@ def train_model(
                     'elapsed_time': t1-t0}
                 )
 
-                if prior == 'logistic':
+                if prior == 'logistic' and n_inference_steps > 0:
                     ca_v, cm_v, kl_v = outs_v[3:6]
                     outs_adds = OrderedDict({
                         'conditionals approx': ca_v,

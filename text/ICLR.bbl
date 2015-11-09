@@ -1,4 +1,4 @@
-\begin{thebibliography}{1}
+\begin{thebibliography}{10}
 
 \bibitem{bengio2013estimating}
 Y.~Bengio, N.~L{\'e}onard, and A.~Courville.
@@ -16,19 +16,29 @@ Y.~Burda, R.~Grosse, and R.~Salakhutdinov.
 \newblock Importance weighted autoencoders.
 \newblock {\em arXiv preprint arXiv:1509.00519}, 2015.
 
+\bibitem{Hinton-Coursera2012}
+G.~Hinton.
+\newblock Neural networks for machine learning.
+\newblock Coursera, video lectures, 2012.
+
 \bibitem{hinton1995wake}
-G.~E. Hinton, P.~Dayan, B.~J. Frey, and R.~M. Neal.
+G.~Hinton, P.~Dayan, B.~Frey, and R.~Neal.
 \newblock The" wake-sleep" algorithm for unsupervised neural networks.
 \newblock {\em Science}, 268(5214):1158--1161, 1995.
 
 \bibitem{hoffman2013stochastic}
-M.~D. Hoffman, D.~M. Blei, C.~Wang, and J.~Paisley.
+M.~Hoffman, D.~Blei, C.~Wang, and J.~Paisley.
 \newblock Stochastic variational inference.
 \newblock {\em The Journal of Machine Learning Research}, 14(1):1303--1347,
   2013.
 
+\bibitem{kingma2014method}
+D.~Kingma and J.~B. Adam.
+\newblock A method for stochastic optimization.
+\newblock {\em arXiv preprint arXiv:1412.6980}, 2014.
+
 \bibitem{kingma2013auto}
-D.~P. Kingma and M.~Welling.
+D.~Kingma and M.~Welling.
 \newblock Auto-encoding variational bayes.
 \newblock {\em arXiv preprint arXiv:1312.6114}, 2013.
 
@@ -36,6 +46,12 @@ D.~P. Kingma and M.~Welling.
 A.~Mnih and K.~Gregor.
 \newblock Neural variational inference and learning in belief networks.
 \newblock {\em arXiv preprint arXiv:1402.0030}, 2014.
+
+\bibitem{salakhutdinov2008quantitative}
+R.~Salakhutdinov and I.~Murray.
+\newblock On the quantitative analysis of deep belief networks.
+\newblock In {\em Proceedings of the 25th international conference on Machine
+  learning}, pages 872--879. ACM, 2008.
 
 \bibitem{salimans2014markov}
 T.~Salimans.

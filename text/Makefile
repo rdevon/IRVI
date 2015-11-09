@@ -1,4 +1,4 @@
-REPORT=ICLR
+REPORT=ais_vae
 LATEX=pdflatex
 BIBTEX=bibtex
 
