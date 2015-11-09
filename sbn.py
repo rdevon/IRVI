@@ -530,16 +530,9 @@ class SigmoidBeliefNetwork(Layer):
             )
 
             if calculate_log_marginal:
-                nll = -log_mean_exp(
-                    -self.conditional.neg_log_prob(
-                        y[None, :, :], pys[:, -1])
-                    - self.posterior.neg_log_prob(
-                        h[:, -1], prior[None, None, :]
-                    )
-                    + self.posterior.neg_log_prob(
-                        h[:, -1], q[-1][None, :, :]
-                    ),
-                    axis=0).mean()
+                w = self.importance_weights(
+                    y[None, :, :], h[:, -1], py, q[-1][None, :, :], prior[None, None, :])
+                nll = -T.log(w.mean(axis=0)).mean()
                 outs.update(nll=nll)
         else:
             if n_samples == 0:
@@ -558,16 +551,9 @@ class SigmoidBeliefNetwork(Layer):
             kl_term = self.kl_divergence(q, prior[None, :]).mean(axis=0)
 
             if calculate_log_marginal:
-                nll = -log_mean_exp(
-                    -self.conditional.neg_log_prob(
-                        y[None, :, :], py)
-                    - self.posterior.neg_log_prob(
-                        h, prior[None, None, :]
-                    )
-                    + self.posterior.neg_log_prob(
-                        h, q[None, :, :]
-                    ),
-                    axis=0).mean()
+                w = self.importance_weights(
+                    y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
+                nll = -T.log(w.mean(axis=0)).mean()
                 outs.update(nll=nll)
 
         outs.update(
