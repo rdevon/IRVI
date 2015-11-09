@@ -6,5 +6,7 @@
 \BOOKMARK [2][-]{subsection.4.2}{M Step: Estimating the Parameters bold0mu mumu \040and bold0mu mumu }{section.4}% 6
 \BOOKMARK [1][-]{section.5}{Binary Latent Variables}{}% 7
 \BOOKMARK [1][-]{section.6}{Related Work}{}% 8
-\BOOKMARK [1][-]{section.7}{Experiments}{}% 9
-\BOOKMARK [1][-]{section.8}{Discussion}{}% 10
+\BOOKMARK [1][-]{section.7}{Experimental Results}{}% 9
+\BOOKMARK [2][-]{subsection.7.1}{Continuous Variables}{section.7}% 10
+\BOOKMARK [2][-]{subsection.7.2}{Binary Variables}{section.7}% 11
+\BOOKMARK [1][-]{section.8}{Discussion}{}% 12
