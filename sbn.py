@@ -291,7 +291,7 @@ class SigmoidBeliefNetwork(Layer):
 
         return q, cost
 
-    def _init_adapt(self, ph, y, q):
+    def _init_adapt(self, q):
         return []
 
     def _init_variational_params_adapt(self, p_h_logit, z0=None):
