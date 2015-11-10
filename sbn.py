@@ -676,13 +676,17 @@ class DeepSBN(Layer):
 
             p_y = self.conditionals[l](h)
 
-            y_energy += self.conditionals[l].neg_log_prob(h_, p_y).mean()
+            if l == 0:
+                y_energy += self.conditionals[l].neg_log_prob(y[None, :, :], p_y).mean()
+            else:
+                y_energy += self.conditionals[l].neg_log_prob(qs[l-1][None, :, :], p_y).mean()
 
         return (prior_energy, h_energy, y_energy), constants
 
     def e_step(self, y, zs, *params):
         total_cost = T.constant(0.).astype(floatX)
         p_y = T.nnet.sigmoid(params[0])[None, :]
+
         grads = []
         for l in xrange(self.n_layers - 1, -1, -1):
             consider_constant = [p_y]
@@ -697,9 +701,9 @@ class DeepSBN(Layer):
                 cond_term = self.conditionals[l].neg_log_prob(y, p_y)
                 consider_constant.append(y)
             else:
-                cond_term = self.conditionals[l].neg_log_prob(
-                    T.nnet.sigmoid(zs[l-1]), p_y)
-                consider_constant.append(zs[l-1])
+                q_ = T.nnet.sigmoid(zs[l-1])
+                cond_term = self.conditionals[l].neg_log_prob(q_, p_y)
+                consider_constant.append(q_)
 
             cost = (cond_term + kl_term).sum(axis=0)
 
@@ -739,7 +743,9 @@ class DeepSBN(Layer):
             q = qs[l]
             h = self.posteriors[l].sample(
                 q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
-            prior_energy = self.posteriors[l].neg_log_prob(h, p_y)
+            prior_energy = self.posteriors[l].neg_log_prob(
+                h[None, :, :, :], p_y[:, None, :, :]).mean(axis=0)
+
             p_y = self.p_y_given_h(h, l, *params)
 
             if l == 0:
