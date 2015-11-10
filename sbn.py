@@ -718,6 +718,8 @@ class DeepSBN(Layer):
 
             total_cost += cost
 
+        grads = grads[::-1]
+
         return total_cost, grads
 
     def step_infer(self, *params):
@@ -769,6 +771,7 @@ class DeepSBN(Layer):
             new_qs.append(q)
 
         cost = T.constant(0.).astype(floatX)
+        new_qs = new_qs[::-1]
 
         return tuple(new_qs) + (cost,)
 
