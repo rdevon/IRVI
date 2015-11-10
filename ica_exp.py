@@ -197,7 +197,7 @@ def train_model(
     alpha=7,
     n_sampling_steps=0,
     n_sampling_steps_test=0,
-    extra_inference_args=None,
+    extra_inference_args=dict(),
 
     n_mcmc_samples=20,
     n_mcmc_samples_test=20,
