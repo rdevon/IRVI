@@ -22,8 +22,8 @@ import time
 from layers import MLP
 from mnist import MNIST
 import op
-from gbn import GaussianBeliefNet as GBN
-from sbn import SigmoidBeliefNetwork as SBN
+from gbn import DeepGBN as DGBN
+from sbn import DeepSBN as DSBN
 from tools import (
     check_bad_nums,
     itemlist,
@@ -38,7 +38,7 @@ def concatenate_inputs(model, y, py):
     '''
     Function to concatenate ground truth to samples and probabilities.
     '''
-    y_hat = model.conditional.sample(py)
+    y_hat = model.conditionals[0].sample(py)
 
     py = T.concatenate([y[None, :, :], py], axis=0)
     y = T.concatenate([y[None, :, :], y_hat], axis=0)
@@ -99,7 +99,6 @@ def unpack(dim_h=None,
            input_mode=None,
            alpha=None,
            center_latent=None,
-           extra_inference_args=None,
            **model_args):
     '''
     Function to unpack pretrained model into fresh SFFN class.
@@ -116,8 +115,7 @@ def unpack(dim_h=None,
         inference_scaling=inference_scaling,
         importance_sampling=importance_sampling,
         alpha=alpha,
-        center_latent=center_latent,
-        extra_inference_args=extra_inference_args,
+        center_latent=center_latent
     )
 
     dim_h = int(dim_h)
@@ -154,9 +152,9 @@ def unpack(dim_h=None,
         models.append(conditional)
 
     if prior == 'logistic':
-        C = SBN
+        C = DSBN
     elif prior == 'gaussian':
-        C = GBN
+        C = DGBN
     else:
         raise ValueError('%s prior not known' % prior)
 
@@ -174,12 +172,13 @@ def unpack(dim_h=None,
 def train_model(
     out_path='', name='', load_last=False, model_to_load=None, save_images=True,
 
-    learning_rate=0.1, optimizer='adam', optimizer_args=dict(),
+    learning_rate=0.1, optimizer='adam',
     batch_size=100, valid_batch_size=100, test_batch_size=1000,
     max_valid=10000,
     epochs=100,
 
     dim_h=300, prior='logistic',
+    n_layers=2,
     input_mode=None,
     generation_net=None, recognition_net=None,
     excludes=['log_sigma'],
@@ -197,7 +196,6 @@ def train_model(
     alpha=7,
     n_sampling_steps=0,
     n_sampling_steps_test=0,
-    extra_inference_args=dict(),
 
     n_mcmc_samples=20,
     n_mcmc_samples_test=20,
@@ -217,8 +215,7 @@ def train_model(
         inference_scaling=inference_scaling,
         importance_sampling=importance_sampling,
         alpha=alpha,
-        center_latent=center_latent,
-        extra_inference_args=extra_inference_args
+        center_latent=center_latent
     )
 
     # ========================================================================
@@ -272,28 +269,40 @@ def train_model(
             raise ValueError('%s prior not known' % prior)
 
         if recognition_net is not None:
-            posterior = load_mlp('posterior', dim_in, dim_h,
-                                 out_act=out_act,
-                                 **recognition_net)
+            posteriors = []
+            for l in xrange(n_layers):
+                if l == 0:
+                    mlp_dim_in = dim_in
+                else:
+                    mlp_dim_in = dim_h
+                posteriors.append(load_mlp('posterior', mlp_dim_in, dim_h,
+                                           out_act=out_act,
+                                           **recognition_net))
         else:
-            posterior = None
+            posteriors = None
 
         if generation_net is not None:
-            conditional = load_mlp('conditional', dim_h, dim_in,
-                                   out_act='T.nnet.sigmoid',
-                                   **generation_net)
+            conditionals = []
+            for l in xrange(n_layers):
+                if l == 0:
+                    mlp_dim_out = dim_in
+                else:
+                    mlp_dim_out = dim_h
+                conditionals.append(load_mlp('conditional', dim_h, mlp_dim_out,
+                                             out_act='T.nnet.sigmoid',
+                                             **generation_net))
         else:
-            conditional = None
+            conditionals = None
 
         if prior == 'logistic':
-            C = SBN
+            C = DSBN
         elif prior == 'gaussian':
-            C = GBN
+            C = DGBN
         else:
             raise ValueError()
-        model = C(dim_in, dim_h, dim_out, trng=trng,
-                conditional=conditional,
-                posterior=posterior,
+        model = C(dim_in, dim_h, dim_out, n_layers=n_layers, trng=trng,
+                conditionals=conditionals,
+                posteriors=posteriors,
                 **kwargs)
 
         models = OrderedDict()
@@ -308,7 +317,7 @@ def train_model(
 
     # ========================================================================
     print 'Getting cost'
-    (zs, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
+    (zss, prior_energy, h_energy, y_energy), updates, constants = model.inference(
         X_i, X, n_inference_steps=n_inference_steps,
         n_sampling_steps=n_sampling_steps, n_samples=n_mcmc_samples)
 
@@ -321,6 +330,19 @@ def train_model(
     rval, updates_s = model(
         X_i, X, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test,
         n_sampling_steps=n_sampling_steps_test)
+    '''
+    x, _ = train.next()
+
+    f = theano.function([X], [rval['q0'], rval['pya0'], rval['pyb0'], rval['kl0'], rval['c0']], updates=updates)
+    q, pa, pb, kl, c = f(x)
+    print q.shape, pa.shape, pb.shape, kl.shape, c.shape
+
+    f = theano.function([X], rval['inference_cost'])
+    print f(x)
+
+    assert False
+    '''
+
     py_s = rval['py']
     lower_bound = rval['lower_bound']
     pd_s, d_hat_s = concatenate_inputs(model, X, py_s)
@@ -338,10 +360,10 @@ def train_model(
 
     # ========================================================================
 
-    extra_outs = [prior_energy, h_energy, y_energy, entropy]
+    extra_outs = [prior_energy, h_energy, y_energy]
 
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
-                        'train y energy', 'entropy']
+                        'train y energy']
 
     # ========================================================================
     print 'Setting final tparams and save function'
@@ -378,7 +400,7 @@ def train_model(
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [X], cost,
         extra_ups=updates,
-        extra_outs=extra_outs, **optimizer_args)
+        extra_outs=extra_outs)
 
     monitor = SimpleMonitor()
 
@@ -492,12 +514,6 @@ def train_model(
                     'valid lower bound': lb_v,
                     'elapsed_time': t1-t0}
                 )
-
-                try:
-                    i_cost = outs_v[3]
-                    outs.update(inference_cost=i_cost)
-                except KeyError:
-                    pass
 
                 monitor.update(**outs)
                 t0 = time.time()

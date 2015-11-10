@@ -42,6 +42,7 @@ def init_inference_args(model,
                         inference_method='momentum',
                         alpha=7,
                         center_latent=False,
+                        extra_inference_args=dict(),
                         **kwargs):
     model.inference_rate = inference_rate
     model.inference_decay = inference_decay
@@ -57,19 +58,19 @@ def init_inference_args(model,
         model.init_infer = model._init_sgd
         model.unpack_infer = model._unpack_sgd
         model.params_infer = model._params_sgd
-        kwargs = init_sgd_args(model, **kwargs)
+        kwargs = init_sgd_args(model, **extra_inference_args)
     elif inference_method == 'momentum':
         model.step_infer = model._step_momentum
         model.init_infer = model._init_momentum
         model.unpack_infer = model._unpack_momentum
         model.params_infer = model._params_momentum
-        kwargs = init_momentum_args(model, **kwargs)
+        kwargs = init_momentum_args(model, **extra_inference_args)
     elif inference_method == 'momentum_straight_through':
         model.step_infer = model._step_momentum_st
         model.init_infer = model._init_momentum
         model.unpack_infer = model._unpack_momentum
         model.params_infer = model._params_momentum
-        kwargs = init_momentum_args(model, **kwargs)
+        kwargs = init_momentum_args(model, **extra_inference_args)
     elif inference_method == 'adaptive':
         model.step_infer = model._step_adapt
         model.init_infer = model._init_adapt
@@ -84,7 +85,7 @@ def init_inference_args(model,
         model.params_infer = model._params_momentum
         model.init_variational_params = model._init_variational_params_adapt
         model.strict = False
-        kwargs = init_momentum_args(model, **kwargs)
+        kwargs = init_momentum_args(model, **extra_inference_args)
     else:
         raise ValueError()
 
@@ -665,9 +666,10 @@ class DeepSBN(Layer):
         h_energy = T.constant(0.).astype(floatX)
 
         p_y = T.nnet.sigmoid(self.z)[None, None, :]
+        qs = [T.nnet.sigmoid(z) for z in zs]
 
         for l in xrange(self.n_layers - 1, -1, -1):
-            q = T.nnet.sigmoid(zs[l])
+            q = qs[l]
             p_h = T.nnet.sigmoid(p_h_logits[l])
             prior_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_y).mean()
             h_energy += self.posteriors[l].neg_log_prob(q, p_h).mean()
@@ -683,24 +685,20 @@ class DeepSBN(Layer):
             if l == 0:
                 y_energy += self.conditionals[l].neg_log_prob(y[None, :, :], p_y).mean()
             else:
-                y_energy += self.conditionals[l].neg_log_prob(q[None, :, :], p_y).mean()
+                y_energy += self.conditionals[l].neg_log_prob(qs[l-1][None, :, :], p_y).mean()
 
         return (prior_energy, h_energy, y_energy), constants
 
     def e_step(self, y, zs, *params):
-        prior = T.nnet.sigmoid(params[0])
-        cost = T.constant(0.).astype(floatX)
-
-        p_y = prior
-
+        total_cost = T.constant(0.).astype(floatX)
+        p_y = T.nnet.sigmoid(params[0])[None, :]
         grads = []
-        for l in xrange(self.n_layers):
-            p_y_c = p_y.copy()
-            consider_constant = [p_y_c]
+        for l in xrange(self.n_layers - 1, -1, -1):
+            consider_constant = [p_y]
 
             z = zs[l]
             q = T.nnet.sigmoid(z)
-            kl_term = self.kl_divergence(q, p_y_c)
+            kl_term = self.kl_divergence(q, p_y)
 
             p_y = self.p_y_given_h(q, l, *params)
 
@@ -712,13 +710,15 @@ class DeepSBN(Layer):
                     T.nnet.sigmoid(zs[l-1]), p_y)
                 consider_constant.append(zs[l-1])
 
-            cost += (cond_term + kl_term).sum(axis=0)
+            cost = (cond_term + kl_term).sum(axis=0)
 
             grad = theano.grad(
                 cost, wrt=z, consider_constant=consider_constant)
             grads.append(grad)
 
-        return cost, grads
+            total_cost += cost
+
+        return total_cost, grads
 
     def step_infer(self, *params):
         raise NotImplementedError()
@@ -733,40 +733,64 @@ class DeepSBN(Layer):
         raise NotImplementedError()
 
     # Importance Sampling
-    def _step_adapt(self, p_h_logit, y, q, *params):
-        prior = T.nnet.sigmoid(params[0])
-        h = self.posterior.sample(
-            q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+    def _step_adapt(self, y, *params):
+        params = list(params)
+        qs = params[:self.n_layers]
+        params = params[self.n_layers:]
 
-        if self.center_latent:
-            py = self.p_y_given_h(h - prior[None, None, :], *params)
-        else:
-            py = self.p_y_given_h(h, *params)
+        total_cost = T.constant(0.).astype(floatX)
+        p_y = T.nnet.sigmoid(params[0])[None, None, :]
+        new_qs = []
 
-        w = self.importance_weights(
-            y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
+        for l in xrange(self.n_layers - 1, -1, -1):
+            q = qs[l]
+            h = self.posteriors[l].sample(
+                q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
 
-        cost = w.std()
-        q = (w[:, :, None] * h).sum(axis=0)
+            prior_energy = self.posteriors[l].neg_log_prob(h, p_y)
 
-        return q, cost
+            p_y = self.p_y_given_h(h, l, *params)
 
-    def _init_adapt(self, ph, y, q):
+            if l == 0:
+                y_energy = self.conditionals[l].neg_log_prob(
+                    y[None, :, :], p_y)
+            else:
+                y_energy = self.conditionals[l].neg_log_prob(
+                    qs[l-1][None, :, :], p_y)
+
+            entropy_term = self.posteriors[l].neg_log_prob(h, q[None, :, :])
+
+            log_p = -y_energy - prior_energy + entropy_term
+            log_p_max = T.max(log_p, axis=0, keepdims=True)
+            w = T.exp(log_p - log_p_max)
+            w = w / w.sum(axis=0, keepdims=True)
+
+            q = (w[:, :, None] * h).sum(axis=0)
+            new_qs.append(q)
+
+        cost = T.constant(0.).astype(floatX)
+
+        return tuple(new_qs) + (cost,)
+
+    def _init_adapt(self, qs):
         return []
 
-    def _init_variational_params_adapt(self, p_h_logit, z0=None):
-        if z0 is None:
-            if self.z_init == 'recognition_net':
-                print 'Starting z0 at recognition net'
-                q0 = T.nnet.sigmoid(p_h_logit)[0]
-            else:
-                q0 = T.alloc(0.5, p_h_logit.shape[0], self.dim_h).astype(floatX)
+    def _init_variational_params_adapt(self, state):
+        z0s = []
+        p_h_logits = []
 
-        return q0
+        for l in xrange(self.n_layers):
+            p_h_logit = self.posteriors[l](state, return_preact=True)
+            p_h = T.nnet.sigmoid(p_h_logit)
+            p_h_logits.append(p_h_logit)
+            state = self.posteriors[l].sample(p_h)
+            z0s.append(p_h[0])
+
+        return z0s, p_h_logits
 
     def _unpack_adapt(self, outs):
-        qs, costs = outs
-        return logit(qs), costs
+        qss = outs[:self.n_layers]
+        return [logit(qs) for qs in qss], outs[-1]
 
     def _params_adapt(self):
         return []
@@ -790,7 +814,6 @@ class DeepSBN(Layer):
 
     # Momentum
     def _step_momentum(self, y, *params):
-        print params
         params = list(params)
         zs = params[:self.n_layers]
         l = params[self.n_layers]
@@ -816,13 +839,7 @@ class DeepSBN(Layer):
     def _params_momentum(self):
         return [T.constant(self.momentum).astype('float32')]
 
-    def infer_q(self, x, y, n_inference_steps, n_sampling_steps=0):
-        updates = theano.OrderedUpdates()
-
-        xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
-        ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
-
-        state = xs
+    def init_variational_params(self, state):
         z0s = []
         p_h_logits = []
 
@@ -833,6 +850,16 @@ class DeepSBN(Layer):
             state = self.posteriors[l].sample(p_h)
 
             z0s.append(p_h_logit[0])
+
+        return z0s, p_h_logits
+
+    def infer_q(self, x, y, n_inference_steps, n_sampling_steps=0):
+        updates = theano.OrderedUpdates()
+
+        xs = T.alloc(0., n_inference_steps + 1, x.shape[0], x.shape[1]) + x[None, :, :]
+        ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
+
+        z0s, p_h_logits = self.init_variational_params(xs)
 
         seqs = [ys]
         outputs_info = z0s + self.init_infer(z0s) + [None]
@@ -873,7 +900,7 @@ class DeepSBN(Layer):
         (prior_energy, h_energy, y_energy), m_constants = self.m_step(
             p_h_logits, y, zs, n_samples=n_samples)
 
-        constants = [zss] + m_constants
+        constants = zss + m_constants
 
         return (zss, prior_energy, h_energy, y_energy), updates, constants
 
@@ -883,39 +910,43 @@ class DeepSBN(Layer):
 
         outs = OrderedDict()
         updates = theano.OrderedUpdates()
-        prior = T.nnet.sigmoid(self.z)
 
-        (p_h_logits, zss, i_cost), updates_i = self.infer_q(
+        (_, zss, i_cost), updates_i = self.infer_q(
             x, y, n_inference_steps, n_sampling_steps=n_sampling_steps)
         updates.update(updates_i)
-        qs = [T.nnet.sigmoid(zs[-1]) for zs in zss]
+        zs = [z[-1] for z in zss]
+        qs = [T.nnet.sigmoid(z) for z in zs]
 
         outs.update(inference_cost=i_cost)
-
         lower_bound = T.constant(0.).astype(floatX)
 
-        p_y = prior
+        p_y = T.nnet.sigmoid(self.z)[None, None, :]
 
         for l in xrange(self.n_layers - 1, -1, -1):
             q = qs[l]
-            p_h = T.nnet.sigmoid(p_h_logits[l])
 
-            kl_term = self.kl_divergence(q[None, :, :], p_y).mean()
+            kl_term = self.kl_divergence(q[None, :, :], p_y).mean(axis=0)
+
+            outs['q%d' % l] = q
+            outs['pya%d' % l] = p_y
+            outs['kl%d' % l] = kl_term
 
             if n_samples == 0:
                 h = q[None, :, :]
             else:
                 h = self.posteriors[l].sample(
                     q, size=(n_samples, q.shape[0], q.shape[1]))
-
             p_y = self.conditionals[l](h)
 
             if l == 0:
-                cond_term = self.conditionals[l].neg_log_prob(y[None, :, :], p_y).mean()
+                cond_term = self.conditionals[l].neg_log_prob(y[None, :, :], p_y).mean(axis=0)
             else:
-                cond_term = self.conditionals[l].neg_log_prob(q[None, :, :], p_y).mean()
+                cond_term = self.conditionals[l].neg_log_prob(qs[l-1][None, :, :], p_y).mean(axis=0)
 
-            lower_bound += kl_term + cond_term
+            outs['pyb%d' % l] = p_y
+            outs['c%d' % l] = cond_term
+
+            lower_bound += (kl_term + cond_term).mean(axis=0)
 
             if calculate_log_marginal:
                 raise NotImplementedError()
