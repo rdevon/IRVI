@@ -38,6 +38,7 @@ def lower_bound_curve(
     n_mcmc_samples_test=20,
     dataset=None,
     dataset_args=None,
+    extra_inference_args=dict(),
     **kwargs):
 
     model_args = dict(
@@ -50,7 +51,8 @@ def lower_bound_curve(
         inference_scaling=inference_scaling,
         n_mcmc_samples_test=n_mcmc_samples_test,
         alpha=alpha,
-        center_latent=center_latent
+        center_latent=center_latent,
+        extra_inference_args=extra_inference_args
     )
 
     models, _ = load_model(model_file, unpack, **model_args)
