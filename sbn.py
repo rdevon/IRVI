@@ -740,7 +740,7 @@ class DeepSBN(Layer):
 
         p_ys = [self.p_y_given_h(h, l, *params) for l, h in enumerate(hs)]
 
-        for l in xrange(self.n_layers - 1, -1, -1):
+        def refine_layer(l):
             q = qs[l]
             y = ys[l]
             h = hs[l]
@@ -762,6 +762,12 @@ class DeepSBN(Layer):
 
             q = (w[:, :, None] * h).sum(axis=0)
             qs[l] = q
+
+        for l in xrange(0, self.n_layers, 2):
+            refine_layer(l)
+
+        for l in xrange(1, self.n_layers, 2):
+            refine_layer(l)
 
         cost = T.constant(0.).astype(floatX)
 
