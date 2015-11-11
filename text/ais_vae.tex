@@ -113,7 +113,8 @@
 \newcommand{\RR}[0]{\mathbb{R}}
 \newcommand{\II}[0]{\mathbb{I}}
 \newcommand{\Scal}[0]{\mathcal{S}}
-\newcommand{\sigmoid}{\sigma}
+\newcommand{\sigmoid}{\text{sigmoid}}
+\newcommand{\Bernoulli}{\text{Bernoulli}}
 \newcommand{\E}[0]{\mathbb{E}}
 \newcommand{\enabla}[0]{\ensuremath{%
     \overset{\raisebox{-0.3ex}[0.5ex][0ex]{%
@@ -202,110 +203,249 @@ University of New Mexico \\
 \maketitle
 
 \begin{abstract}
-    Deep directed graphical models, while representing a potentially powerful class of generative representations, are challenging to train due to difficult inference. Recent advances in variational inference that make use of a inference or \emph{recognition network} have advanced well beyond traditional variational inference and MCMC methods. While these techniques offer higher flexibility as well as simpler and faster inference, they are still limited by the choice of approximate posterior and require variance reduction. Less focus has been given to improving or \emph{refining} the approximate posterior beyond those provided by variational inference. We show that iterative refinement of the approximate posterior can provide notable gains in maximizing the lower bound of the log likelihood, either by applying gradient descent or by using adaptive importance sampling during the E-step of an EM learning algorithm. We show our approach competes with state of the art in both continuous and binary latent variables.
+    Deep directed graphical models, while representing a potentially powerful
+    class of generative representations, are challenging to train due to
+    difficult inference. Recent advances in variational inference that make use
+    of a inference or \emph{recognition network} have advanced well beyond
+    traditional variational inference and MCMC methods. While these techniques
+    offer higher flexibility as well as simpler and faster inference, they are
+    still limited by the choice of approximate posterior and require variance
+    reduction. Less focus has been given to improving or \emph{refining} the
+    approximate posterior beyond those provided by variational inference. We
+    show that iterative refinement of the approximate posterior can provide
+    notable gains in maximizing the lower bound of the log likelihood, either
+    by applying gradient descent or by using adaptive importance sampling
+    during the E-step of a variational EM algorithm. We show our approach
+    competes with state of the art in both continuous and binary latent
+    variables.
     \end{abstract}
 
 \section{Introduction}
 
-Deep generative models offer the capacity for rich representations of complex data while as they can capture multimodal properties of the distribution of interest and generalize better (need something better here). Deep directed graphical models in particular have some advantage over their undirected cousins such as DBMs \citep{salakhutdinov2009deep} as they do not suffer from learning and evaluation difficulties arising from an intractable partition function. Despite their representational power, directed graphical models are generally difficult to train, as the true posterior is generally intractable.
+Deep generative models offer the capacity for rich representations of complex
+data while as they can capture multimodal properties of the distribution of
+interest and generalize better. Deep directed
+graphical models in particular have some advantage over their undirected
+cousins such as DBMs \citep{salakhutdinov2009deep} as they do not suffer from
+learning and evaluation difficulties arising from an intractable partition
+function. Despite their representational power, directed graphical models are
+generally difficult to train, as the true posterior is generally intractable.
 
-Methods for training variants of the Helmholtz machine \citep{dayan1995helmholtz}, such as wake-sleep \citep{hinton1995wake, bornschein2014reweighted} and neural variational inference and learning (NVIL) \citep{mnih2014neural}, and methods for training variational autoencoders (VAE) \citep{kingma2013auto} have supplanted MCMC and traditional variational methods such as mean field coordinate ascent inference in training deep generative models. The gains offered by these methods are due to parameterizing the approximate posterior with a \emph{recognition network} on top of clever learning algorithms. As opposed to traditional methods, this general approach provides a fast and effective means of performing inference and learning which scales well to large datasets.
+Methods for training variants of the Helmholtz machine
+\citep{dayan1995helmholtz}, such as wake-sleep \citep{hinton1995wake,
+bornschein2014reweighted} and neural variational inference and learning (NVIL)
+\citep{mnih2014neural}, and methods for training variational autoencoders (VAE)
+\citep{kingma2013auto} have supplanted more traditional Markov Chain Monte
+Carlo (MCMC) or variational inference based methods such as mean field
+coordinate ascent inference in training deep generative models. The gains
+offered by these methods are due to parameterizing the approximate posterior
+with a \emph{recognition network} on top of clever learning algorithms. As
+opposed to traditional methods, this general approach provides a fast and
+effective means of performing inference and learning which scales well to large
+datasets.
 
-While advancements have been significant, these methods are still limited by the choice of approximate posterior: the approximate nature of the posterior translates to a looseness in the lower bound. Some recent work as begun to address limitations in the posterior by either relaxing the factorial condition \citep{burda2015importance} on the approximate posterior or through the introduction of auxiliary inference networks \citep{rezende2015variational}. 
+While advances have been clear, these methods are still limited by the choice
+of approximate posterior, which translates to a looseness in the lower bound.
+Some recent work has begun to address this limitation by either relaxing the
+factorial assumption \citep{burda2015importance} on the approximate posterior or
+through the introduction of auxiliary inference networks
+\citep{rezende2015variational}. 
 
-\alert{I need to work on this} Notably, there has been recent work focusing on refining the variational posterior by applying gradient descent to variational inference \citep{hoffman2013stochastic} or by applying additional MCMC transitions \citep{salimans2014markov}. We apply two different techniques to refine the approximate posterior from the recognition network during the E-step of an EM algorithm. We first show that, given lower bound optimization can be reinterpreted in terms of a deterministic function, we can use gradient descent to refine the approximate posterior during inference. Next, we show that with binary latent variables, adaptive importance sampling (AdIS) \citep{karamchandani1989adaptive} can be used iteratively to achieve a tighter lower bound to the log likelihood.
+\alert{I need to work on this} Notably, there has been recent work focusing on
+refining the variational posterior by applying gradient descent to variational
+inference \citep{hoffman2013stochastic} or by applying additional MCMC
+transitions \citep{salimans2014markov}. We apply two different techniques to
+refine the approximate posterior from the recognition network during the E-step
+of an EM algorithm. We first show that, given lower bound optimization can be
+reinterpreted in terms of a deterministic function, we can use gradient descent
+to refine the approximate posterior during inference. Next, we show that with
+binary latent variables, adaptive importance sampling (AdIS)
+\citep{karamchandani1989adaptive} can be used iteratively to achieve a tighter
+lower bound to the log likelihood.
 
 \section{Directed Belief Networks and Variational Inference}
-The term \emph{belief network} describes a class of generative models of which the observed distribution is conditioned on a set of stochastic latent causes: $p(x) = \sum_h p(x|h) p(h)$, though in general this term is used to include models where the observed variables are not conditionally independent on the latent variables, $h$. 
 
-In this work, we will use the name \emph{directed belief network} to restrict ourselves to a generative directed graphical model such that the likelihood function factorizes into a hierarchy of conditional densities: $p(x | h) = p(h_n) p(x|h_1) \prod_{i=1}^n p(h_{i}|h_{i+1})$, where each layer $i$ is conditionally independent on the layer above with density $p(h_{i}|h_{i + 1})$ and $p(h_n)$ is a prior distribution of the top layer. Examples include sigmoid belief networks (SBNs) and deep belief networks (DBNs) \citep{hinton2006fast}.
+The term \emph{belief network} describes a class of generative models of which
+the observed distribution is conditioned on a set of stochastic latent causes:
+$p(x) = \sum_h p(x|h) p(h)$, though in general this term is used to include
+models where the observed variables are not conditionally independent on the
+latent variables, $h$. 
 
-Learning directed belief networks amounts to maximum likelihood estimation (MLE), but this is difficult due to the necessary marginalization over the latent density. If we had the posterior $p(h|x) = p(x, h) / p(x)$, then learning would be easy, but in general this is not possible and we require some more advanced techniques. 
+In this work, we will use the name \emph{directed belief network} to restrict
+ourselves to a generative directed graphical model such that the likelihood
+function factorizes into a hierarchy of conditional densities: $p(x | h) =
+p(h_n) p(x|h_1) \prod_{l=1}^n p(h_{l}|h_{l+1})$, where each layer $l$ is
+conditionally independent on the layer above with density $p(h_{l}|h_{l + 1})$
+and $p(h_n)$ is a prior distribution of the top layer. Examples include sigmoid
+belief networks \citep[SBN,][]{neal1992connectionist} and deep belief networks
+\citep[DBN,][]{hinton2006fast}.
+
+Directed belief networks can be trained by maximizing log-likelihood (MLE), but
+this is difficult due to the necessary marginalization over the latent density.
+If we had the posterior $p(h|x) = p(x, h) / p(x)$, then learning would be easy,
+but in general this is not possible and we require some more advanced
+techniques. 
 
 \section{Variational Inference and Learning of Directed Belief Networks}
 \subsection{Variational Lowerbound of Directed Belief Network}
 
-Even with reasonably complex likelihood functions, MLE is not tractable in directed belief networks due to difficult inference of the intractable posterior. Markov Chain Monte Carlo (MCMC), an iterative process for maximizing the likelihood over the latent variables, and can arrive at the exact posterior given an unbound number of steps, but typically suffers from poor mixing in the transition operator and high variance. 
+Even with reasonably complex likelihood functions, MLE is not tractable in
+directed belief networks due to the intractable posterior inference.  One
+solution is to use Markov Chain Monte Carlo (MCMC) sampling to iteratively
+approximate the posterior distribution over the latent variables, which is exact
+given an unbound number of steps under certain conditions. This typically
+suffers high variance. 
+%from poor mixing in the transition operator and high variance. 
 
-Another popular method, variational inference introduces an approximate posterior $q_{\TT}(h|x)$,
-
+Another popular method, variational inference introduces an approximate
+posterior $q_{\TT}(h|x)$:
 \begin{align}
     \label{eq:approx_logp}
-    \log p(x) =& \log \sum_{h} p(x, h) \nonumber \\
-    =& \log \sum_h q(h|x) \frac{p(x, h)}{q(h|x)} \nonumber \\
-    \geq& \sum_h q(h|x) \log \frac{p(x, h)}{q(h|x)} \nonumber \\
-    =& \sum_h q(h|x) \log p(x,h) + \HH(q) = \LL,
+    \log p(x) =& \log \sum_{h} p(x, h) 
+    = \log \sum_h q(h|x) \frac{p(x, h)}{q(h|x)} \nonumber \\
+    \geq& \sum_h q(h|x) \log \frac{p(x, h)}{q(h|x)} 
+    = \sum_h q(h|x) \log p(x,h) + \HH(q) = \LL,
 \end{align}
-with variational parameters $\TT$, where $\HH(q)$. This introduces \emph{lower bound}, $\LL$, of the exact likelihood. Variational inference rephrases learning as choosing the variational parameters $\TT$ to maximize this bound, rather than choosing the latent variables directly. The bound is tight (i.e., $\LL = \log p(x)$) when the KL divergence between the approximate and true posterior is $0$ (i.e., $D_{KL}(q_{\TT}(h|x)||p(h|x)) = 0$) or the approximate matches the true posterior. Optimization then is dependent on the choice of a parametric form for the posterior that can best approximate the exact posterior, and models generally vary in choice of parameterization followed by a learning algorithm which efficiently maximizes its lower bound.
+with variational parameters $\TT$, where $\HH(q)$ is the entropy of the
+approximate posterior $q$. 
+
+This introduces \emph{lower bound}, $\LL$, of the exact likelihood. Variational
+inference rephrases learning as choosing the variational parameters $\TT$ to
+maximize this bound, rather than choosing the latent variables directly. The
+bound is tight (i.e., $\LL = \log p(x)$) when the KL divergence between the
+approximate and true posterior is $0$ (i.e., $D_{KL}(q_{\TT}(h|x)||p(h|x)) =
+0$,) or equivalently when the approximate matches the true posterior.
+Optimization then is dependent on the choice of a parametric form for the
+posterior that can best approximate the exact posterior, and models generally
+vary in choice of parameterization followed by a learning algorithm which
+efficiently maximizes its lower bound.
 
 \subsection{Training a Directed Belief Network}
-If we have a method for finding an approximate posterior, then MLE reduces to an iterative expectation-maximization (EM) algorithm. In the E-step, the variational parameters parameters of the approximate posterior, $\TT$, are chosen such that the lower bound is minimized. In the M-steps, the model parameters $\PP$ are chosen to maximize the likelihood function.
 
-In general, the gradients w.r.t. the model parameters of the lower bound can be estimated using an MCMC approximation:
+If we have a method for finding an approximate posterior, then an
+expectation-maximization (EM)
+algorithm~\citep{dempster1977maximum,neal1998view}.  In the Expectation (E)
+step, the variational parameters parameters of the approximate posterior, $\TT$,
+are chosen/updated such that the KL-divergence between the approximate posterior and
+true posterior is minimized. In the Maximization (M) step, the model parameters
+$\PP$ are chosen/updated to maximize the likelihood function.
 
+In general, the gradient w.r.t. the model parameters of the lower bound can be
+estimated using the following Monte Carlo approximation:
 \begin{align}
 \nabla_{\PP} \LL \approx \frac{1}{N} \sum_n \nabla_{\PP} \log p_{\PP}(x, h^{(n)}),
 \end{align}
 where $h^{(n)} \sim q(h|x)$.
 
 \subsection{Recognition Network}
-Arguably, the most successful posteriors make use of a feed forward, often deep, \emph{recognition network} composed of \emph{global} variational parameters to predict the local variational parameters from the data very quickly. However, these approaches often require additional tricks to train, as the gradient of the lower bound w.r.t. the global variational parameters is difficult to compute and approximations, such as MCMC, have high variance. Variational autoencoders (VAE) \citep{kingma2013auto} make use of a clever parameterization trick so that the lower bound can be rephrased as a deterministic function with some auxilliary noise. The wake-sleep algorithm uses samples from the joint density $p(x, h)$ to optimize the variational parameters, effectively making the algorithm an optimization over two cost functions. NVIL uses REINFORCE along with a baseline predicted from a deep neural network to make lower variance MCMC estimates of the gradient.
 
-It can be argued that better estimates can be made by simply having a better posterior. Some work has been done on using gradient descent \citep{hoffman2013stochastic}, auxiliary networks \citep{rezende2015variational}, or MCMC transitions \citep{salimans2014markov} to refine inference with various posterior parameterizations. 
+Recently, it has been found that the approximate posterior inference can be done
+quickly by using a feed forward, often deep, \emph{recognition network} composed
+of \emph{global} variational parameters to predict the local variational
+parameters from the data \citep[see,
+e.g.,][]{kingma2013auto,mnih2014neural,rezende2014stochastic}. However, these
+approaches often require additional tricks to train, as the gradient of the
+lower bound w.r.t. the global variational parameters is difficult to compute,
+and most of the off-the-shelf approximations, such as Monte Carlo approximation,
+have high variance. 
 
-In general, we want an iterative refinement procedure, defining a transition operator $T$ that arrives at a better posterior, $\tilde{q}$, when applied iteratively to approximate posterior, $q$. We then adjust our global variational parameters by minimizing the KL divergence, $D_{KL}(\tilde{q}||q)$.
+Variational autoencoders (VAE) \citep{kingma2013auto} make use of a clever
+parameterization trick so that the lower bound can be rephrased as a
+deterministic function with some auxilliary noise. The wake-sleep algorithm uses
+samples from the joint density $p(x, h)$ to optimize the variational parameters,
+effectively making the algorithm an optimization over two cost functions
+\citep{hinton1995wake}. NVIL
+uses REINFORCE along with a baseline predicted from a deep neural network to
+make lower variance MCMC estimates of the gradient.
+
+It can be argued that better estimates can be made by simply having a better
+posterior. Some work has proposed to use gradient descent
+\citep{hoffman2013stochastic}, auxiliary networks
+\citep{rezende2015variational}, or MCMC transitions \citep{salimans2014markov}
+to refine inference with various posterior parameterizations. 
+
+In general, we want an iterative refinement procedure, defining a transition
+operator $T$ that arrives at a better posterior, $\tilde{q}$, when applied
+iteratively to approximate posterior, $q$. 
+%We then adjust our global variational
+%parameters by minimizing the KL divergence, $D_{KL}(\tilde{q}||p)$.
 
 \section{Iterative Refinement for Variational Inference}
 
 \subsection{Iterative Refinement of Approximate Posterior}
-We restrict ourselves to the case where the prior and approximate posterior are factorial, that is: $\tilde{q}(h|x; \TT) = \prod_i \tilde{q}(h_i|x; \TT)$. In order to augment our inference from those available from the parameterized approximate posterior, we wish to achieve a better posterior by taking a set number of iterative steps in the \emph{local} variational parameters $\TT^l$ from variation inference by applying a series of transition operators $T(\TT^l_t, \TT^l_{t-1}; \LL)$ parameterized by $\LL$. These transition operators should be a function of the lower bound and maximize it as well.
+We restrict ourselves to the case where the prior and approximate posterior are
+factorial, that is: $p(h) = \prod_i p(h_i)$ and $\tilde{q}(h|x; \TT) = \prod_i
+\tilde{q}(h_i|x; \TT)$, respectively. In
+order to augment our inference from those available from the parameterized
+approximate posterior, we wish to achieve a better posterior by taking a set
+number of iterative steps in the \emph{local} variational parameters $\TT^l$
+from variation inference by applying a series of transition operators
+$T(\TT^l_t, \TT^l_{t-1}; \LL)$ parameterized by $\LL$. These transition
+operators should be a function of the lower bound and maximize it as well.
 
 After we find $\tilde{q}$, we maximize the lower bound w.r.t. the model parameters using stochastic gradient descent, using samples from the refined approximate posterior. Our loss w.r.t. the global variational parameters becomes $D_{KL}(\tilde{q}(\theta^l)||q_{\TT})$.
 
 \subsubsection{Gradient Descent Iterative Refinement (GDIR)}
-If we can rephrase the lower bound as a deterministic function of the local variational parameters and some optional auxiliary noise variables, $\epsilon$, then we can improve the local variational parameters by applying iterative steps of gradient ascent:
+If we can rephrase the lower bound as a deterministic function $g$ of the local
+variational parameters and some optional auxiliary noise variables, $\epsilon$,
+then we can improve the local variational parameters by applying iterative steps
+of gradient ascent:
 
 \begin{align}
 \grad_{\TT^l} \LL &\approx \grad_{\TT^l} g(\TT^l, \epsilon) \nonumber \\
 \TT^l_t &= \TT^l_{t-1} + \gamma \grad_{\TT^l} g(\TT^l, \epsilon)
 \end{align}
-where $\gamma$ is the "inference rate" and $\TT^l_0$ are the initial local parameters found through variational inference. The success of this approach will depend on the choice of approximation, which we will show.
+where $\gamma$ is the "inference rate" and $\TT^l_0$ are the initial local
+parameters found through the initial variational inference. The success of this
+approach will depend on the choice of approximation, which we will show.
 
 \paragraph{Gaussian Latent Variables}
 
-Let us assume that our approximate posterior and prior distributions are parameterized by multivariate normal distributions with diagonal covariance. In order to pass the gradient of the approximate log conditional to the variational parameters, we can use the re-parameterize our approximate posterior as in VAE:
-
+Let us assume that our approximate posterior and prior distributions are
+parameterized by multivariate normal distributions with diagonal covariance. In
+order to pass the gradient of the approximate log conditional to the variational
+parameters, we can use the re-parameterize our approximate posterior as in VAE:
 \begin{align}
 h(\TT^l) &= \mu + \epsilon \odot \sigma \nonumber \\
-\epsilon &\sim \NN(0, 1)
+\epsilon &\sim \NN(0, 1),
 \end{align}
+where $(\mu, \sigma) = \TT^l$ are the mean and variance parameters for the
+posterior density and our auxiliary noise variables, $\epsilon$, are sampled
+from a unit-variance, zero-mean normal distribution.
 
-where $(\mu, \sigma) = \TT^l$ are the mean and variance parameters for the posterior density and our auxiliary noise variables, $\epsilon$, are sampled from a unit-variance, zero-mean normal distribution.
-
-The gradients of lower bound w.r.t. the local variational parameters can be approximated easily from using MCMC:
-
+The gradient of the lower bound w.r.t. the local variational parameters can be
+approximated easily by Monte Carlo method:
 \begin{align}
 \grad_{\TT^l} g(\TT^l, \epsilon) = \frac{1}{N} \grad_{\TT^l} \bigg(\sum_n \log p(x, h(\TT^l)^{(n)}) - \log \tilde{q}(h(\TT^l)^{(n)})\bigg)
 \end{align}
 
 \paragraph{Bernoulli Latent Variables}
-Unfortunately, a suitable re-parameterization as above is not available to us with binary latent variables. In order to use gradient descent to back-propagate the gradients of the lower bound, we need to make a stronger approximation. 
+Unfortunately, a suitable re-parameterization as above is not available to us
+with binary latent variables. In order to use gradient descent to back-propagate
+the gradients of the lower bound, we need to make a stronger approximation. 
 
-There has been some recent work into passing gradients through binary latent variables \citep{bengio2013estimating}. Instead of approximating the partial derivatives w.r.t. the latent variables in back-propagation, we instead push the centers of the Bernoulli distribution, avoiding sampling overall. Our lower bound becomes:
-
+There has been some recent work into passing gradients through binary latent
+variables \citep{bengio2013estimating}. Instead of approximating the partial
+derivatives w.r.t. the latent variables in back-propagation, we instead push the
+centers of the Bernoulli distribution, avoiding sampling overall. Our lower
+bound becomes:
 \begin{align}
-	 \LL \approx g(\TT^l) = \log p(x | \mu) + \qexp{\log p(h)}_{\tilde{q}} + \HH(\tilde{q}),
+     \LL \approx g(\TT^l) = \log p(x | \mu) + \qexp{\log p(h)}_{\tilde{q}} +
+     \HH(\tilde{q}),
 \end{align}
-where $\log p(x | \mu)$ is the log-output of the generation network using the variational parameters $\mu = sigmoid(z)$ as input. However, this approximation is likely highly biased, and becomes worse as $mu$ moves away from $(0, 1)$, so we would expect this approximation to be best when the entropy is low.
+where $\log p(x | \mu)$ is the log-output of the generation network using the
+variational parameters $\mu = \sigmoid(z)$ as input. However, this approximation
+is likely highly biased, and becomes worse as $\mu$ moves away from $(0, 1)$, so
+we would expect this approximation to be best when the entropy is low.
 
 \subsubsection{Adaptive Importance Sampling Iterative Refinement (AdSIR)}
 As an alternative and to address the issues with binary latent variables, we use \emph{adaptive importance sampling} \citep{karamchandani1989adaptive} to iteratively refine the Bernoulli centers at each inference step:
 
 \begin{align}
-h^{(n)} &\sim \mu_t \nonumber \\
+    h^{(n)} &\sim \Bernoulli(\mu_t) \nonumber \\
 w^{(n)} &= p(x, h^{(n)}) / q(h^{(n)} | x) \nonumber \\
 \tilde{w}^{(n)} &= w^{(n)} / \sum_n w^{(n)} \nonumber \\
-\mu_{t+1} &= \sum_n \tilde{w}^{(n)} * h^{(n)}
+\mu_{t+1} &= \sum_n \tilde{w}^{(n)} h^{(n)}
 \end{align}
 
 This will clearly lead to a biased estimate of the lower bound. But we will show that it works very well in practice.
