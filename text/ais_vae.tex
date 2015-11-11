@@ -144,45 +144,35 @@
 %\newcommand\codeHighlight[1]{\textcolor[rgb]{1,0,0}{\textbf{#1}}}
 \newcommand\codeHighlight[1]{\textcolor[rgb]{1,0,0}{#1}}
 
-
-
-
-
-
-
 %\title{Larger-Context Language Modelling \\ with Recurrent Neural Network}
 \title{Iterative Refinement of Approximate Posterior for Training Directed Belief Networks}
 
 \author{R. Devon Hjelm \\
-Mind Research Network \\
-and the Department of Computer Science \\
-University of New Mexico \\
-\texttt{dhjelm@mrn.org} \\
+MRN and UNM \\
+\texttt{dhjelm@mrn.org} 
 \And
 Nebojsa Jojic \\
-Mictrosoft Resarch \\
+Microsoft Research \\
 \texttt{jojic@microsoft.com}
 \And
 Kyunghyun Cho \\
-Courant Institute of Mathematical Sciences \\ 
-and Center for Data Science \\
-New York University \\
+NYU \\
 \texttt{kyunghyun.cho@nyu.edu}
 \And
 Junyoung Chung \\
-Universit\'{e} de Montr\'{e}al \\
+U. de Montr\'{e}al \\
 \texttt{junyoung.chung@umontreal.ca}
 \And
 Russ Salakhutdinov \\
-University of Toronto \\
+U. Toronto \\
 \texttt{rsalakhu@cs.toronto.edu}
 \And
 Vince Calhoun \\
-Mind Research Network \\
-and the Department of Electrical \\ 
-and Computer Engineering \\
-University of New Mexico \\
+MRN and UNM \\
 \texttt{vcalhoun@mrn.org}
+\And
+Yoshua Bengio \\
+U. de Montr\'{e}al
 }
 
 % The \author macro works with any number of authors. There are two commands
@@ -233,9 +223,9 @@ generally difficult to train, as the true posterior is generally intractable.
 
 Methods for training variants of the Helmholtz machine
 \citep{dayan1995helmholtz}, such as wake-sleep \citep{hinton1995wake,
-bornschein2014reweighted} and neural variational inference and learning (NVIL)
-\citep{mnih2014neural}, and methods for training variational autoencoders (VAE)
-\citep{kingma2013auto} have supplanted more traditional Markov Chain Monte
+bornschein2014reweighted} and neural variational inference and learning
+\citep[NVIL,][]{mnih2014neural}, and methods for training variational autoencoders~
+\citep[VAE,][]{kingma2013auto} have supplanted more traditional Markov Chain Monte
 Carlo (MCMC) or variational inference based methods such as mean field
 coordinate ascent inference in training deep generative models. The gains
 offered by these methods are due to parameterizing the approximate posterior
@@ -259,8 +249,8 @@ refine the approximate posterior from the recognition network during the E-step
 of an EM algorithm. We first show that, given lower bound optimization can be
 reinterpreted in terms of a deterministic function, we can use gradient descent
 to refine the approximate posterior during inference. Next, we show that with
-binary latent variables, adaptive importance sampling (AdIS)
-\citep{karamchandani1989adaptive} can be used iteratively to achieve a tighter
+binary latent variables, adaptive importance sampling
+\citep[AdIS][]{karamchandani1989adaptive} can be used iteratively to achieve a tighter
 lower bound to the log likelihood.
 
 \section{Directed Belief Networks and Variational Inference}
@@ -314,7 +304,7 @@ inference rephrases learning as choosing the variational parameters $\TT$ to
 maximize this bound, rather than choosing the latent variables directly. The
 bound is tight (i.e., $\LL = \log p(x)$) when the KL divergence between the
 approximate and true posterior is $0$ (i.e., $D_{KL}(q_{\TT}(h|x)||p(h|x)) =
-0$,) or equivalently when the approximate matches the true posterior.
+0$) or equivalently when the approximate matches the true posterior.
 Optimization then is dependent on the choice of a parametric form for the
 posterior that can best approximate the exact posterior, and models generally
 vary in choice of parameterization followed by a learning algorithm which
@@ -323,8 +313,8 @@ efficiently maximizes its lower bound.
 \subsection{Training a Directed Belief Network}
 
 If we have a method for finding an approximate posterior, then an
-expectation-maximization (EM)
-algorithm~\citep{dempster1977maximum, neal1998view}.  In the Expectation (E)
+expectation-maximization
+algorithm~\citep[EM,][]{dempster1977maximum, neal1998view}.  In the Expectation (E)
 step, the variational parameters parameters of the approximate posterior, $\TT$,
 are chosen/updated such that the KL-divergence between the approximate posterior and
 true posterior is minimized. In the Maximization (M) step, the model parameters
@@ -349,7 +339,7 @@ lower bound w.r.t. the global variational parameters is difficult to compute,
 and most of the off-the-shelf approximations, such as Monte Carlo approximation,
 have high variance. 
 
-Variational autoencoders (VAE) \citep{kingma2013auto} make use of a clever
+Variational autoencoders \citep[VAE,][]{kingma2013auto} make use of a clever
 parameterization trick so that the lower bound can be rephrased as a
 deterministic function with some auxilliary noise. The wake-sleep algorithm uses
 samples from the joint density $p(x, h)$ to optimize the variational parameters,
@@ -376,7 +366,7 @@ iteratively to approximate posterior, $q$.
 We restrict ourselves to the case where the prior and approximate posterior are
 factorial, that is: $p(h) = \prod_i p(h_i)$ and $\tilde{q}(h|x; \TT) = \prod_i
 \tilde{q}(h_i|x; \TT)$, respectively. In
-order to augment our inference from those available from the parameterized
+order to refine our inference from those available from the parameterized
 approximate posterior, we wish to achieve a better posterior by taking a set
 number of iterative steps in the \emph{local} variational parameters $\TT^l$
 from variation inference by applying a series of transition operators
@@ -438,7 +428,7 @@ variational parameters $\mu = \sigmoid(z)$ as input. However, this approximation
 is likely highly biased, and becomes worse as $\mu$ moves away from $(0, 1)$, so
 we would expect this approximation to be best when the entropy is low.
 
-\subsubsection{Adaptive Importance Sampling Iterative Refinement (AdSIR)}
+\subsubsection{Adaptive Importance Sampling Iterative Refinement (AIR)}
 As an alternative and to address the issues with binary latent variables, we use \emph{adaptive importance sampling} \citep{karamchandani1989adaptive} to iteratively refine the Bernoulli centers at each inference step:
 
 \begin{align}
@@ -462,7 +452,7 @@ Normalizing flows for VAE \citep{rezende2015variational} make use of auxiliary n
 
 \subsection{Settings}
 
-We test GDIR and AdISIR on MNIST, using the binarized dataset found in \citep{salakhutdinov2008quantitative}, with a standard train, validation, and test split of $50$k, $10$k, and $10$k samples. Unfortunately, recent papers on VAE \citep{mnih2014neural, salimans2014markov} have used different, non-standard splits, or actively sample from continuous MNIST \citep{burda2015importance}, making it difficult to compete. We however make sure that our results are from the most conservative setting (having the least amount of training examples), thereby making any comparison as meaningful as possible.
+We test GDIR and AIR on MNIST, using the binarized dataset found in \citep{salakhutdinov2008quantitative}, with a standard train, validation, and test split of $50$k, $10$k, and $10$k samples. Unfortunately, recent papers on VAE \citep{mnih2014neural, salimans2014markov} have used different, non-standard splits, or actively sample from continuous MNIST \citep{burda2015importance}, making it difficult to compete. We however make sure that our results are from the most conservative setting (having the least amount of training examples), thereby making any comparison as meaningful as possible.
 
 All models used a recognition network, for comparison to similar models, with the number of parameters and deterministic layers (if present) to match the generation network.
 
@@ -479,7 +469,7 @@ GDIR shows notable improvement over VAE, while showing comparable performance to
 
 \begin{table}
 \label{table:continuous}
-\begin{tabular}{ | m{5em} | m{1cm}| m{5cm} | } 
+\begin{tabular}{ | m{6em} | m{1cm}| m{5cm} | } 
 \hline
 Model & lower bound & NLL \\ 
 \hline
@@ -491,7 +481,7 @@ $GBVI_{20}$ & 92.83 & 90.51 \\
 \hline
 $HVI_5$\footnote[1]{Using the Larochelle dataset and validation dataset during training} &  90.86 & 87.16 \\ 
 $HVI_{10}$\footnote[1] & 87.60 & 85.56 \\ 
-$DLGM+NF$ & \alert{TODO} & \alert{results in paper are confusing} \\
+DLGM+NF & \alert{TODO} & \alert{results in paper are confusing} \\
 \hline
 \end{tabular}
 \caption{Lower bounds and NLL for various continuous latent variable models and training algorithms.}
@@ -511,11 +501,11 @@ Wake-sleep & 120.7 & 116.3 \\
 \hline
 NVIL & 113.1 &  \\ 
 \hline
-$AVI_{20}$ & 114.08 & 110.13 \\
-$AVI_{20}(240)$ & 107.03 & 103.10 \\
+$AIR_{20}$ & 114.08 & 110.13 \\
+$AIR_{20}(240)$ & 107.03 & 103.10 \\
 \hline
-$MPVI_{20}$ &  &  \\
-$MPVI_{20}(240)$ & 122.67  & 103.32 \\
+$GDIR_{20}$ &  &  \\
+$GDIR_{20}(240)$ & 122.67  & 103.32 \\
 \hline
 \end{tabular}
 \caption{Test lower bounds and NLL for various Bernoulli latent variable models training algorithms.}
