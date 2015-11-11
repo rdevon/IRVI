@@ -169,10 +169,10 @@ New York University \\
 \texttt{kyunghyun.cho@nyu.edu}
 \And
 Junyoung Chung \\
-University of Montreal \\
-\texttt{elecegg@gmail.com}
+Universit\'{e} de Montr\'{e}al \\
+\texttt{junyoung.chung@umontreal.ca}
 \And
-Ruslan Salakhutdinov \\
+Russ Salakhutdinov \\
 University of Toronto \\
 \texttt{rsalakhu@cs.toronto.edu}
 \And
@@ -296,7 +296,7 @@ There has been some recent work into passing gradients through binary latent var
 \begin{align}
 	 \LL \approx g(\TT^l) = \log p(x | \mu) + \qexp{\log p(h)}_{\tilde{q}} + \HH(\tilde{q}),
 \end{align}
-where $\log p(x | \mu)$ is the log-output of the generation network using the variational parameters $\mu = sigmoid(z)$ as input. However, this approximation is likely highly biased, and becomes worse as $mu$ moves away from $(0, 1)$, so we would expect this approximation to be best when the entropy is low.
+where $\log p(x | \mu)$ is the log-output of the generation network using the variational parameters $\mu = sigmoid(z)$ as input. However, this approximation is likely highly biased, and becomes worse as $\mu$ moves away from $(0, 1)$, so we would expect this approximation to be best when the entropy is low.
 
 \subsubsection{Adaptive Importance Sampling Iterative Refinement (AdSIR)}
 As an alternative and to address the issues with binary latent variables, we use \emph{adaptive importance sampling} \citep{karamchandani1989adaptive} to iteratively refine the Bernoulli centers at each inference step:
