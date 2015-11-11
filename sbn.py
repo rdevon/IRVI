@@ -683,35 +683,32 @@ class DeepSBN(Layer):
             hs.append(h)
 
         xs = [x] + hs[:-1]
+        ys = [y] + qs[:-1]
         p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
 
         prior_energy = T.constant(0.).astype(floatX)
-        y_energy = T.constant(0.).astype(floatX)
-        h_energy = T.constant(0.).astype(floatX)
+        conditional_energy = T.constant(0.).astype(floatX)
+        posterior_energy = T.constant(0.).astype(floatX)
 
         prior = T.nnet.sigmoid(self.z)
 
         for l in xrange(self.n_layers):
             q = qs[l]
             x = xs[l]
+            y = ys[l]
             h = hs[l]
 
             p_h = self.posteriors[l](x)
-            h_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_h).mean()
+            posterior_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_h).mean()
 
             if l == self.n_layers - 1:
                 prior_energy += self.posteriors[l].neg_log_prob(q, prior[None, :]).mean()
             else:
-                p_y = self.conditionals[l + 1](h)
-                prior_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_y).mean()
+                prior_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_ys[l + 1]).mean()
 
-            if l == 0:
-                y_energy += self.conditionals[l].neg_log_prob(y[None, :, :], p_y).mean()
-            else:
-                q_ = qs[l - 1]
-                y_energy += self.conditionals[l].neg_log_prob(q_[None, :, :], p_y).mean()
+            conditional_energy += self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l]).mean()
 
-        return (prior_energy, h_energy, y_energy), constants
+        return (prior_energy, posterior_energy, conditional_energy), constants
 
     def step_infer(self, *params):
         raise NotImplementedError()
