@@ -630,30 +630,8 @@ class DeepSBN(Layer):
         entropy_term = T.nnet.binary_crossentropy(p_c, p)
         prior_term = T.nnet.binary_crossentropy(q, p)
         return (prior_term - entropy_term).sum(axis=entropy_term.ndim-1)
-        '''
-        entropy_term = self.posteriors[0].entropy(p)
-        prior_term = self.posteriors[0].neg_log_prob(p, q)
-        return prior_term - entropy_term
-        '''
 
     def e_step(self, y, zs, *params):
-        '''
-        z = zs[0]
-        prior = T.nnet.sigmoid(params[0])
-        q = T.nnet.sigmoid(z)
-
-        py = self.p_y_given_h(q, 0, *params)
-
-        consider_constant = [y, prior]
-        cond_term = self.conditionals[0].neg_log_prob(y, py)
-
-        kl_term = self.kl_divergence(q, prior[None, :])
-        total_cost = (cond_term + kl_term).sum(axis=0)
-
-        grad = theano.grad(total_cost, wrt=z, consider_constant=consider_constant)
-        grads = [grad]
-
-        '''
         total_cost = T.constant(0.).astype(floatX)
         p_y = T.nnet.sigmoid(params[0])[None, None, :]
 
@@ -691,64 +669,46 @@ class DeepSBN(Layer):
         return total_cost, grads
 
     def m_step(self, x, y, zs, n_samples=10):
-        '''
-        z = zs[0]
-
-        constants = []
-        q = T.nnet.sigmoid(z)
-        prior = T.nnet.sigmoid(self.z)
-        p_h = self.posteriors[0](x)
-
-        if n_samples == 0:
-            h = q[None, :, :]
-        else:
-            h = self.posteriors[0].sample(
-                q, size=(n_samples, q.shape[0], q.shape[1]))
-
-        py = self.conditionals[0](h)
-
-        prior_energy = self.posteriors[0].neg_log_prob(q, prior[None, :]).mean()
-        y_energy = self.conditionals[0].neg_log_prob(y[None, :, :], py).mean()
-        h_energy = self.posteriors[0].neg_log_prob(q, p_h).mean()
-
-        '''
         constants = []
 
         qs = [T.nnet.sigmoid(z) for z in zs]
 
-        hs = [x[None, :, :]]
+        hs = []
         for l, q in enumerate(qs):
             if n_samples == 0:
                 h = q[None, :, :]
             else:
                 h = self.posteriors[l].sample(
                     q, size=(n_samples, q.shape[0], q.shape[1]))
-
             hs.append(h)
 
+        xs = [x] + hs[:-1]
+        ys = [y] + qs[:-1]
+        p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
+
         prior_energy = T.constant(0.).astype(floatX)
-        y_energy = T.constant(0.).astype(floatX)
-        h_energy = T.constant(0.).astype(floatX)
+        conditional_energy = T.constant(0.).astype(floatX)
+        posterior_energy = T.constant(0.).astype(floatX)
 
-        p_y = T.nnet.sigmoid(self.z)[None, None, :]
+        prior = T.nnet.sigmoid(self.z)
 
-        for l in xrange(self.n_layers - 1, -1, -1):
+        for l in xrange(self.n_layers):
             q = qs[l]
-            h_ = hs[l]
-            h = hs[l + 1]
-            p_h = self.posteriors[l](h_)
+            x = xs[l]
+            y = ys[l]
+            h = hs[l]
 
-            prior_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_y).mean()
-            h_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_h).mean()
+            p_h = self.posteriors[l](x)
+            posterior_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_h).mean()
 
-            p_y = self.conditionals[l](h)
-
-            if l == 0:
-                y_energy += self.conditionals[l].neg_log_prob(y[None, :, :], p_y).mean()
+            if l == self.n_layers - 1:
+                prior_energy += self.posteriors[l].neg_log_prob(q, prior[None, :]).mean()
             else:
-                y_energy += self.conditionals[l].neg_log_prob(qs[l-1][None, :, :], p_y).mean()
+                prior_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_ys[l + 1]).mean()
 
-        return (prior_energy, h_energy, y_energy), constants
+            conditional_energy += self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l]).mean()
+
+        return (prior_energy, posterior_energy, conditional_energy), constants
 
     def step_infer(self, *params):
         raise NotImplementedError()
@@ -768,7 +728,6 @@ class DeepSBN(Layer):
         qs = params[:self.n_layers]
         params = params[self.n_layers:]
 
-        total_cost = T.constant(0.).astype(floatX)
         p_y = T.nnet.sigmoid(params[0])[None, None, :]
         new_qs = []
 

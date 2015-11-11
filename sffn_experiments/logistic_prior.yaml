@@ -5,28 +5,36 @@
   dim_h: 200,
   epochs: 500,
   batch_size: 10,
+  valid_batch_size: 10,
+  max_valid: 1000,
+  center_latent: True,
+  optimizer: 'rmsprop',
+  optimizer_args: {
+    relaxation: 0.003,
+    momentum: 0.97,
+    coefficient: 0.978,
+  },
   recognition_net: {
-    dim_h: 200,
+    dim_h: 250,
     h_act: 'T.nnet.softplus',
-    n_layers: 1
+    n_layers: 2
   },
   generation_net: {
-    dim_h: 200,
+    dim_h: 250,
     h_act: 'T.nnet.softplus',
-    n_layers: 1
+    n_layers: 2
   },
   z_init: 'recognition_net',
-  inference_method: 'momentum_3',
+  inference_method: 'momentum',
   inference_rate: 1.0,
-  n_inference_steps: 23,
-  n_inference_steps_test: 23,
-  n_inference_samples: 19,
+  n_inference_steps: 0,
+  n_inference_steps_test: 0,
+  n_inference_samples: 20,
   inference_decay: 1.0,
-  n_mcmc_samples: 17,
-  n_mcmc_samples_test: 17,
-  importance_sampling: True,
+  n_mcmc_samples: 20,
+  n_mcmc_samples_test: 20,
   dataset: 'mnist',
   dataset_args: {
-    source: '/export/mialab/users/dhjelm/data/mnist_binarized_salakhutdinov.pkl.gz',
+    source: '/Users/devon/Data/mnist_binarized_salakhutdinov.pkl.gz'
   }
 }
