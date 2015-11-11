@@ -633,7 +633,7 @@ class DeepSBN(Layer):
 
     def e_step(self, y, zs, *params):
         total_cost = T.constant(0.).astype(floatX)
-        p_y = T.nnet.sigmoid(params[0])[None, None, :]
+        p_y = T.nnet.sigmoid(params[0])[None, :]
 
         grads = []
         for l in xrange(self.n_layers - 1, -1, -1):
@@ -641,18 +641,19 @@ class DeepSBN(Layer):
 
             z = zs[l]
             q = T.nnet.sigmoid(z)
-            kl_term = self.kl_divergence(q[None, :, :], p_y).mean(axis=0)
+            kl_term = self.kl_divergence(q, p_y).mean(axis=0)
 
-            p_y_approx = self.p_y_given_h(q, l, *params)
+            #p_y_approx = self.p_y_given_h(q, l, *params)
             h = self.posteriors[l].sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
-            p_y = self.p_y_given_h(h, l, *params)
+            #p_y = self.p_y_given_h(h, l, *params)
+            p_y = self.p_y_given_h(q, l, *params)
 
             if l == 0:
-                cond_term = self.conditionals[l].neg_log_prob(y, p_y_approx)
+                cond_term = self.conditionals[l].neg_log_prob(y, p_y)
                 consider_constant.append(y)
             else:
                 q_ = T.nnet.sigmoid(zs[l-1])
-                cond_term = self.conditionals[l].neg_log_prob(q_, p_y_approx)
+                cond_term = self.conditionals[l].neg_log_prob(q_, p_y)
                 consider_constant.append(q_)
 
             cost = (cond_term + kl_term).sum(axis=0)
@@ -704,7 +705,7 @@ class DeepSBN(Layer):
             if l == self.n_layers - 1:
                 prior_energy += self.posteriors[l].neg_log_prob(q, prior[None, :]).mean()
             else:
-                prior_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_ys[l + 1]).mean()
+                prior_energy += self.conditionals[l + 1].neg_log_prob(q[None, :, :], p_ys[l + 1]).mean()
 
             conditional_energy += self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l]).mean()
 
@@ -728,39 +729,43 @@ class DeepSBN(Layer):
         qs = params[:self.n_layers]
         params = params[self.n_layers:]
 
-        p_y = T.nnet.sigmoid(params[0])[None, None, :]
-        new_qs = []
+        prior = T.nnet.sigmoid(params[0])
+        ys = [y] + qs[:-1]
+
+        hs = []
+        for l, q in enumerate(qs):
+            h = self.posteriors[l].sample(
+                q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+            hs.append(h)
+
+        p_ys = [self.p_y_given_h(h, l, *params) for l, h in enumerate(hs)]
 
         for l in xrange(self.n_layers - 1, -1, -1):
             q = qs[l]
-            h = self.posteriors[l].sample(
-                q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
-            prior_energy = self.posteriors[l].neg_log_prob(
-                h[None, :, :, :], p_y[:, None, :, :]).mean(axis=0)
+            y = ys[l]
+            h = hs[l]
 
-            p_y = self.p_y_given_h(h, l, *params)
+            cond_energy = self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l])
 
-            if l == 0:
-                y_energy = self.conditionals[l].neg_log_prob(
-                    y[None, :, :], p_y)
+            if l == self.n_layers - 1:
+                prior_energy = self.posteriors[l].neg_log_prob(h, prior[None, None, :])
             else:
-                y_energy = self.conditionals[l].neg_log_prob(
-                    qs[l-1][None, :, :], p_y)
+                prior_energy = self.conditionals[l + 1].neg_log_prob(
+                    h[None, :, :, :], p_ys[l + 1][:, None, :, :]).mean(axis=0)
 
             entropy_term = self.posteriors[l].neg_log_prob(h, q[None, :, :])
 
-            log_p = -y_energy - prior_energy + entropy_term
+            log_p = -cond_energy - prior_energy + entropy_term
             log_p_max = T.max(log_p, axis=0, keepdims=True)
             w = T.exp(log_p - log_p_max)
             w = w / w.sum(axis=0, keepdims=True)
 
             q = (w[:, :, None] * h).sum(axis=0)
-            new_qs.append(q)
+            qs[l] = q
 
         cost = T.constant(0.).astype(floatX)
-        new_qs = new_qs[::-1]
 
-        return tuple(new_qs) + (cost,)
+        return tuple(qs) + (cost,)
 
     def _init_adapt(self, qs):
         return []
