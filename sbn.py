@@ -892,62 +892,42 @@ class DeepSBN(Layer):
         outs.update(inference_cost=i_cost)
         lower_bound = T.constant(0.).astype(floatX)
 
-        p_y = T.nnet.sigmoid(self.z)[None, None, :]
-
-        '''
-        #----
-        prior = T.nnet.sigmoid(self.z)
-        q = qs[0]
-
-        if n_samples == 0:
-            h = q[None, :, :]
-        else:
-            h = self.posteriors[0].sample(
-                q, size=(n_samples, q.shape[0], q.shape[1]))
-
-        p_y = self.conditionals[0](h)
-
-        cond_term = self.conditionals[0].neg_log_prob(y[None, :, :], p_y).mean()
-        kl_term = self.kl_divergence(q, prior[None, :]).mean()
-
-        lower_bound = (cond_term + kl_term)
-        '''
-
-        for l in xrange(self.n_layers - 1, -1, -1):
-            q = qs[l]
-
-            kl_term = self.kl_divergence(q[None, :, :], p_y).mean(axis=0)
-
+        hs = []
+        for l, q in enumerate(qs):
             if n_samples == 0:
                 h = q[None, :, :]
             else:
                 h = self.posteriors[l].sample(
                     q, size=(n_samples, q.shape[0], q.shape[1]))
-            p_y = self.conditionals[l](h)
+            hs.append(h)
 
-            if l == 0:
-                cond_term = self.conditionals[l].neg_log_prob(y[None, :, :], p_y).mean(axis=0)
+        xs = [x] + hs[:-1]
+        ys = [y] + qs[:-1]
+        p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
+
+        prior_energy = T.constant(0.).astype(floatX)
+        conditional_energy = T.constant(0.).astype(floatX)
+        posterior_energy = T.constant(0.).astype(floatX)
+
+        prior = T.nnet.sigmoid(self.z)
+
+        for l in xrange(self.n_layers):
+            q = qs[l]
+            x = xs[l]
+            y = ys[l]
+
+            if l == self.n_layers - 1:
+                kl_term = self.kl_divergence(q, prior[None, :])
             else:
-                cond_term = self.conditionals[l].neg_log_prob(qs[l-1][None, :, :], p_y).mean(axis=0)
+                kl_term = self.posteriors[l].entropy(q)
+                #kl_term = self.kl_divergence(q[None, :, :], p_ys[l + 1]).mean(axis=0)
+
+            cond_term = self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l]).mean(axis=0)
 
             lower_bound += (kl_term + cond_term).mean(axis=0)
 
-            if calculate_log_marginal:
-                raise NotImplementedError()
-                nll = -log_mean_exp(
-                    -self.conditional.neg_log_prob(
-                        y[None, :, :], pys[:, -1])
-                    - self.posterior.neg_log_prob(
-                        h[:, -1], prior[None, None, :]
-                    )
-                    + self.posterior.neg_log_prob(
-                        h[:, -1], q[-1][None, :, :]
-                    ),
-                    axis=0).mean()
-                outs.update(nll=nll)
-
         outs.update(
-            py=p_y,
+            py=p_ys[0],
             lower_bound=lower_bound
         )
 
