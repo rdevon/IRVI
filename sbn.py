@@ -704,8 +704,6 @@ class DeepSBN(Layer):
 
             if l == self.n_layers - 1:
                 prior_energy += self.posteriors[l].neg_log_prob(q, prior[None, :]).mean()
-            else:
-                prior_energy += self.conditionals[l + 1].neg_log_prob(q[None, :, :], p_ys[l + 1]).mean()
 
             conditional_energy += self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l]).mean()
 
