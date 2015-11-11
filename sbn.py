@@ -208,7 +208,7 @@ class SigmoidBeliefNetwork(Layer):
         log_p_max = T.max(log_p, axis=0, keepdims=True)
         w = T.exp(log_p - log_p_max)
 
-        return (T.log(w.sum(axis=0, keepdims=True)) + log_p_max).mean()
+        return (T.log(w.mean(axis=0, keepdims=True)) + log_p_max).mean()
 
     def kl_divergence(self, p, q, entropy_scale=1.0):
         entropy_term = entropy_scale * self.posterior.entropy(p)
@@ -633,39 +633,43 @@ class DeepSBN(Layer):
 
     def e_step(self, y, zs, *params):
         total_cost = T.constant(0.).astype(floatX)
-        p_y = T.nnet.sigmoid(params[0])[None, :]
+        qs = [T.nnet.sigmoid(z) for z in zs]
+
+        prior = T.nnet.sigmoid(params[0])
+        ys = [y] + qs[:-1]
+
+        hs = []
+        for l, q in enumerate(qs):
+            h = self.posteriors[l].sample(
+                q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
+            hs.append(h)
+
+        p_ys = [self.p_y_given_h(h, l, *params) for l, h in enumerate(hs)]
+        p_y_approxs = [self.p_y_given_h(q, l, *params) for l, h in enumerate(qs)]
 
         grads = []
-        for l in xrange(self.n_layers - 1, -1, -1):
-            consider_constant = [p_y]
-
+        def refine_layer(l):
             z = zs[l]
-            q = T.nnet.sigmoid(z)
-            kl_term = self.kl_divergence(q, p_y).mean(axis=0)
+            q = qs[l]
+            y = ys[l]
+            h = hs[l]
 
-            #p_y_approx = self.p_y_given_h(q, l, *params)
-            h = self.posteriors[l].sample(q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
-            #p_y = self.p_y_given_h(h, l, *params)
-            p_y = self.p_y_given_h(q, l, *params)
-
-            if l == 0:
-                cond_term = self.conditionals[l].neg_log_prob(y, p_y)
-                consider_constant.append(y)
+            if l == self.n_layers - 1:
+                kl_term = self.kl_divergence(q, prior[None, :])
             else:
-                q_ = T.nnet.sigmoid(zs[l-1])
-                cond_term = self.conditionals[l].neg_log_prob(q_, p_y)
-                consider_constant.append(q_)
+                kl_term = self.kl_divergence(q[None, :, :], p_ys[l + 1]).mean(axis=0)
+
+            cond_term = self.conditionals[l].neg_log_prob(y, p_y_approxs[l])
 
             cost = (cond_term + kl_term).sum(axis=0)
 
-            grad = theano.grad(
-                cost, wrt=z, consider_constant=consider_constant)
+            grad = theano.grad(cost, wrt=z, consider_constant=[y, prior])
+            return grad, cost
+
+        for l in xrange(self.n_layers):
+            grad, cost = refine_layer(l)
             grads.append(grad)
-
             total_cost += cost
-
-        grads = grads[::-1]
-
 
         return total_cost, grads
 
