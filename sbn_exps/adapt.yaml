@@ -8,7 +8,6 @@
   batch_size: 10,
   valid_batch_size: 10,
   max_valid: 1000,
-  center_latent: True,
   optimizer: 'adam',
   recognition_net: {
     dim_h: 200,
@@ -31,6 +30,8 @@
   n_mcmc_samples_test: 20,
   dataset: 'mnist',
   dataset_args: {
-    source: '/Users/devon/Data/mnist_binarized_salakhutdinov.pkl.gz'
-  }
+    source: '/export/mialab/users/dhjelm/data/mnist_binarized_salakhutdinov.pkl.gz'
+  },
+  show_freq: 1000,
+  model_save_freq: 1000,
 }
