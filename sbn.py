@@ -919,7 +919,7 @@ class DeepSBN(Layer):
             if l == self.n_layers - 1:
                 kl_term = self.kl_divergence(q, prior[None, :])
             else:
-                kl_term = self.posteriors[l].entropy(q)
+                kl_term = -self.posteriors[l].entropy(q)
                 #kl_term = self.kl_divergence(q[None, :, :], p_ys[l + 1]).mean(axis=0)
 
             cond_term = self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l]).mean(axis=0)
