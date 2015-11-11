@@ -1,11 +1,11 @@
 {
   name: 'gbn_adapt',
   prior: 'gaussian',
-  dim_h: 203,
-  learning_rate: 0.003,
-  optimizer: 'rmsprop',
+  dim_h: 200,
+  learning_rate: 0.0003,
+  optimizer: 'adam',
   epochs: 500,
-  excludes: ['log_sigma', 'mu'],
+  excludes: ['mu', 'log_sigma'],
   recognition_net: {
     dim_h: 500,
     h_act: 'T.nnet.softplus',
@@ -17,7 +17,7 @@
     n_layers: 2
   },
   z_init: 'recognition_net',
-  inference_method: 'adaptive',
+  inference_method: 'momentum_then_adapt',
   inference_rate: .003,
   n_inference_steps: 20,
   n_inference_steps_test: 20,

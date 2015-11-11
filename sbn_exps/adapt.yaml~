@@ -1,5 +1,5 @@
 {
-  name: 'dsbn',
+  name: 'dsbn_adapt',
   prior: 'logistic',
   learning_rate: 0.003,
   dim_h: 200,
@@ -21,7 +21,7 @@
     n_layers: 2
   },
   z_init: 'recognition_net',
-  inference_method: 'momentum',
+  inference_method: 'adaptive',
   inference_rate: 0.02,
   n_inference_steps: 20,
   n_inference_steps_test: 20,
