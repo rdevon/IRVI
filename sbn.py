@@ -623,7 +623,9 @@ class DeepSBN(Layer):
         return p
 
     def kl_divergence(self, p, q):
-
+        '''
+        Negative KL divergence actually.
+        '''
         p_c = T.clip(p, 1e-7, 1.0 - 1e-7)
         q = T.clip(q, 1e-7, 1.0 - 1e-7)
 
@@ -690,26 +692,22 @@ class DeepSBN(Layer):
         xs = [x] + hs[:-1]
         ys = [y] + qs[:-1]
         p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
+        p_hs = [posterior(x) for x, posterior in zip(xs, self.posteriors)]
 
-        prior_energy = T.constant(0.).astype(floatX)
         conditional_energy = T.constant(0.).astype(floatX)
         posterior_energy = T.constant(0.).astype(floatX)
 
-        prior = T.nnet.sigmoid(self.z)
-
         for l in xrange(self.n_layers):
             q = qs[l]
-            x = xs[l]
             y = ys[l]
-            h = hs[l]
 
-            p_h = self.posteriors[l](x)
-            posterior_energy += self.posteriors[l].neg_log_prob(q[None, :, :], p_h).mean()
+            posterior_energy += self.posteriors[l].neg_log_prob(
+                q[None, :, :], p_hs[l]).mean()
+            conditional_energy += self.conditionals[l].neg_log_prob(
+                y[None, :, :], p_ys[l]).mean()
 
-            if l == self.n_layers - 1:
-                prior_energy += self.posteriors[l].neg_log_prob(q, prior[None, :]).mean()
-
-            conditional_energy += self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l]).mean()
+        prior = T.nnet.sigmoid(self.z)
+        prior_energy = self.posteriors[-1].neg_log_prob(qs[-1], prior[None, :]).mean()
 
         return (prior_energy, posterior_energy, conditional_energy), constants
 
@@ -903,7 +901,6 @@ class DeepSBN(Layer):
                     q, size=(n_samples, q.shape[0], q.shape[1]))
             hs.append(h)
 
-        xs = [x] + hs[:-1]
         ys = [y] + qs[:-1]
         p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
 
@@ -915,14 +912,12 @@ class DeepSBN(Layer):
 
         for l in xrange(self.n_layers):
             q = qs[l]
-            x = xs[l]
             y = ys[l]
 
             if l == self.n_layers - 1:
                 kl_term = self.kl_divergence(q, prior[None, :])
             else:
                 kl_term = -self.posteriors[l].entropy(q)
-                #kl_term = self.kl_divergence(q[None, :, :], p_ys[l + 1]).mean(axis=0)
 
             cond_term = self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l]).mean(axis=0)
 
