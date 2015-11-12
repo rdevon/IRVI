@@ -329,12 +329,11 @@ class SigmoidBeliefNetwork(Layer):
         return []
 
     # Momentum
-    def _step_momentum(self, y, z, l, dz_, m, *params):
+    def _step_momentum(self, y, z, dz_, m, *params):
+        l = self.inference_rate
         cost, grad = self.e_step(y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
-
-        l *= self.inference_decay
         return z, l, dz, cost
 
     def _step_momentum_st(self, y, z, l, dz_, m, *params):
@@ -397,7 +396,7 @@ class SigmoidBeliefNetwork(Layer):
         return q, l, dz, cost
 
     def _init_momentum(self, z):
-        return [self.inference_rate, T.zeros_like(z)]
+        return [T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
         zs, ls, dzs, costs = outs
@@ -689,10 +688,14 @@ class DeepSBN(Layer):
                     q, size=(n_samples, q.shape[0], q.shape[1]))
             hs.append(h)
 
-        xs = [x] + qs[:-1]
         ys = [y] + qs[:-1]
         p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
-        p_hs = [posterior(x) for x, posterior in zip(xs, self.posteriors)]
+
+        p_hs = []
+        state = x
+        for l, posterior in enumerate(self.posteriors):
+            state = posterior(state)
+            p_hs.append(state)
 
         conditional_energy = T.constant(0.).astype(floatX)
         posterior_energy = T.constant(0.).astype(floatX)
@@ -731,6 +734,8 @@ class DeepSBN(Layer):
         prior = T.nnet.sigmoid(params[0])
 
         hs = []
+        new_qs = []
+
         for l, q in enumerate(qs):
             h = self.posteriors[l].sample(
                 q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
@@ -749,16 +754,17 @@ class DeepSBN(Layer):
         for l in xrange(self.n_layers):
             h = hs[l]
             q = (w[:, :, None] * h).sum(axis=0)
-            qs[l] = q
+            new_qs.append(q)
 
         cost = T.constant(0.).astype(floatX)
 
-        return tuple(qs) + (cost,)
+        return tuple(new_qs) + (cost,)
 
     def _init_adapt(self, qs):
         return []
 
     def _init_variational_params_adapt(self, state):
+        print 'Initializing variational params for AdIS'
         q0s = []
 
         for l in xrange(self.n_layers):
@@ -835,20 +841,23 @@ class DeepSBN(Layer):
             updates.update(updates_2)
 
             zss, i_costs = self.unpack_infer(outs)
+            zss = [concatenate([z0[None, :, :], zs]) for z0, zs in zip(z0s, zss)]
 
         else:
             raise NotImplementedError()
 
-        zs = [z[-1] for z in zss]
+        #zs = [z[-1] for z in zss]
 
-        return (zs, i_costs[-1]), updates
+        return (zss, i_costs[-1]), updates
 
     # Inference
     def inference(self, x, y, n_inference_steps=20,
                   n_sampling_steps=0, n_samples=100):
 
-        (zs, _), updates = self.infer_q(
+        (zss, _), updates = self.infer_q(
             x, y, n_inference_steps, n_sampling_steps=n_sampling_steps)
+
+        zs = [z[-1] for z in zss]
 
         (prior_energy, h_energy, y_energy), m_constants = self.m_step(
             x, y, zs, n_samples=n_samples)
@@ -864,48 +873,55 @@ class DeepSBN(Layer):
         outs = OrderedDict()
         updates = theano.OrderedUpdates()
 
-        (zs, i_cost), updates_i = self.infer_q(
+        (zss, i_cost), updates_i = self.infer_q(
             x, y, n_inference_steps, n_sampling_steps=n_sampling_steps)
         updates.update(updates_i)
-        qs = [T.nnet.sigmoid(z) for z in zs]
-
         outs.update(inference_cost=i_cost)
-        lower_bound = T.constant(0.).astype(floatX)
 
-        hs = []
-        for l, q in enumerate(qs):
-            if n_samples == 0:
-                h = q[None, :, :]
-            else:
-                h = self.posteriors[l].sample(
-                    q, size=(n_samples, q.shape[0], q.shape[1]))
-            hs.append(h)
+        lower_bounds = []
 
-        ys = [y] + qs[:-1]
-        p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
+        def get_lower_bound(step):
+            zs = [z[step] for z in zss]
+            qs = [T.nnet.sigmoid(z) for z in zs]
 
-        prior_energy = T.constant(0.).astype(floatX)
-        conditional_energy = T.constant(0.).astype(floatX)
-        posterior_energy = T.constant(0.).astype(floatX)
+            lower_bound = T.constant(0.).astype(floatX)
 
-        prior = T.nnet.sigmoid(self.z)
+            hs = []
+            for l, q in enumerate(qs):
+                if n_samples == 0:
+                    h = q[None, :, :]
+                else:
+                    h = self.posteriors[l].sample(
+                        q, size=(n_samples, q.shape[0], q.shape[1]))
+                hs.append(h)
 
-        for l in xrange(self.n_layers):
-            q = qs[l]
-            y = ys[l]
+            ys = [y] + qs[:-1]
+            p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
+            prior = T.nnet.sigmoid(self.z)
 
-            if l == self.n_layers - 1:
-                kl_term = self.kl_divergence(q, prior[None, :])
-            else:
-                kl_term = -self.posteriors[l].entropy(q)
+            for l in xrange(self.n_layers):
+                q = qs[l]
+                y_ = ys[l]
 
-            cond_term = self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l]).mean(axis=0)
+                if l == self.n_layers - 1:
+                    kl_term = self.kl_divergence(q, prior[None, :])
+                else:
+                    kl_term = -self.posteriors[l].entropy(q)
 
-            lower_bound += (kl_term + cond_term).mean(axis=0)
+                cond_term = self.conditionals[l].neg_log_prob(y_[None, :, :], p_ys[l]).mean(axis=0)
+
+                lower_bound += (kl_term + cond_term).mean(axis=0)
+
+            return lower_bound, p_ys[0]
+
+        for l in xrange(n_inference_steps):
+            lower_bound, p_y = get_lower_bound(l)
+            lower_bounds.append(lower_bound)
 
         outs.update(
-            py=p_ys[0],
-            lower_bound=lower_bound
+            py=p_y,
+            lower_bound=lower_bounds[-1],
+            lower_bounds=lower_bounds
         )
 
         return outs, updates
