@@ -1,8 +1,8 @@
 {
   name: 'dsbn',
   prior: 'logistic',
-  learning_rate: 0.0003,
-  dim_h: 201,
+  learning_rate: 0.0001,
+  dim_h: 200,
   n_layers: 2,
   epochs: 500,
   batch_size: 10,
@@ -10,25 +10,25 @@
   max_valid: 1000,
   optimizer: 'adam',
   recognition_net: {
-    dim_h: 205,
+    dim_h: 200,
     h_act: 'T.nnet.softplus',
     n_layers: 2
   },
   generation_net: {
-    dim_h: 203,
+    dim_h: 200,
     h_act: 'T.nnet.softplus',
     n_layers: 2
   },
   z_init: 'recognition_net',
   inference_method: 'momentum',
-  inference_rate: 0.02,
-  n_inference_steps: 50,
-  n_inference_steps_test: 50,
+  inference_rate: 0.001,
+  n_inference_steps: 20,
+  n_inference_steps_test: 20,
   n_inference_samples: 20,
   n_mcmc_samples: 20,
   n_mcmc_samples_test: 20,
   dataset: 'mnist',
   dataset_args: {
-    source: '/Users/devon/Data/mnist_binarized_salakhutdinov.pkl.gz'
+    source: '/export/mialab/users/dhjelm/data/mnist_binarized_salakhutdinov.pkl.gz'
   }
 }

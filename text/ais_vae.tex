@@ -1,3 +1,4 @@
+%
 \documentclass{article} % For LaTeX2e
 \usepackage{iclr2016_conference,times}
 \usepackage{url}
@@ -147,7 +148,7 @@
 %\title{Larger-Context Language Modelling \\ with Recurrent Neural Network}
 \title{Iterative Refinement of Approximate Posterior for Training Directed Belief Networks}
 
-\author{R. Devon Hjelm \\
+\author{R Devon Hjelm \\
 MRN and UNM \\
 \texttt{dhjelm@mrn.org} 
 \And
@@ -195,17 +196,17 @@ U. de Montr\'{e}al
 \begin{abstract}
     Deep directed graphical models, while representing a potentially powerful
     class of generative representations, are challenging to train due to
-    difficult inference. Recent advances in variational inference that make use
-    of a inference or \emph{recognition network} have advanced well beyond
-    traditional variational inference and MCMC methods. While these techniques
+    [difficult inference...\textbf{little vague...maybe rephrase?}...]. Recent advances in variational inference that make use
+    of an inference or \emph{recognition network} have advanced well beyond
+    traditional variational inference and MCMC (\textbf{define all acronyms at first use if room}) methods. While these techniques
     offer higher flexibility as well as simpler and faster inference, they are
     still limited by the choice of approximate posterior and require variance
     reduction. Less focus has been given to improving or \emph{refining} the
-    approximate posterior beyond those provided by variational inference. We
+    approximate posterior beyond what is provided by variational inference. We
     show that iterative refinement of the approximate posterior can provide
     notable gains in maximizing the lower bound of the log likelihood, either
     by applying gradient descent or by using adaptive importance sampling
-    during the E-step of a variational EM algorithm. We show our approach
+    during the E-step of a variational EM (\textbf{common, but define anyway}) algorithm. We show our approach
     competes with state of the art in both continuous and binary latent
     variables.
     \end{abstract}
@@ -216,7 +217,7 @@ Deep generative models offer the capacity for rich representations of complex
 data while as they can capture multimodal properties of the distribution of
 interest and generalize better. Deep directed
 graphical models in particular have some advantage over their undirected
-cousins such as DBMs \citep{salakhutdinov2009deep} as they do not suffer from
+cousins such as DBMs (\textbf{define}) \citep{salakhutdinov2009deep} as they do not suffer from
 learning and evaluation difficulties arising from an intractable partition
 function. Despite their representational power, directed graphical models are
 generally difficult to train, as the true posterior is generally intractable.
@@ -272,8 +273,8 @@ belief networks \citep[SBN,][]{neal1992connectionist} and deep belief networks
 
 Directed belief networks can be trained by maximizing log-likelihood (MLE), but
 this is difficult due to the necessary marginalization over the latent density.
-If we had the posterior $p(h|x) = p(x, h) / p(x)$, then learning would be easy,
-but in general this is not possible and we require some more advanced
+If we had the posterior $p(h|x) = p(x, h) / p(x)$, then learning would be straightforward,
+but in general this is not possible requires more advanced
 techniques. 
 
 \section{Variational Inference and Learning of Directed Belief Networks}
@@ -281,10 +282,10 @@ techniques.
 
 Even with reasonably complex likelihood functions, MLE is not tractable in
 directed belief networks due to the intractable posterior inference.  One
-solution is to use Markov Chain Monte Carlo (MCMC) sampling to iteratively
+solution is to use Markov Chain Monte Carlo (MCMC [\textbf{defined already above}...]) sampling to iteratively
 approximate the posterior distribution over the latent variables, which is exact
 given an unbound number of steps under certain conditions. This typically
-suffers high variance. 
+[suffers high variance...\textbf{produces highly variable estimates}?]. 
 %from poor mixing in the transition operator and high variance. 
 
 Another popular method, variational inference introduces an approximate
@@ -314,10 +315,10 @@ efficiently maximizes its lower bound.
 
 If we have a method for finding an approximate posterior, then an
 expectation-maximization
-algorithm~\citep[EM,][]{dempster1977maximum, neal1998view}.  In the Expectation (E)
+algorithm~\citep[EM,][]{dempster1977maximum, neal1998view}.  In the expectation (E)
 step, the variational parameters parameters of the approximate posterior, $\TT$,
 are chosen/updated such that the KL-divergence between the approximate posterior and
-true posterior is minimized. In the Maximization (M) step, the model parameters
+true posterior is minimized. In the maximization (M) step, the model parameters
 $\PP$ are chosen/updated to maximize the likelihood function.
 
 In general, the gradient w.r.t. the model parameters of the lower bound can be
@@ -341,11 +342,11 @@ have high variance.
 
 Variational autoencoders \citep[VAE,][]{kingma2013auto} make use of a clever
 parameterization trick so that the lower bound can be rephrased as a
-deterministic function with some auxilliary noise. The wake-sleep algorithm uses
+deterministic function with some auxiliary noise. The wake-sleep algorithm uses
 samples from the joint density $p(x, h)$ to optimize the variational parameters,
 effectively making the algorithm an optimization over two cost functions
 \citep{hinton1995wake}. NVIL
-uses REINFORCE along with a baseline predicted from a deep neural network to
+uses REINFORCE (\textbf{define? or ref?}) along with a baseline predicted from a deep neural network to
 make lower variance MCMC estimates of the gradient.
 
 It can be argued that better estimates can be made by simply having a better
@@ -442,7 +443,7 @@ This will clearly lead to a biased estimate of the lower bound. But we will show
 
 \section{Related Works}
 \alert{This needs work}
-Our work combines elements found in variational inference and MCMC methods. In spirit, it is closest to the hybrid MCMC for variational inference \citep{salimans2014markov}, but uses a much MCMC transition than the hamiltonian MC used there, while the AdIS method is also applicable to binary units.
+Our work combines elements found in variational inference and MCMC methods. In spirit, it is closest to the hybrid MCMC for variational inference \citep{salimans2014markov}, but uses a [much\textbf{?]} MCMC transition than the hamiltonian MC used there, while the AdIS method is also applicable to binary units.
 
 Recent work on stochastic variational inference \cite{hoffman2013stochastic} also uses gradient descent to improve on the variational inference algorithm. However, the exact parameterization of the posterior is very limited and the method cannot be used with complex approximate posteriors. 
 

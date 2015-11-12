@@ -56,7 +56,6 @@ def lower_bound_curve(
     )
 
     models, _ = load_model(model_file, unpack, **model_args)
-    n_mcmc_samples_test = 50
 
     if dataset == 'mnist':
         data_iter = MNIST(batch_size=10000, mode=mode, inf=False, **dataset_args)
@@ -104,7 +103,7 @@ def lower_bound_curve(
     f_lower_bound = theano.function([X, R], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
 
     # ========================================================================
-    print 'Calculating lower bound curve (on 1000 samples)'
+    print 'Calculating lower bound curve (on 500 samples)'
 
     if rs is None:
         rs = range(5, 50, 5)
@@ -173,6 +172,8 @@ def make_argument_parser():
                         help='Dataset mode: valid, test, or train')
     parser.add_argument('-o', '--out_path', default=None,
                         help='Output path for stuff')
+    parser.add_argument('-s', '--samples', default=1000,
+                        help='Number of MCMC samples during eval')
     return parser
 
 if __name__ == '__main__':
