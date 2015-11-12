@@ -679,8 +679,8 @@ class DeepSBN(Layer):
         constants = []
 
         qs = [T.nnet.sigmoid(z) for z in zs]
-
         hs = []
+
         for l, q in enumerate(qs):
             if n_samples == 0:
                 h = q[None, :, :]
@@ -689,7 +689,7 @@ class DeepSBN(Layer):
                     q, size=(n_samples, q.shape[0], q.shape[1]))
             hs.append(h)
 
-        xs = [x] + hs[:-1]
+        xs = [x] + qs[:-1]
         ys = [y] + qs[:-1]
         p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
         p_hs = [posterior(x) for x, posterior in zip(xs, self.posteriors)]
@@ -728,50 +728,32 @@ class DeepSBN(Layer):
         params = list(params)
         qs = params[:self.n_layers]
         params = params[self.n_layers:]
-
         prior = T.nnet.sigmoid(params[0])
-        ys = [y] + qs[:-1]
 
         hs = []
         for l, q in enumerate(qs):
             h = self.posteriors[l].sample(
                 q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
             hs.append(h)
-
+        ys = [y[None, :, :]] + hs[:-1]
         p_ys = [self.p_y_given_h(h, l, *params) for l, h in enumerate(hs)]
 
-        new_qs = []
-
-        def refine_layer(l):
-            q = qs[l]
-            y = ys[l]
-            h = hs[l]
-
-            cond_energy = self.conditionals[l].neg_log_prob(y[None, :, :], p_ys[l])
-
-            if l == self.n_layers - 1:
-                prior_energy = self.posteriors[l].neg_log_prob(h, prior[None, None, :])
-            else:
-                prior_energy = self.conditionals[l + 1].neg_log_prob(
-                    h[None, :, :, :], p_ys[l + 1][:, None, :, :]).mean(axis=0)
-
-            entropy_term = self.posteriors[l].neg_log_prob(h, q[None, :, :])
-
-            log_p = -cond_energy - prior_energy + entropy_term
-            log_p_max = T.max(log_p, axis=0, keepdims=True)
-            w = T.exp(log_p - log_p_max)
-            w = w / w.sum(axis=0, keepdims=True)
-
-            q = (w[:, :, None] * h).sum(axis=0)
-            return q
+        log_w = -self.posteriors[-1].neg_log_prob(hs[-1], prior[None, None, :])
+        for l in xrange(self.n_layers):
+            log_w -= (self.conditionals[l].neg_log_prob(ys[l], p_ys[l])
+                      - self.posteriors[l].neg_log_prob(hs[l], qs[l]))
+        log_w_max = T.max(log_w, axis=0, keepdims=True)
+        w = T.exp(log_w - log_w_max)
+        w = w / w.sum(axis=0, keepdims=True)
 
         for l in xrange(self.n_layers):
-            q = refine_layer(l)
-            new_qs.append(q)
+            h = hs[l]
+            q = (w[:, :, None] * h).sum(axis=0)
+            qs[l] = q
 
         cost = T.constant(0.).astype(floatX)
 
-        return tuple(new_qs) + (cost,)
+        return tuple(qs) + (cost,)
 
     def _init_adapt(self, qs):
         return []
@@ -780,9 +762,8 @@ class DeepSBN(Layer):
         q0s = []
 
         for l in xrange(self.n_layers):
-            p_h = self.posteriors[l](state)
-            state = self.posteriors[l].sample(p_h)
-            q0s.append(p_h)
+            state = self.posteriors[l](state)
+            q0s.append(state)
 
         return q0s
 
@@ -824,8 +805,7 @@ class DeepSBN(Layer):
 
         for l in xrange(self.n_layers):
             p_h_logit = self.posteriors[l](state, return_preact=True)
-            p_h = T.nnet.sigmoid(p_h_logit)
-            state = self.posteriors[l].sample(p_h)
+            state = T.nnet.sigmoid(p_h_logit)
             z0s.append(p_h_logit)
 
         return z0s
