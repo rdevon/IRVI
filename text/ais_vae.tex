@@ -149,31 +149,31 @@
 \title{Iterative Refinement of Approximate Posterior for Training Directed Belief Networks}
 
 \author{R Devon Hjelm \\
-MRN and UNM \\
+Mind Research Network \\and the University of New Mexico \\
 \texttt{dhjelm@mrn.org} 
+\And
+Kyunghyun Cho \\
+New York University \\
+\texttt{kyunghyun.cho@nyu.edu}
+\And
+Junyoung Chung \\
+University of Montr\'{e}al \\
+\texttt{junyoung.chung@umontreal.ca}
+\And
+Russ Salakhutdinov \\
+University of Toronto \\
+\texttt{rsalakhu@cs.toronto.edu}
+\And
+Vince Calhoun \\
+Mind Research Network \\and the University of New Mexico \\
+\texttt{vcalhoun@mrn.org}
+\And
+Yoshua Bengio \\
+University of Montr\'{e}al
 \And
 Nebojsa Jojic \\
 Microsoft Research \\
 \texttt{jojic@microsoft.com}
-\And
-Kyunghyun Cho \\
-NYU \\
-\texttt{kyunghyun.cho@nyu.edu}
-\And
-Junyoung Chung \\
-U. de Montr\'{e}al \\
-\texttt{junyoung.chung@umontreal.ca}
-\And
-Russ Salakhutdinov \\
-U. Toronto \\
-\texttt{rsalakhu@cs.toronto.edu}
-\And
-Vince Calhoun \\
-MRN and UNM \\
-\texttt{vcalhoun@mrn.org}
-\And
-Yoshua Bengio \\
-U. de Montr\'{e}al
 }
 
 % The \author macro works with any number of authors. There are two commands
@@ -195,10 +195,9 @@ U. de Montr\'{e}al
 
 \begin{abstract}
     Deep directed graphical models, while representing a potentially powerful
-    class of generative representations, are challenging to train due to
-    [difficult inference...\textbf{little vague...maybe rephrase?}...]. Recent advances in variational inference that make use
+    class of generative representations, are challenging to train due to difficult inference. Recent advances in variational inference that make use
     of an inference or \emph{recognition network} have advanced well beyond
-    traditional variational inference and MCMC (\textbf{define all acronyms at first use if room}) methods. While these techniques
+    traditional variational inference and Markov chain Monte Carlo methods. While these techniques
     offer higher flexibility as well as simpler and faster inference, they are
     still limited by the choice of approximate posterior and require variance
     reduction. Less focus has been given to improving or \emph{refining} the
@@ -206,7 +205,7 @@ U. de Montr\'{e}al
     show that iterative refinement of the approximate posterior can provide
     notable gains in maximizing the lower bound of the log likelihood, either
     by applying gradient descent or by using adaptive importance sampling
-    during the E-step of a variational EM (\textbf{common, but define anyway}) algorithm. We show our approach
+    during the E-step of a variational expectation-maximization algorithm. We show our approach
     competes with state of the art in both continuous and binary latent
     variables.
     \end{abstract}
@@ -217,16 +216,16 @@ Deep generative models offer the capacity for rich representations of complex
 data while as they can capture multimodal properties of the distribution of
 interest and generalize better. Deep directed
 graphical models in particular have some advantage over their undirected
-cousins such as DBMs (\textbf{define}) \citep{salakhutdinov2009deep} as they do not suffer from
+cousins such as deep Boltzmann machines \citep[DBMs,][]{salakhutdinov2009deep} as they do not suffer from
 learning and evaluation difficulties arising from an intractable partition
 function. Despite their representational power, directed graphical models are
-generally difficult to train, as the true posterior is generally intractable.
+often difficult to train, as the true posterior is generally intractable.
 
 Methods for training variants of the Helmholtz machine
 \citep{dayan1995helmholtz}, such as wake-sleep \citep{hinton1995wake,
 bornschein2014reweighted} and neural variational inference and learning
 \citep[NVIL,][]{mnih2014neural}, and methods for training variational autoencoders~
-\citep[VAE,][]{kingma2013auto} have supplanted more traditional Markov Chain Monte
+\citep[VAE,][]{kingma2013auto} have supplanted more traditional Markov chain Monte
 Carlo (MCMC) or variational inference based methods such as mean field
 coordinate ascent inference in training deep generative models. The gains
 offered by these methods are due to parameterizing the approximate posterior
@@ -242,17 +241,17 @@ factorial assumption \citep{burda2015importance} on the approximate posterior or
 through the introduction of auxiliary inference networks
 \citep{rezende2015variational}. 
 
-\alert{I need to work on this} Notably, there has been recent work focusing on
+There has been recent focus on
 refining the variational posterior by applying gradient descent to variational
 inference \citep{hoffman2013stochastic} or by applying additional MCMC
-transitions \citep{salimans2014markov}. We apply two different techniques to
-refine the approximate posterior from the recognition network during the E-step
-of an EM algorithm. We first show that, given lower bound optimization can be
-reinterpreted in terms of a deterministic function, we can use gradient descent
+transitions \citep{salimans2014markov}. We demonstrate two different methods to
+refine the approximate posterior from the recognition network during the expectation-step (E-step)
+of an expectation-maximization~\citep[EM,][]{dempster1977maximum, neal1998view}) algorithm and improve the lower bound. 
+We first show that, given lower bound optimization can be
+reinterpreted in terms of a deterministic function with auxiliary noise, we can use simple gradient descent
 to refine the approximate posterior during inference. Next, we show that with
 binary latent variables, adaptive importance sampling
-\citep[AdIS][]{karamchandani1989adaptive} can be used iteratively to achieve a tighter
-lower bound to the log likelihood.
+\citep[AdIS][]{karamchandani1989adaptive} can be used to refine the posterior when gradient descent is not efficient.
 
 \section{Directed Belief Networks and Variational Inference}
 
@@ -282,11 +281,9 @@ techniques.
 
 Even with reasonably complex likelihood functions, MLE is not tractable in
 directed belief networks due to the intractable posterior inference.  One
-solution is to use Markov Chain Monte Carlo (MCMC [\textbf{defined already above}...]) sampling to iteratively
+solution is to use MCMC sampling to iteratively
 approximate the posterior distribution over the latent variables, which is exact
-given an unbound number of steps under certain conditions. This typically
-[suffers high variance...\textbf{produces highly variable estimates}?]. 
-%from poor mixing in the transition operator and high variance. 
+given an unbound number of steps under certain conditions. This typically suffers high variance in its gradient estimates.
 
 Another popular method, variational inference introduces an approximate
 posterior $q_{\TT}(h|x)$:
@@ -305,7 +302,7 @@ inference rephrases learning as choosing the variational parameters $\TT$ to
 maximize this bound, rather than choosing the latent variables directly. The
 bound is tight (i.e., $\LL = \log p(x)$) when the KL divergence between the
 approximate and true posterior is $0$ (i.e., $D_{KL}(q_{\TT}(h|x)||p(h|x)) =
-0$) or equivalently when the approximate matches the true posterior.
+0$); or equivalently when the approximate matches the true posterior.
 Optimization then is dependent on the choice of a parametric form for the
 posterior that can best approximate the exact posterior, and models generally
 vary in choice of parameterization followed by a learning algorithm which
@@ -313,9 +310,8 @@ efficiently maximizes its lower bound.
 
 \subsection{Training a Directed Belief Network}
 
-If we have a method for finding an approximate posterior, then an
-expectation-maximization
-algorithm~\citep[EM,][]{dempster1977maximum, neal1998view}.  In the expectation (E)
+If we have a method for finding an approximate posterior, then learning follows an
+EM algorithm.  In the expectation (E)
 step, the variational parameters parameters of the approximate posterior, $\TT$,
 are chosen/updated such that the KL-divergence between the approximate posterior and
 true posterior is minimized. In the maximization (M) step, the model parameters
@@ -346,7 +342,7 @@ deterministic function with some auxiliary noise. The wake-sleep algorithm uses
 samples from the joint density $p(x, h)$ to optimize the variational parameters,
 effectively making the algorithm an optimization over two cost functions
 \citep{hinton1995wake}. NVIL
-uses REINFORCE (\textbf{define? or ref?}) along with a baseline predicted from a deep neural network to
+uses REINFORCE \citep{williams1992simple} along with a baseline predicted from a deep neural network to
 make lower variance MCMC estimates of the gradient.
 
 It can be argued that better estimates can be made by simply having a better
@@ -443,7 +439,7 @@ This will clearly lead to a biased estimate of the lower bound. But we will show
 
 \section{Related Works}
 \alert{This needs work}
-Our work combines elements found in variational inference and MCMC methods. In spirit, it is closest to the hybrid MCMC for variational inference \citep{salimans2014markov}, but uses a [much\textbf{?]} MCMC transition than the hamiltonian MC used there, while the AdIS method is also applicable to binary units.
+Our work combines elements found in variational inference and MCMC methods. In spirit, it is closest to the hybrid MCMC for variational inference \citep{salimans2014markov}, but uses a much simpler MCMC transition than the hamiltonian MC used there, while the AdIS method is also applicable to binary units.
 
 Recent work on stochastic variational inference \cite{hoffman2013stochastic} also uses gradient descent to improve on the variational inference algorithm. However, the exact parameterization of the posterior is very limited and the method cannot be used with complex approximate posteriors. 
 
