@@ -1,4 +1,4 @@
-'''
+g'''
 Module of Stochastic Feed Forward Networks
 '''
 
@@ -462,10 +462,12 @@ class SigmoidBeliefNetwork(Layer):
             inps = [ys[0]] + outputs_info[:-1] + non_seqs
             outs = self.step_infer(*inps)
             z, i_cost = self.unpack_infer(outs)
+            zs = z[None, :, :]
             i_costs = [i_cost]
 
         elif n_inference_steps == 0:
             z = z0
+            zs = z[None, :, :]
             i_costs = [T.constant(0.).astype(floatX)]
 
         return (zs, i_costs), updates
