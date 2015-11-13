@@ -1,4 +1,4 @@
-g'''
+'''
 Module of Stochastic Feed Forward Networks
 '''
 
