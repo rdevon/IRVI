@@ -9,20 +9,20 @@
   max_valid: 1000,
   optimizer: 'adam',
   recognition_net: {
-    dim_h: 240,
+    dim_h: 250,
     h_act: 'T.nnet.softplus',
     n_layers: 2,
-    'weight_scale': 0.001
+    weight_scale: 0.001
   },
   generation_net: {
-    dim_h: 240,
+    dim_h: 250,
     h_act: 'T.nnet.softplus',
     n_layers: 2,
-    'weight_scale': 0.001
+    weight_scale: 0.001
   },
   z_init: 'recognition_net',
   inference_method: 'adaptive',
-  inference_rate: 0.1,
+  inference_rate: 0.5,
   n_inference_steps: 20,
   n_inference_steps_test: 20,
   n_inference_samples: 20,

@@ -300,7 +300,7 @@ class SigmoidBeliefNetwork(Layer):
         w_tilde = w / w.sum(axis=0, keepdims=True)
 
         cost = (log_p - log_p_max).mean()
-        q = (w_tilde[:, :, None] * h).sum(axis=0)
+        q = self.inference_rate * (w_tilde[:, :, None] * h).sum(axis=0) + (1 - self.inference_rate) * q
 
         return q, cost
 
@@ -498,8 +498,6 @@ class SigmoidBeliefNetwork(Layer):
         (zs, i_costs), updates_i = self.infer_q(
             x, y, n_inference_steps, n_sampling_steps=n_sampling_steps)
         updates.update(updates_i)
-        outs.update(inference_cost=i_costs[-1])
-        outs.update(inference_costs=i_costs)
 
         lower_bounds = []
         for i in xrange(n_inference_steps):
@@ -524,7 +522,7 @@ class SigmoidBeliefNetwork(Layer):
         outs.update(
             py=py,
             lower_bound=lower_bounds[-1],
-            lower_bounds=lower_bounds
+            inference_cost=(lower_bounds[0] - lower_bounds[-1])
         )
 
         if calculate_log_marginal:
@@ -731,14 +729,14 @@ class DeepSBN(Layer):
             y = ys[l]
 
             posterior_energy += self.posteriors[l].neg_log_prob(
-                q, p_hs[l]).mean()
+                q, p_hs[l]).mean(axis=0)
             conditional_energy += self.conditionals[l].neg_log_prob(
-                y[None, :, :], p_ys[l]).mean()
+                y[None, :, :], p_ys[l]).mean(axis=0)
 
         prior = T.nnet.sigmoid(self.z)
-        prior_energy = self.posteriors[-1].neg_log_prob(qs[-1], prior[None, :]).mean()
+        prior_energy = self.posteriors[-1].neg_log_prob(qs[-1], prior[None, :])
 
-        return (prior_energy, posterior_energy, conditional_energy), constants
+        return (prior_energy.mean(axis=0), posterior_energy.mean(axis=0), conditional_energy.mean(axis=0)), constants
 
     def step_infer(self, *params):
         raise NotImplementedError()
@@ -780,7 +778,7 @@ class DeepSBN(Layer):
         for l in xrange(self.n_layers):
             h = hs[l]
             q = (w_tilde[:, :, None] * h).sum(axis=0)
-            new_qs.append(.9 * qs[l] + .1 * q)
+            new_qs.append((1.0 - self.inference_rate) * qs[l] + self.inference_rate * q)
 
         cost = -T.log(w).mean()
 
