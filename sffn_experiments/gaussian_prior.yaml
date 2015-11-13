@@ -2,7 +2,7 @@
   name: 'gbn_1',
   prior: 'gaussian',
   dim_h: 200,
-  learning_rate: 0.003,
+  learning_rate: 0.0001,
   optimizer: 'rmsprop',
   epochs: 500,
   recognition_net: {
