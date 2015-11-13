@@ -736,7 +736,7 @@ class DeepSBN(Layer):
         prior = T.nnet.sigmoid(self.z)
         prior_energy = self.posteriors[-1].neg_log_prob(qs[-1], prior[None, :])
 
-        return (prior_energy.sum(axis=0), posterior_energy.sum(axis=0), conditional_energy.sum(axis=0)), constants
+        return (prior_energy.mean(axis=0), posterior_energy.mean(axis=0), conditional_energy.mean(axis=0)), constants
 
     def step_infer(self, *params):
         raise NotImplementedError()
