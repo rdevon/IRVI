@@ -334,7 +334,7 @@ class SigmoidBeliefNetwork(Layer):
         cost, grad = self.e_step(y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
-        return z, l, dz, cost
+        return z, dz, cost
 
     def _step_momentum_st(self, y, z, l, dz_, m, *params):
         prior = T.nnet.sigmoid(params[0])
@@ -399,7 +399,7 @@ class SigmoidBeliefNetwork(Layer):
         return [T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
-        zs, ls, dzs, costs = outs
+        zs, dzs, costs = outs
         return zs, costs
 
     def _unpack_momentum_then_adapt(self, outs):
