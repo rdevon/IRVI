@@ -1,4 +1,4 @@
-'''
+g'''
 Module of Stochastic Feed Forward Networks
 '''
 
@@ -346,7 +346,7 @@ class SigmoidBeliefNetwork(Layer):
         cost, grad = self.e_step(y, z, *params)
         dz = (-l * grad + m * dz_).astype(floatX)
         z = (z + dz).astype(floatX)
-        return z, l, dz, cost
+        return z, dz, cost
 
     def _step_momentum_st(self, y, z, l, dz_, m, *params):
         prior = T.nnet.sigmoid(params[0])
@@ -411,7 +411,7 @@ class SigmoidBeliefNetwork(Layer):
         return [T.zeros_like(z)]
 
     def _unpack_momentum(self, outs):
-        zs, ls, dzs, costs = outs
+        zs, dzs, costs = outs
         return zs, costs
 
     def _unpack_momentum_then_adapt(self, outs):
@@ -462,10 +462,12 @@ class SigmoidBeliefNetwork(Layer):
             inps = [ys[0]] + outputs_info[:-1] + non_seqs
             outs = self.step_infer(*inps)
             z, i_cost = self.unpack_infer(outs)
+            zs = z[None, :, :]
             i_costs = [i_cost]
 
         elif n_inference_steps == 0:
             z = z0
+            zs = z[None, :, :]
             i_costs = [T.constant(0.).astype(floatX)]
 
         return (zs, i_costs), updates
@@ -776,7 +778,7 @@ class DeepSBN(Layer):
         for l in xrange(self.n_layers):
             h = hs[l]
             q = (w_tilde[:, :, None] * h).sum(axis=0)
-            new_qs.append(.9 * qs[l] + .1 * q)
+            new_qs.append((1.0 - self.inference_rate) * qs[l] + self.inference_rate * q)
 
         cost = -T.log(w).mean()
 
