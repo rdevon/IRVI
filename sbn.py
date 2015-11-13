@@ -729,7 +729,7 @@ class DeepSBN(Layer):
             y = ys[l]
 
             posterior_energy += self.posteriors[l].neg_log_prob(
-                q, p_hs[l]).mean(axis=0)
+                q, p_hs[l])
             conditional_energy += self.conditionals[l].neg_log_prob(
                 y[None, :, :], p_ys[l]).mean(axis=0)
 
