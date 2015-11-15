@@ -318,7 +318,7 @@ class SigmoidBeliefNetwork(Layer):
 
     def _unpack_adapt(self, q0, outs):
         if outs is not None:
-            qs, dqs, costs = outs
+            qs, costs = outs
             if qs.ndim == 2:
                 qs = qs[None, :, :]
                 costs = costs[None, :, :]
