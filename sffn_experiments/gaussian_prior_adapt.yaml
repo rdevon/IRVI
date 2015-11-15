@@ -7,17 +7,17 @@
   epochs: 500,
   excludes: ['mu', 'log_sigma'],
   recognition_net: {
-    dim_h: 500,
+    dim_h: 200,
     h_act: 'T.nnet.softplus',
     n_layers: 2
   },
   generation_net: {
-    dim_h: 500,
+    dim_h: 200,
     h_act: 'T.nnet.softplus',
     n_layers: 2
   },
   z_init: 'recognition_net',
-  inference_method: 'momentum_then_adapt',
+  inference_method: 'adaptive',
   inference_rate: .003,
   n_inference_steps: 20,
   n_inference_steps_test: 20,
