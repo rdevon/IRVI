@@ -320,10 +320,10 @@ class SigmoidBeliefNetwork(Layer):
         if outs is not None:
             qs, costs = outs
             if qs.ndim == 2:
-                qs = concatenate(q0[None, :, :], qs[None, :, :], axis=0)
+                qs = concatenate([q0[None, :, :], qs[None, :, :]], axis=0)
                 costs = costs[None, :, :]
             else:
-                qs = concatenate(q0[None, :, :], qs)
+                qs = T.concatenate([q0[None, :, :], qs])
 
         else:
             qs = q0[None, :, :]
@@ -396,7 +396,7 @@ class SigmoidBeliefNetwork(Layer):
             if zs.ndim == 2:
                 zs = zs[None, :, :]
                 costs = costs[None, :, :]
-            zs = concatenate(z0[None, :, :], zs)
+            zs = concatenate([z0[None, :, :], zs])
         else:
             zs = z0[None, :, :]
             costs = [T.constant(0.).astype(floatX)]

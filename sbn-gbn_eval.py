@@ -18,7 +18,8 @@ import time
 from ica_exp import load_data
 from ica_exp import unpack
 from mnist import MNIST
-from tools import load_experiment, load_model
+import op
+from tools import itemlist, load_experiment, load_model
 
 
 floatX = theano.config.floatX
@@ -26,21 +27,20 @@ floatX = theano.config.floatX
 def eval_model(
     model_file, rs=None, n_samples=10000,
     out_path=None,
+    optimizer=None,
+    optimizer_args=dict(),
     batch_size=100,
     valid_scores=None,
     mode='valid',
     prior='logistic',
     center_input=True,
-    center_latent=False,
     z_init='recognition_net',
     inference_method='momentum',
     inference_rate=.01,
     n_inference_samples=20,
     n_inference_steps=20,
-    n_sampling_steps=20,
-    entropy_scale=1.0,
     n_mcmc_samples=20,
-    n_mcmc_samples_test=20,
+    posterior_samples=20,
     dataset=None,
     dataset_args=None,
     extra_inference_args=dict(),
@@ -81,7 +81,8 @@ def eval_model(
     else:
         X_i = X
 
-    outs_s, updates_s = model(X_i, X, n_inference_steps=0, n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
+    outs_s, updates_s = model(X_i, X, n_inference_steps=0, 
+                              n_samples=posterior_samples, calculate_log_marginal=True)
 
     f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
 
@@ -111,7 +112,7 @@ def eval_model(
         for r in rs:
             print 'number of inference steps: %d' % r
             outs_s, updates_s = model(X_i, X, n_inference_steps=r,
-                                      n_samples=n_mcmc_samples_test,
+                                      n_samples=posterior_samples,
                                       calculate_log_marginal=True)
             f_lower_bound = theano.function([X], [outs_s['lower_bound'],
                                                   outs_s['nll']],
@@ -132,13 +133,13 @@ def eval_model(
         print 'Memory Error. Stopped early.'
 
     fig = plt.figure()
-    plt.plot(range(lbs), lbs)
-    plt.plot(range(lbs), nlls)
+    plt.plot(range(len(lbs)), lbs)
+    plt.plot(range(len(lbs)), nlls)
 
-    print ('Calculating final lower bound and marginal with %d posterior samples '
-           'with %d validated inference steps' % (x.shape[0], best_r))
+    print ('Calculating final lower bound and marginal with % d data samples, %d posterior samples '
+           'with %d validated inference steps' % (x.shape[0], posterior_samples, best_r))
 
-    outs_s, updates_s = model(X_i, X, n_inference_steps=best_r, n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
+    outs_s, updates_s = model(X_i, X, n_inference_steps=best_r, n_samples=posterior_samples, calculate_log_marginal=True)
     f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
 
     xs = [x[i: (i + 100)] for i in range(0, n_samples, 100)]
@@ -192,7 +193,7 @@ def eval_model(
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [X], cost,
         extra_ups=updates,
-        extra_outs=extra_outs, **optimizer_args)
+        extra_outs=[], **optimizer_args)
 
     t0 = time.time()
 
@@ -212,7 +213,7 @@ def make_argument_parser():
     parser.add_argument('experiment_dir')
     parser.add_argument('-m', '--mode', default='valid',
                         help='Dataset mode: valid, test, or train')
-    parser.add_argument('-s', '--samples', default=1000,
+    parser.add_argument('-s', '--samples', default=1000, type=int,
                         help='Number of posterior during eval')
     return parser
 
@@ -245,4 +246,5 @@ if __name__ == '__main__':
     valid_file = path.join(exp_dir, 'valid_lbs.npy')
     valid_scores = np.load(valid_file)
 
-    eval_model(model_file, mode=args.mode, out_path=out_path, valid_scores=valid_scores, **exp_dict)
+    eval_model(model_file, mode=args.mode, out_path=out_path, valid_scores=valid_scores, 
+               posterior_samples=args.samples, **exp_dict)
