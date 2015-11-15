@@ -7,11 +7,13 @@ from glob import glob
 import matplotlib
 matplotlib.use('Agg')
 from matplotlib import pylab as plt
+import numpy as np
 import os
 from os import path
 from progressbar import ProgressBar
 import theano
 from theano import tensor as T
+import time
 
 from ica_exp import load_data
 from ica_exp import unpack
@@ -24,6 +26,8 @@ floatX = theano.config.floatX
 def eval_model(
     model_file, rs=None, n_samples=10000,
     out_path=None,
+    batch_size=100,
+    valid_scores=None,
     mode='valid',
     prior='logistic',
     center_input=True,
@@ -32,7 +36,10 @@ def eval_model(
     inference_method='momentum',
     inference_rate=.01,
     n_inference_samples=20,
+    n_inference_steps=20,
+    n_sampling_steps=20,
     entropy_scale=1.0,
+    n_mcmc_samples=20,
     n_mcmc_samples_test=20,
     dataset=None,
     dataset_args=None,
@@ -44,9 +51,6 @@ def eval_model(
         inference_method=inference_method,
         inference_rate=inference_rate,
         n_inference_samples=n_inference_samples,
-        n_mcmc_samples_test=n_mcmc_samples_test,
-        alpha=alpha,
-        center_latent=center_latent,
         extra_inference_args=extra_inference_args
     )
 
@@ -163,9 +167,44 @@ def eval_model(
             path.join(out_path, 'samples_from_prior.png'),
             x_limit=10)
 
+    print 'Approximating time to best valid'
+
+    best_valid_epoch = np.argmin(valid_scores)
+
+    print 'Best valid epoch: %d' % best_valid_epoch
+
+    if best_valid_epoch == valid_scores.shape[0]:
+        print 'Didn\'t converge it seems'
+
+    (z, prior_energy, h_energy, y_energy, _), updates, constants = model.inference(
+        X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples)
+
+    cost = prior_energy + h_energy + y_energy
+
+    grads = T.grad(cost, wrt=itemlist(tparams),
+                   consider_constant=constants)
+
+    lr = T.scalar(name='lr')
+    f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
+        lr, tparams, grads, [X], cost,
+        extra_ups=updates,
+        extra_outs=extra_outs, **optimizer_args)
+
+    t0 = time.time()
+
+    f_grad_shared(x[:batch_size])
+    f_grad_updates(0.001)
+
+    t1 = time.time()
+
+    dt = t1 - t0
+
+    print 'Time per update (%d samples per batch): %.2f' % (batch_size, dt)
+    print 'Time per epoch: %.2f' % (50000 / batch_size * dt)
+    print 'Time to best valid: %.2f' % (50000 / batch_size * dt * best_valid_epoch)
+
 def make_argument_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('model')
     parser.add_argument('experiment_dir')
     parser.add_argument('-m', '--mode', default='valid',
                         help='Dataset mode: valid, test, or train')
@@ -199,4 +238,7 @@ if __name__ == '__main__':
     except:
         raise ValueError()
 
-    eval_model(model_file, mode=args.mode, out_path=out_path, **exp_dict)
+    valid_file = path.join(exp_dir, 'valid_lbs.npy')
+    valid_scores = np.load(valid_file)
+
+    eval_model(model_file, mode=args.mode, out_path=out_path, valid_scores=valid_scores, **exp_dict)
