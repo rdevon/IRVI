@@ -56,6 +56,7 @@ def lower_bound_curve(
     )
 
     models, _ = load_model(model_file, unpack, **model_args)
+    n_mcmc_samples_test = 1000
 
     if dataset == 'mnist':
         data_iter = MNIST(batch_size=10000, mode=mode, inf=False, **dataset_args)
@@ -89,12 +90,12 @@ def lower_bound_curve(
     print 'Getting initial lower bound'
 
     x, _ = data_iter.next()
-    lb, nll = f_lower_bound(x)
-    lbs = [lb]
-    nlls = [nll]
+    #lb, nll = f_lower_bound(x)
+    #lbs = [lb]
+    #nlls = [nll]
 
-    print 'number of inference steps: 0'
-    print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
+    #print 'number of inference steps: 0'
+    #print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
 
     R = T.scalar('r', dtype='int64')
 
@@ -109,7 +110,10 @@ def lower_bound_curve(
         rs = range(5, 50, 5)
 
     best_r = 0
-    best_lb = lb
+    #best_lb = lb
+    lbs = []
+    nlls = []
+    best_lb = 10000000
     try:
         for r in rs:
             print 'number of inference steps: %d' % r
