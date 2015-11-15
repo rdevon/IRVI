@@ -97,10 +97,7 @@ def eval_model(
     print 'number of inference steps: 0'
     print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
 
-    R = T.scalar('r', dtype='int64')
 
-    outs_s, updates_s = model(X_i, X, n_inference_steps=R, n_samples=n_mcmc_samples_test, calculate_log_marginal=True)
-    f_lower_bound = theano.function([X, R], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
 
     # ========================================================================
     print 'Calculating lower bound curve (on 500 samples)'
@@ -113,6 +110,13 @@ def eval_model(
     try:
         for r in rs:
             print 'number of inference steps: %d' % r
+            outs_s, updates_s = model(X_i, X, n_inference_steps=r,
+                                      n_samples=n_mcmc_samples_test,
+                                      calculate_log_marginal=True)
+            f_lower_bound = theano.function([X], [outs_s['lower_bound'],
+                                                  outs_s['nll']],
+                updates=updates_s)
+
             lb, nll = f_lower_bound(x[:500], r)
 
             lb_v, nll_v = f_lower_bound(x_v, r)
