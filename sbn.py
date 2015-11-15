@@ -430,7 +430,7 @@ class SigmoidBeliefNetwork(Layer):
 
         return z0
 
-    def infer_q(self, x, y, n_inference_steps, n_sampling_steps=0):
+    def infer_q(self, x, y, n_inference_steps):
         updates = theano.OrderedUpdates()
 
         ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
@@ -473,11 +473,9 @@ class SigmoidBeliefNetwork(Layer):
         return (zs, i_costs), updates
 
     # Inference
-    def inference(self, x, y, n_inference_steps=20,
-                  n_sampling_steps=0, n_samples=100):
+    def inference(self, x, y, n_inference_steps=20, n_samples=100):
 
-        (zs, _), updates = self.infer_q(
-            x, y, n_inference_steps, n_sampling_steps=n_sampling_steps)
+        (zs, _), updates = self.infer_q(x, y, n_inference_steps)
 
         z = zs[-1]
 
