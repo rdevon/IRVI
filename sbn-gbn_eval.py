@@ -89,7 +89,7 @@ def eval_model(
     print 'Getting initial lower bound'
 
     x, _ = data_iter.next()
-    x_v, _ = data_iter.next()
+    x_v, _ = valid_iter.next()
     lb, nll = f_lower_bound(x)
     lbs = [lb]
     nlls = [nll]
