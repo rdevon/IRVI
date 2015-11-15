@@ -1,0 +1,46 @@
+This is BibTeX, Version 0.99d (TeX Live 2015)
+Capacity: max_strings=35307, hash_size=35307, hash_prime=30011
+The top-level auxiliary file: ais_vae.aux
+The style file: iclr2016_conference.bst
+Database file #1: ais_vae.bib
+You've used 21 entries,
+            2773 wiz_defined-function locations,
+            716 strings with 8102 characters,
+and the built_in function-call counts, 9591 in all, are:
+= -- 878
+> -- 505
+< -- 17
++ -- 171
+- -- 150
+* -- 724
+:= -- 1446
+add.period$ -- 66
+call.type$ -- 21
+change.case$ -- 113
+chr.to.int$ -- 21
+cite$ -- 42
+duplicate$ -- 469
+empty$ -- 809
+format.name$ -- 187
+if$ -- 2046
+int.to.chr$ -- 1
+int.to.str$ -- 1
+missing$ -- 20
+newline$ -- 113
+num.names$ -- 84
+pop$ -- 225
+preamble$ -- 1
+purify$ -- 92
+quote$ -- 0
+skip$ -- 371
+stack$ -- 0
+substring$ -- 354
+swap$ -- 65
+text.length$ -- 5
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 231
+warning$ -- 0
+while$ -- 90
+width$ -- 0
+write$ -- 273

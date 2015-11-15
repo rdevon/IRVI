@@ -1,0 +1,133 @@
+\begin{thebibliography}{21}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Bengio et~al.(2013)Bengio, L{\'e}onard, and
+  Courville]{bengio2013estimating}
+Bengio, Yoshua, L{\'e}onard, Nicholas, and Courville, Aaron.
+\newblock Estimating or propagating gradients through stochastic neurons for
+  conditional computation.
+\newblock \emph{arXiv preprint arXiv:1308.3432}, 2013.
+
+\bibitem[Bornschein \& Bengio(2014)Bornschein and
+  Bengio]{bornschein2014reweighted}
+Bornschein, J{\"o}rg and Bengio, Yoshua.
+\newblock Reweighted wake-sleep.
+\newblock \emph{arXiv preprint arXiv:1406.2751}, 2014.
+
+\bibitem[Burda et~al.(2015)Burda, Grosse, and
+  Salakhutdinov]{burda2015importance}
+Burda, Yuri, Grosse, Roger, and Salakhutdinov, Ruslan.
+\newblock Importance weighted autoencoders.
+\newblock \emph{arXiv preprint arXiv:1509.00519}, 2015.
+
+\bibitem[Dayan et~al.(1995)Dayan, Hinton, Neal, and Zemel]{dayan1995helmholtz}
+Dayan, Peter, Hinton, Geoffrey~E, Neal, Radford~M, and Zemel, Richard~S.
+\newblock The helmholtz machine.
+\newblock \emph{Neural computation}, 7\penalty0 (5):\penalty0 889--904, 1995.
+
+\bibitem[Dempster et~al.(1977)Dempster, Laird, and Rubin]{dempster1977maximum}
+Dempster, Arthur~P, Laird, Nan~M, and Rubin, Donald~B.
+\newblock Maximum likelihood from incomplete data via the em algorithm.
+\newblock \emph{Journal of the royal statistical society. Series B
+  (methodological)}, pp.\  1--38, 1977.
+
+\bibitem[Hinton(2012)]{Hinton-Coursera2012}
+Hinton, Geoffrey.
+\newblock Neural networks for machine learning.
+\newblock Coursera, video lectures, 2012.
+
+\bibitem[Hinton et~al.(1995)Hinton, Dayan, Frey, and Neal]{hinton1995wake}
+Hinton, Geoffrey, Dayan, Peter, Frey, Brendan, and Neal, Radford.
+\newblock The ``wake-sleep'' algorithm for unsupervised neural networks.
+\newblock \emph{Science}, 268\penalty0 (5214):\penalty0 1158--1161, 1995.
+
+\bibitem[Hinton et~al.(2006)Hinton, Osindero, and Teh]{hinton2006fast}
+Hinton, Geoffrey~E, Osindero, Simon, and Teh, Yee-Whye.
+\newblock A fast learning algorithm for deep belief nets.
+\newblock \emph{Neural computation}, 18\penalty0 (7):\penalty0 1527--1554,
+  2006.
+
+\bibitem[Hoffman et~al.(2013)Hoffman, Blei, Wang, and
+  Paisley]{hoffman2013stochastic}
+Hoffman, Matthew, Blei, David, Wang, Chong, and Paisley, John.
+\newblock Stochastic variational inference.
+\newblock \emph{The Journal of Machine Learning Research}, 14\penalty0
+  (1):\penalty0 1303--1347, 2013.
+
+\bibitem[Karamchandani et~al.(1989)Karamchandani, Bjerager, and
+  Cornell]{karamchandani1989adaptive}
+Karamchandani, A, Bjerager, P, and Cornell, CA.
+\newblock Adaptive importance sampling.
+\newblock In \emph{Structural Safety and Reliability}, pp.\  855--862. ASCE,
+  1989.
+
+\bibitem[Kingma \& Welling(2013)Kingma and Welling]{kingma2013auto}
+Kingma, Diederik and Welling, Max.
+\newblock Auto-encoding variational bayes.
+\newblock \emph{arXiv preprint arXiv:1312.6114}, 2013.
+
+\bibitem[Kingma \& Adam(2014)Kingma and Adam]{kingma2014method}
+Kingma, DP and Adam, J~Ba.
+\newblock A method for stochastic optimization.
+\newblock \emph{arXiv preprint arXiv:1412.6980}, 2014.
+
+\bibitem[Mnih \& Gregor(2014)Mnih and Gregor]{mnih2014neural}
+Mnih, Andriy and Gregor, Karol.
+\newblock Neural variational inference and learning in belief networks.
+\newblock \emph{arXiv preprint arXiv:1402.0030}, 2014.
+
+\bibitem[Neal(1992)]{neal1992connectionist}
+Neal, Radford~M.
+\newblock Connectionist learning of belief networks.
+\newblock \emph{Artificial intelligence}, 56\penalty0 (1):\penalty0 71--113,
+  1992.
+
+\bibitem[Neal \& Hinton(1998)Neal and Hinton]{neal1998view}
+Neal, Radford~M and Hinton, Geoffrey~E.
+\newblock A view of the em algorithm that justifies incremental, sparse, and
+  other variants.
+\newblock In \emph{Learning in graphical models}, pp.\  355--368. Springer,
+  1998.
+
+\bibitem[Rezende \& Mohamed(2015)Rezende and Mohamed]{rezende2015variational}
+Rezende, Danilo~Jimenez and Mohamed, Shakir.
+\newblock Variational inference with normalizing flows.
+\newblock \emph{arXiv preprint arXiv:1505.05770}, 2015.
+
+\bibitem[Rezende et~al.(2014)Rezende, Mohamed, and
+  Wierstra]{rezende2014stochastic}
+Rezende, Danilo~Jimenez, Mohamed, Shakir, and Wierstra, Daan.
+\newblock Stochastic backpropagation and approximate inference in deep
+  generative models.
+\newblock \emph{arXiv preprint arXiv:1401.4082}, 2014.
+
+\bibitem[Salakhutdinov \& Hinton(2009)Salakhutdinov and
+  Hinton]{salakhutdinov2009deep}
+Salakhutdinov, Ruslan and Hinton, Geoffrey~E.
+\newblock Deep boltzmann machines.
+\newblock In \emph{International Conference on Artificial Intelligence and
+  Statistics}, pp.\  448--455, 2009.
+
+\bibitem[Salakhutdinov \& Murray(2008)Salakhutdinov and
+  Murray]{salakhutdinov2008quantitative}
+Salakhutdinov, Ruslan and Murray, Iain.
+\newblock On the quantitative analysis of deep belief networks.
+\newblock In \emph{Proceedings of the 25th international conference on Machine
+  learning}, pp.\  872--879. ACM, 2008.
+
+\bibitem[Salimans(2014)]{salimans2014markov}
+Salimans, Tim.
+\newblock Markov chain monte carlo and variational inference: Bridging the gap.
+\newblock \emph{arXiv preprint arXiv:1410.6460}, 2014.
+
+\bibitem[Williams(1992)]{williams1992simple}
+Williams, Ronald~J.
+\newblock Simple statistical gradient-following algorithms for connectionist
+  reinforcement learning.
+\newblock \emph{Machine learning}, 8\penalty0 (3-4):\penalty0 229--256, 1992.
+
+\end{thebibliography}

@@ -311,8 +311,7 @@ efficiently maximizes its lower bound.
 \subsection{Training a Directed Belief Network}
 
 If we have a method for finding an approximate posterior, then learning follows an
-EM algorithm.  In the expectation (E)
-step, the variational parameters parameters of the approximate posterior, $\TT$,
+EM algorithm.  In the E-step, the variational parameters parameters of the approximate posterior, $\TT$,
 are chosen/updated such that the KL-divergence between the approximate posterior and
 true posterior is minimized. In the maximization (M) step, the model parameters
 $\PP$ are chosen/updated to maximize the likelihood function.
@@ -432,10 +431,10 @@ As an alternative and to address the issues with binary latent variables, we use
     h^{(n)} &\sim \Bernoulli(\mu_t) \nonumber \\
 w^{(n)} &= p(x, h^{(n)}) / q(h^{(n)} | x) \nonumber \\
 \tilde{w}^{(n)} &= w^{(n)} / \sum_n w^{(n)} \nonumber \\
-\mu_{t+1} &= \sum_n \tilde{w}^{(n)} h^{(n)}
+\mu_{t+1} &= (1 - \alpha) \mu_t + \alpha \sum_n \tilde{w}^{(n)} h^{(n)},
 \end{align}
 
-This will clearly lead to a biased estimate of the lower bound. But we will show that it works very well in practice.
+where $\alpha$ is the adaptive damping rate. This will clearly lead to a biased estimate of the lower bound. But we will show that it works very well in practice.
 
 \section{Related Works}
 \alert{This needs work}
@@ -473,7 +472,7 @@ Model & lower bound & NLL \\
 \hline
 VAE & 99 &  \\ 
 \hline
-$GBVI_{20}$ & 92.83 & 90.51 \\ 
+$GDIR_{20}$ & 92.83 & 90.51 \\ 
 \hline
 \hline
 $HVI_5$\footnote[1]{Using the Larochelle dataset and validation dataset during training} &  90.86 & 87.16 \\ 
