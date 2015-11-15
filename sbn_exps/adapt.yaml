@@ -1,11 +1,11 @@
 {
   name: 'dsbn_adapt',
   prior: 'logistic',
-  learning_rate: 0.001,
+  learning_rate: 0.003,
   dim_h: 200,
   n_layers: 2,
   epochs: 500,
-  batch_size: 100,
+  batch_size: 10,
   max_valid: 1000,
   optimizer: 'adam',
   recognition_net: {
@@ -22,7 +22,7 @@
   },
   z_init: 'recognition_net',
   inference_method: 'adaptive',
-  inference_rate: 0.02,
+  inference_rate: 0.5,
   n_inference_steps: 20,
   n_inference_steps_test: 20,
   n_inference_samples: 20,
@@ -33,4 +33,6 @@
   dataset_args: {
     source: '/export/mialab/users/dhjelm/data/mnist_binarized_salakhutdinov.pkl.gz',
   },
+  show_freq: 1000,
+  model_save_freq: 1000,
 }

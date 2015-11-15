@@ -316,8 +316,18 @@ class SigmoidBeliefNetwork(Layer):
 
         return q0
 
-    def _unpack_adapt(self, outs):
-        qs, costs = outs
+    def _unpack_adapt(self, q0, outs):
+        if outs is not None:
+            qs, costs = outs
+            if qs.ndim == 2:
+                qs = concatenate([q0[None, :, :], qs[None, :, :]], axis=0)
+                costs = costs[None, :, :]
+            else:
+                qs = T.concatenate([q0[None, :, :], qs])
+
+        else:
+            qs = q0[None, :, :]
+            costs = [T.constant(0.).astype(floatX)]
         return logit(qs), costs
 
     def _params_adapt(self):
@@ -377,41 +387,19 @@ class SigmoidBeliefNetwork(Layer):
 
         return z, l, dz, (grad).mean()
 
-    def _step_momentum_then_adapt(self, y, q, l, dz_, m, *params):
-
-        if False:
-            z = logit(q)
-            z, l, dz, cost = self._step_momentum(y, z, l, dz_, m, *params)
-            q = T.nnet.sigmoid(z)
-            q, cost = self._step_adapt(p_h_logit, y, q, *params)
-        else:
-            prior = T.nnet.sigmoid(params[0])
-            consider_constant = [y, prior, p_h_logit]
-            if self.center_latent:
-                print 'E step: Centering binary latent variables before passing to generation net'
-                py  = self.p_y_given_h(q - prior[None, :], *params)
-            else:
-                py = self.p_y_given_h(q, *params)
-
-            cond_term = self.conditional.neg_log_prob(y, py)
-
-            kl_term = self.kl_divergence(q, prior[None, :], entropy_scale=self.entropy_scale)
-            cost = (cond_term + kl_term).sum(axis=0)
-
-            grad = theano.grad(cost, wrt=q, consider_constant=consider_constant)
-
-            dz = (-l * grad + m * dz_).astype(floatX)
-            q = (q + dz).astype(floatX)
-
-            q, cost = self._step_adapt(y, q, *params)
-
-        return q, l, dz, cost
-
     def _init_momentum(self, z):
         return [T.zeros_like(z)]
 
-    def _unpack_momentum(self, outs):
-        zs, dzs, costs = outs
+    def _unpack_momentum(self, z0, outs):
+        if outs is not None:
+            zs, dzs, costs = outs
+            if zs.ndim == 2:
+                zs = zs[None, :, :]
+                costs = costs[None, :, :]
+            zs = concatenate([z0[None, :, :], zs])
+        else:
+            zs = z0[None, :, :]
+            costs = [T.constant(0.).astype(floatX)]
         return zs, costs
 
     def _unpack_momentum_then_adapt(self, outs):
@@ -430,7 +418,7 @@ class SigmoidBeliefNetwork(Layer):
 
         return z0
 
-    def infer_q(self, x, y, n_inference_steps, n_sampling_steps=0):
+    def infer_q(self, x, y, n_inference_steps):
         updates = theano.OrderedUpdates()
 
         ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
@@ -455,29 +443,22 @@ class SigmoidBeliefNetwork(Layer):
             )
             updates.update(updates_2)
 
-            zs, i_costs = self.unpack_infer(outs)
-            #z = zs[-1]
+            zs, i_costs = self.unpack_infer(z0, outs)
 
         elif n_inference_steps == 1:
             inps = [ys[0]] + outputs_info[:-1] + non_seqs
             outs = self.step_infer(*inps)
-            z, i_cost = self.unpack_infer(outs)
-            zs = z[None, :, :]
-            i_costs = [i_cost]
+            zs, i_costs = self.unpack_infer(z0, outs)
 
         elif n_inference_steps == 0:
-            z = z0
-            zs = z[None, :, :]
-            i_costs = [T.constant(0.).astype(floatX)]
+            zs, i_costs = self.unpack_infer(z0, None)
 
         return (zs, i_costs), updates
 
     # Inference
-    def inference(self, x, y, n_inference_steps=20,
-                  n_sampling_steps=0, n_samples=100):
+    def inference(self, x, y, n_inference_steps=20, n_samples=100):
 
-        (zs, _), updates = self.infer_q(
-            x, y, n_inference_steps, n_sampling_steps=n_sampling_steps)
+        (zs, _), updates = self.infer_q(x, y, n_inference_steps)
 
         z = zs[-1]
 
@@ -488,19 +469,17 @@ class SigmoidBeliefNetwork(Layer):
 
         return (z, prior_energy, h_energy, y_energy, entropy), updates, constants
 
-    def __call__(self, x, y,
-                 n_samples=100, n_inference_steps=0, n_sampling_steps=0,
+    def __call__(self, x, y, n_samples=100, n_inference_steps=0,
                  calculate_log_marginal=False):
         outs = OrderedDict()
         updates = theano.OrderedUpdates()
         prior = T.nnet.sigmoid(self.z)
 
-        (zs, i_costs), updates_i = self.infer_q(
-            x, y, n_inference_steps, n_sampling_steps=n_sampling_steps)
+        (zs, i_costs), updates_i = self.infer_q(x, y, n_inference_steps)
         updates.update(updates_i)
 
         lower_bounds = []
-        for i in xrange(n_inference_steps):
+        for i in xrange(n_inference_steps + 1):
             z = zs[i]
             q = T.nnet.sigmoid(z)
             if n_samples == 0:
@@ -728,8 +707,7 @@ class DeepSBN(Layer):
             q = qs[l]
             y = ys[l]
 
-            posterior_energy += self.posteriors[l].neg_log_prob(
-                q, p_hs[l])
+            posterior_energy += self.posteriors[l].neg_log_prob(q, p_hs[l])
             conditional_energy += self.conditionals[l].neg_log_prob(
                 y[None, :, :], p_ys[l]).mean(axis=0)
 
