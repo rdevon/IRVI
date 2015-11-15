@@ -117,9 +117,9 @@ def eval_model(
                                                   outs_s['nll']],
                 updates=updates_s)
 
-            lb, nll = f_lower_bound(x[:500], r)
+            lb, nll = f_lower_bound(x[:500])
 
-            lb_v, nll_v = f_lower_bound(x_v, r)
+            lb_v, nll_v = f_lower_bound(x_v)
 
             if lb_v < best_lb:
                 best_lb = lb_v
