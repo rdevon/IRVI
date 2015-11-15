@@ -157,7 +157,7 @@ New York University \\
 \texttt{kyunghyun.cho@nyu.edu}
 \And
 Junyoung Chung \\
-University of Montr\'{e}al \\
+University of Montreal \\
 \texttt{junyoung.chung@umontreal.ca}
 \And
 Russ Salakhutdinov \\
@@ -169,7 +169,7 @@ Mind Research Network \\and the University of New Mexico \\
 \texttt{vcalhoun@mrn.org}
 \And
 Yoshua Bengio \\
-University of Montr\'{e}al
+University of Montreal
 \And
 Nebojsa Jojic \\
 Microsoft Research \\
@@ -438,7 +438,7 @@ where $\alpha$ is the adaptive damping rate. This will clearly lead to a biased 
 
 \section{Related Works}
 \alert{This needs work}
-Our work combines elements found in variational inference and MCMC methods. In spirit, it is closest to the hybrid MCMC for variational inference \citep{salimans2014markov}, but uses a much simpler MCMC transition than the hamiltonian MC used there, while the AdIS method is also applicable to binary units.
+Our work combines elements found in variational inference and MCMC methods. In spirit, it is closest to the hybrid MCMC for variational inference \citep{salimans2014markov}, but uses a much simpler MCMC transition than the Hamiltonian MC used there, while the AdIS method is also applicable to binary units.
 
 Recent work on stochastic variational inference \cite{hoffman2013stochastic} also uses gradient descent to improve on the variational inference algorithm. However, the exact parameterization of the posterior is very limited and the method cannot be used with complex approximate posteriors. 
 
@@ -455,7 +455,7 @@ All models used a recognition network, for comparison to similar models, with th
 All models were trained with early stopping by recording best validation, and none of our models used any of the regularizations available to us, such as dropout, weight noise, or L2-norm regularization. All of our models were trained for at most $500$ epochs, and each took no more than $24$ hours to complete, best validation was typically reached much faster.
 
 \subsection{Continuous Variables}
-For the continuous latent variable case we used the same network structure as in \citep{kingma2013auto, salimans2014markov}, with $200$ continuous latent variables and a generation and recognition network with $500$ deterministic softplus units. Each of our models were trained using $20$ samples during inference using GDIR to refine output of the recognition network and $20$ samples to approximate the lower bound during the M-step. Optimal parameters were found using the rmsprop algorithm \citep{Hinton-Coursera2012} with an initial learning rate of \num{0.0001} with a batch size of $100$. \alert{We are currently running validation exps to pick new hps}
+For the continuous latent variable case we used the same network structure as in \citep{kingma2013auto, salimans2014markov}, with $200$ continuous latent variables and a generation and recognition network with $500$ deterministic softplus units. Each of our models were trained using $20$ samples during inference using GDIR to refine output of the recognition network and $20$ samples to approximate the lower bound during the M-step. Optimal parameters were found using the RMSprop algorithm \citep{Hinton-Coursera2012} with an initial learning rate of \num{0.0001} with a batch size of $100$. \alert{We are currently running validation exps to pick new hps}
 
 Our results with continuous variables are presented in table \ref{table:continuous}. For comparison are (approximate) VAE results \alert{They just have plots, no numbers} from \citep{kingma2013auto}, normalizing flow \citep{rezende2015variational}, Hamiltonian MCMC variational inference \citep{salimans2014markov} with the number of leapfrog steps specified.
 
