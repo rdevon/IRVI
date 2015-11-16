@@ -70,11 +70,6 @@ Kingma, Diederik and Welling, Max.
 \newblock Auto-encoding variational bayes.
 \newblock \emph{arXiv preprint arXiv:1312.6114}, 2013.
 
-\bibitem[Kingma \& Adam(2014)Kingma and Adam]{kingma2014method}
-Kingma, DP and Adam, J~Ba.
-\newblock A method for stochastic optimization.
-\newblock \emph{arXiv preprint arXiv:1412.6980}, 2014.
-
 \bibitem[Mnih \& Gregor(2014)Mnih and Gregor]{mnih2014neural}
 Mnih, Andriy and Gregor, Karol.
 \newblock Neural variational inference and learning in belief networks.
@@ -123,6 +118,12 @@ Salakhutdinov, Ruslan and Murray, Iain.
 Salimans, Tim.
 \newblock Markov chain monte carlo and variational inference: Bridging the gap.
 \newblock \emph{arXiv preprint arXiv:1410.6460}, 2014.
+
+\bibitem[Tang \& Salakhutdinov(2013)Tang and Salakhutdinov]{tang2013learning}
+Tang, Yichuan and Salakhutdinov, Ruslan~R.
+\newblock Learning stochastic feedforward neural networks.
+\newblock In \emph{Advances in Neural Information Processing Systems}, pp.\
+  530--538, 2013.
 
 \bibitem[Williams(1992)]{williams1992simple}
 Williams, Ronald~J.
