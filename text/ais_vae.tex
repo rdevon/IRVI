@@ -122,6 +122,7 @@
     \ensuremath{\scriptscriptstyle e}}}{\nabla}}}
 \newcommand{\enhnabla}[0]{\nabla_{\hspace{-0.5mm}e}\,}
 
+\renewcommand*{\thefootnote}{\fnsymbol{footnote}}
 
 \newcommand{\todo}[1]{{\Large\textcolor{red}{#1}}}
 \newcommand{\done}[1]{{\Large\textcolor{green}{#1}}}
@@ -372,7 +373,7 @@ operators should be a function of the lower bound and maximize it as well.
 After we find $\tilde{q}$, we maximize the lower bound w.r.t. the model parameters using stochastic gradient descent, using samples from the refined approximate posterior. Our loss w.r.t. the global variational parameters becomes $D_{KL}(\tilde{q}(\theta^l)||q_{\TT})$.
 
 \subsubsection{Gradient Descent Iterative Refinement (GDIR)}
-If we can rephrase the lower bound as a deterministic function $g$ of the local
+If we can rephrase the lower bound as a deterministic function $g(\TT^l; \epsilon)$ of the local
 variational parameters and some optional auxiliary noise variables, $\epsilon$,
 then we can improve the local variational parameters by applying iterative steps
 of gradient ascent:
@@ -431,10 +432,11 @@ As an alternative and to address the issues with binary latent variables, we use
     h^{(n)} &\sim \Bernoulli(\mu_t) \nonumber \\
 w^{(n)} &= p(x, h^{(n)}) / q(h^{(n)} | x) \nonumber \\
 \tilde{w}^{(n)} &= w^{(n)} / \sum_n w^{(n)} \nonumber \\
-\mu_{t+1} &= (1 - \alpha) \mu_t + \alpha \sum_n \tilde{w}^{(n)} h^{(n)},
+\mu_{t+1} &= \mu_t + \gamma \grad_{\TT^l} g(\TT^l) \nonumber\\
+\grad_{\TT^l} \LL \approx \grad_{\TT^l} g(\TT^l) &= q_t - \mu_t  = \sum_n \tilde{w}^{(n)} h^{(n)} - \mu_t \\
 \end{align}
 
-where $\alpha$ is the adaptive damping rate. This will clearly lead to a biased estimate of the lower bound. But we will show that it works very well in practice.
+where $\gamma$ is the learning rate and $(1 - \gamma)$ can be though of as the adaptive "damping" rate. This will clearly lead to a biased estimate of the lower bound. But we will show that it works very well in practice.
 
 \section{Related Works}
 \alert{This needs work}
@@ -450,14 +452,14 @@ Normalizing flows for VAE \citep{rezende2015variational} make use of auxiliary n
 
 We test GDIR and AIR on MNIST, using the binarized dataset found in \citep{salakhutdinov2008quantitative}, with a standard train, validation, and test split of $50$k, $10$k, and $10$k samples. Unfortunately, recent papers on VAE \citep{mnih2014neural, salimans2014markov} have used different, non-standard splits, or actively sample from continuous MNIST \citep{burda2015importance}, making it difficult to compete. We however make sure that our results are from the most conservative setting (having the least amount of training examples), thereby making any comparison as meaningful as possible.
 
-All models used a recognition network, for comparison to similar models, with the number of parameters and deterministic layers (if present) to match the generation network.
-
-All models were trained with early stopping by recording best validation, and none of our models used any of the regularizations available to us, such as dropout, weight noise, or L2-norm regularization. All of our models were trained for at most $500$ epochs, and each took no more than $24$ hours to complete, best validation was typically reached much faster.
+All models used a recognition network, for comparison to similar models, with the number of parameters and deterministic layers (if present) to match the generation network. Models were trained using the the RMSprop algorithm \citep{Hinton-Coursera2012}, with a batch size of $100$, with early stopping by recording best validation. All models were tested using $1000$ posterior samples to estimate the lower bounds and log likelihoods.
 
 \subsection{Continuous Variables}
-For the continuous latent variable case we used the same network structure as in \citep{kingma2013auto, salimans2014markov}, with $200$ continuous latent variables and a generation and recognition network with $500$ deterministic softplus units. Each of our models were trained using $20$ samples during inference using GDIR to refine output of the recognition network and $20$ samples to approximate the lower bound during the M-step. Optimal parameters were found using the RMSprop algorithm \citep{Hinton-Coursera2012} with an initial learning rate of \num{0.0001} with a batch size of $100$. \alert{We are currently running validation exps to pick new hps}
+For continuous latent variables we used the same network structure as in \citep{kingma2013auto, salimans2014markov}, with $200$ latent variables and a generation and recognition network with $500$ intermediate deterministic softplus units. Each of our models were trained using using an initial learning rate of \num{0.0001}, an inference rate of \num{0.003}, $20$ or $50$ samples during inference using GDIR to refine output of the recognition network, and $20$ or $50$ samples to approximate the lower bound during the M-step; with all hyperparameters chosen from validation runs. In order to demonstrate the effect of inference steps on learning, we varied the number of inference steps from $1$, $5$, $10$, $20$, and $50$.
 
-Our results with continuous variables are presented in table \ref{table:continuous}. For comparison are (approximate) VAE results \alert{They just have plots, no numbers} from \citep{kingma2013auto}, normalizing flow \citep{rezende2015variational}, Hamiltonian MCMC variational inference \citep{salimans2014markov} with the number of leapfrog steps specified.
+All models were trained for $1000$ epochs with the initial learning rate, followed by $100$ epochs at a learning rate of \num{0.00001}, and finished with $100$ epochs of \num{0.000001}. We also used $L2$ weight decay with a decay coefficient of \num{0.0002}.
+
+Our test results with continuous latent variables (GDIR) are presented in table \ref{table:continuous} with the number of posterior samples, $K$, and inference steps, $n$, specified as $GDIR_{K, n}$, with $K=20$ and $n=20$ chosen from validation \alert{waiting on some more results}. For comparison are (approximate) VAE results \alert{They just have plots, no numbers} from \citep{kingma2013auto}, deep latent gaussian models with normalizing flow \citep[DLGM+NF,][]{rezende2015variational}, Hamiltonian MCMC variational inference \citep[HVI,][]{salimans2014markov} with the number of leapfrog steps specified, and importance weighted autoencoders \citep[IWAE,][]{burda2015importance}. Included in table \ref{table:cont_steps} is the effect of inference steps during training on the lower bound and log likelihood.
 
 We observe faster convergence and better lower bound when using more gradient steps. \alert{I need to add these tables}
 
@@ -465,22 +467,40 @@ GDIR shows notable improvement over VAE, while showing comparable performance to
 
 \begin{table}
 \label{table:continuous}
-\begin{tabular}{ | m{6em} | m{1cm}| m{5cm} | } 
+\begin{tabular}{ | m{8em} | m{1cm}| m{1cm} | } 
 \hline
-Model & lower bound & NLL \\ 
-\hline
-\hline
-VAE & 99 &  \\ 
-\hline
-$GDIR_{20}$ & 92.83 & 90.51 \\ 
+Model & NLL bound & NLL est. \\ 
 \hline
 \hline
-$HVI_5$\footnote[1]{Using the Larochelle dataset and validation dataset during training} &  90.86 & 87.16 \\ 
-$HVI_{10}$\footnote[1] & 87.60 & 85.56 \\ 
-DLGM+NF & \alert{TODO} & \alert{results in paper are confusing} \\
+VAE \footnote[1] & 99 &  \\ 
+\hline
+\hline
+$GDIR_{20, 20}$ & 91.89 & 89.51 \\ 
+\hline
+\hline
+$HVI_5$\footnote[2]{Using the Larochelle dataset and validation dataset during training} &  90.86 & 87.16 \\ 
+$HVI_{10}$\footnote[2] & 87.60 & 85.56 \\ 
+\hline
+DLGM+NF & \alert{TODO} &\\
+\hline
+IWAE ($K=50$)\footnote[3]{Sampling from continuous MNIST} & & 84.78 \\ 
 \hline
 \end{tabular}
 \caption{Lower bounds and NLL for various continuous latent variable models and training algorithms.}
+\end{table}
+
+\begin{table}
+\label{table:cont_step}
+\begin{tabular}{ | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} |}
+\hline
+n & 0 & 1 & 5 & 10 & 20 & 50 \\
+\hline
+NLL bound & 206.33 & 96.24 & 93.72 & 93.36 & 91.89 & \\
+\hline
+NLL est. & 206.32 & 95.24 & 91.59 & 90.85 & 89.51 & \\
+\hline
+\end{tabular}
+\caption{Negative lower bounds and }
 \end{table}
 
 \subsection{Bernoulli Variables}

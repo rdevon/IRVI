@@ -55,6 +55,7 @@ def eval_model(
     )
 
     models, _ = load_model(model_file, unpack, **model_args)
+    n_mcmc_samples_test = 1000
 
     if dataset == 'mnist':
         data_iter = MNIST(batch_size=10000, mode=mode, inf=False, **dataset_args)
@@ -91,7 +92,22 @@ def eval_model(
 
     x, _ = data_iter.next()
     x_v, _ = valid_iter.next()
-    lb, nll = f_lower_bound(x)
+
+    xs = [x[i: (i + 100)] for i in range(0, n_samples, 100)]
+
+    N = len(range(0, n_samples, 100))
+    lb_t = 0.
+    nll_t = 0.
+
+    #pbar = ProgressBar(maxval=len(xs)).start()
+    for i, x in enumerate(xs):
+        lb, nll = f_lower_bound(x)
+        lb_t += lb
+        nll_t += nll
+        #pbar.update(i)
+
+    lb = lb_t / N
+    nll = nll_t / N
     lbs = [lb]
     nlls = [nll]
 
@@ -102,10 +118,12 @@ def eval_model(
     print 'Calculating lower bound curve (on 500 samples)'
 
     if rs is None:
-        rs = range(5, 50, 5)
+        rs = range(5, 50+1, 5)
 
     best_r = 0
     best_lb = lb
+    lbs = []
+    nlls = []
     try:
         for r in rs:
             print 'number of inference steps: %d' % r
@@ -140,9 +158,9 @@ def eval_model(
     outs_s, updates_s = model(X_i, X, n_inference_steps=best_r, n_samples=posterior_samples, calculate_log_marginal=True)
     f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
 
-    xs = [x[i: (i + 100)] for i in range(0, n_samples, 100)]
+    #xs = [x[i: (i + 100)] for i in range(0, n_samples, 100)]
 
-    N = len(range(0, n_samples, 100))
+    #N = len(range(0, n_samples, 100))
     lb_t = 0.
     nll_t = 0.
 
