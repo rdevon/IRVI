@@ -30,6 +30,7 @@ def eval_model(
     optimizer=None,
     optimizer_args=dict(),
     batch_size=100,
+    inference_stride=5,
     valid_scores=None,
     mode='valid',
     prior='logistic',
@@ -111,14 +112,14 @@ def eval_model(
     lbs = [lb]
     nlls = [nll]
 
-    #print 'number of inference steps: 0'
-    #print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
+    print 'number of inference steps: 0'
+    print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
 
     # ========================================================================
     print 'Calculating lower bound curve (on 500 samples)'
 
     if rs is None:
-        rs = range(5, 50+1, 5)
+        rs = range(inference_stride, inference_stride * 10 + 1, inference_stride)
 
     best_r = 0
     best_lb = lb
@@ -152,10 +153,10 @@ def eval_model(
     plt.plot(range(len(lbs)), lbs)
     plt.plot(range(len(lbs)), nlls)
 
-    print ('Calculating final lower bound and marginal with % d data samples, %d posterior samples '
-           'with %d validated inference steps' % (x.shape[0], posterior_samples, best_r))
+    print ('Calculating final lower bound and marginal with %d data samples, %d posterior samples '
+           'with %d validated inference steps' % (N * 100, posterior_samples, rs[-1]))
 
-    outs_s, updates_s = model(X_i, X, n_inference_steps=best_r, n_samples=posterior_samples, calculate_log_marginal=True)
+    outs_s, updates_s = model(X_i, X, n_inference_steps=rs[-1], n_samples=posterior_samples, calculate_log_marginal=True)
     f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
 
     #xs = [x[i: (i + 100)] for i in range(0, n_samples, 100)]
@@ -231,6 +232,7 @@ def make_argument_parser():
                         help='Dataset mode: valid, test, or train')
     parser.add_argument('-s', '--samples', default=1000, type=int,
                         help='Number of posterior during eval')
+    parser.add_argument('-i', '--inference_stride', default=5, type=int)
     return parser
 
 if __name__ == '__main__':
@@ -263,4 +265,4 @@ if __name__ == '__main__':
     valid_scores = np.load(valid_file)
 
     eval_model(model_file, mode=args.mode, out_path=out_path, valid_scores=valid_scores,
-               posterior_samples=args.samples, **exp_dict)
+               posterior_samples=args.samples, inference_stride=args.inference_stride, **exp_dict)
