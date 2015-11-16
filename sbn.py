@@ -210,8 +210,8 @@ class SigmoidBeliefNetwork(Layer):
 
         return (T.log(w.mean(axis=0, keepdims=True)) + log_p_max).mean()
 
-    def kl_divergence(self, p, q, entropy_scale=1.0):
-        entropy_term = entropy_scale * self.posterior.entropy(p)
+    def kl_divergence(self, p, q):
+        entropy_term = self.posterior.entropy(p)
         prior_term = self.posterior.neg_log_prob(p, q)
         return prior_term - entropy_term
 
@@ -228,7 +228,7 @@ class SigmoidBeliefNetwork(Layer):
         consider_constant = [y, prior]
         cond_term = self.conditional.neg_log_prob(y, py)
 
-        kl_term = self.kl_divergence(q, prior[None, :], entropy_scale=self.entropy_scale)
+        kl_term = self.kl_divergence(q, prior[None, :])
         cost = (cond_term + kl_term).sum(axis=0)
 
         grad = theano.grad(cost, wrt=z, consider_constant=consider_constant)
@@ -321,7 +321,7 @@ class SigmoidBeliefNetwork(Layer):
             qs, costs = outs
             if qs.ndim == 2:
                 qs = concatenate([q0[None, :, :], qs[None, :, :]], axis=0)
-                costs = costs[None, :, :]
+                costs = [costs]
             else:
                 qs = T.concatenate([q0[None, :, :], qs])
 
@@ -395,7 +395,7 @@ class SigmoidBeliefNetwork(Layer):
             zs, dzs, costs = outs
             if zs.ndim == 2:
                 zs = zs[None, :, :]
-                costs = costs[None, :, :]
+                costs = costs[None, :]
             zs = concatenate([z0[None, :, :], zs])
         else:
             zs = z0[None, :, :]
