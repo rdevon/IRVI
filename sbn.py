@@ -681,17 +681,12 @@ class DeepSBN(Layer):
         constants = []
 
         qs = [T.nnet.sigmoid(z) for z in zs]
-        hs = []
-
-        for l, q in enumerate(qs):
-            if n_samples == 0:
-                h = q[None, :, :]
-            else:
-                h = self.posteriors[l].sample(
-                    q, size=(n_samples, q.shape[0], q.shape[1]))
-            hs.append(h)
-
         ys = [y] + qs[:-1]
+
+        hs = []
+        for l, q in enumerate(qs):
+            h = self.posteriors[l].sample(q, size=(n_samples, q.shape[0], q.shape[1]))
+            hs.append(h)
         p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
 
         p_hs = []
@@ -704,17 +699,15 @@ class DeepSBN(Layer):
         posterior_energy = T.constant(0.).astype(floatX)
 
         for l in xrange(self.n_layers):
-            q = qs[l]
-            y = ys[l]
-
-            posterior_energy += self.posteriors[l].neg_log_prob(q, p_hs[l])
+            posterior_energy += self.posteriors[l].neg_log_prob(qs[l], p_hs[l])
             conditional_energy += self.conditionals[l].neg_log_prob(
-                y[None, :, :], p_ys[l]).mean(axis=0)
+                ys[l][None, :, :], p_ys[l]).mean(axis=0)
 
         prior = T.nnet.sigmoid(self.z)
         prior_energy = self.posteriors[-1].neg_log_prob(qs[-1], prior[None, :])
 
-        return (prior_energy.mean(axis=0), posterior_energy.mean(axis=0), conditional_energy.mean(axis=0)), constants
+        return (prior_energy.mean(axis=0), posterior_energy.mean(axis=0),
+                conditional_energy.mean(axis=0)), constants
 
     def step_infer(self, *params):
         raise NotImplementedError()
@@ -742,13 +735,17 @@ class DeepSBN(Layer):
             h = self.posteriors[l].sample(
                 q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
             hs.append(h)
-        ys = [y[None, :, :]] + hs[:-1]
+
+        ys = [y] + qs[:-1]
         p_ys = [self.p_y_given_h(h, l, *params) for l, h in enumerate(hs)]
 
         log_w = -self.posteriors[-1].neg_log_prob(hs[-1], prior[None, None, :])
+
         for l in xrange(self.n_layers):
-            log_w -= (self.conditionals[l].neg_log_prob(ys[l], p_ys[l])
-                      - self.posteriors[l].neg_log_prob(hs[l], qs[l][None, :, :]))
+            cond_term = -self.conditionals[l].neg_log_prob(ys[l][None, :, :], p_ys[l])
+            post_term = -self.posteriors[l].neg_log_prob(hs[l], qs[l][None, :, :])
+            log_w += cond_term - post_term
+
         log_w_max = T.max(log_w, axis=0, keepdims=True)
         w = T.exp(log_w - log_w_max)
         w_tilde = w / w.sum(axis=0, keepdims=True)
