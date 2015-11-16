@@ -81,7 +81,7 @@ def eval_model(
     else:
         X_i = X
 
-    outs_s, updates_s = model(X_i, X, n_inference_steps=0, 
+    outs_s, updates_s = model(X_i, X, n_inference_steps=0,
                               n_samples=posterior_samples, calculate_log_marginal=True)
 
     f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']], updates=updates_s)
@@ -97,8 +97,6 @@ def eval_model(
 
     print 'number of inference steps: 0'
     print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
-
-
 
     # ========================================================================
     print 'Calculating lower bound curve (on 500 samples)'
@@ -136,7 +134,7 @@ def eval_model(
     plt.plot(range(len(lbs)), lbs)
     plt.plot(range(len(lbs)), nlls)
 
-    print ('Calculating final lower bound and marginal with % d data samples, %d posterior samples '
+    print ('Calculating final lower bound and marginal with %d data samples, %d posterior samples '
            'with %d validated inference steps' % (x.shape[0], posterior_samples, best_r))
 
     outs_s, updates_s = model(X_i, X, n_inference_steps=best_r, n_samples=posterior_samples, calculate_log_marginal=True)
@@ -246,5 +244,5 @@ if __name__ == '__main__':
     valid_file = path.join(exp_dir, 'valid_lbs.npy')
     valid_scores = np.load(valid_file)
 
-    eval_model(model_file, mode=args.mode, out_path=out_path, valid_scores=valid_scores, 
+    eval_model(model_file, mode=args.mode, out_path=out_path, valid_scores=valid_scores,
                posterior_samples=args.samples, **exp_dict)
