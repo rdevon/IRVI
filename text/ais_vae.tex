@@ -243,7 +243,7 @@ of approximate posterior, which translates to a looseness in the lower bound.
 Some recent work has begun to address this limitation by either relaxing the
 factorial assumption \citep{burda2015importance} on the approximate posterior or
 through the introduction of auxiliary inference networks
-\citep{rezende2015variational}. 
+\citep{rezende2015variational}.
 
 There has been recent focus on
 refining the variational posterior by applying gradient descent to variational
@@ -461,7 +461,7 @@ Normalizing flows for VAE \citep[NF]{rezende2015variational} make use of auxilia
 networks to improve the approximate posterior. In doing so, they are able to
 escape the factorial condition that GDIR and AdISIR have. However, NF requires
 additional parameters to improve the posterior as well as a complex learning
-algorithm. \alert{I will add more as I read the paper more today}
+algorithm, as it requires the choice of a parametric and invertible transformation.
 
 Importance sampling has shown to be successful in achieving better gradient
 estimates, such as in re-weighted wake-sleep \citep[RWS,
@@ -470,7 +470,7 @@ estimates, such as in re-weighted wake-sleep \citep[RWS,
 networks \citep[SFFN, ][]{tang2013learning}. Iterative refinement, however, takes a distinct approach, as it uses
 importance sampling instead to achieve a better posterior through refinement.
 
-Finally, IRVI should be applicable as a means of improving the approximate posterior for a large variety of variational methods, particularly ones that make use of a recognition network. This makes IRVI a 
+Finally, IRVI is not entirely orthogonal to many variational inference methods, and could be combined to enhance results, particularly with variational inference methods that follow an EM training procedure.
 
 \section{Experiments}
 
@@ -524,8 +524,8 @@ likelihood.
 
 GDIR shows notable improvement over VAE, while showing comparable performance to
 Hamiltonian MCMC with 5 leapfrog steps, despite conservative training.
-Performance falls short of HVI with $10$ leapfrog steps, IWAE and DLGM+NF,
-though not without notable model-independent advantages for those models.
+Performance falls short of HVI with $10$ leapfrog steps, IWAE, and DLGM+NF (diagonal covariance),
+though differences in model and training specification make a direct comparison difficult.
 
 We observe that the number of inference steps during training improves lower
 bound and log likelihood estimates. In addition, the bound becomes tighter both
@@ -548,7 +548,7 @@ as the number of inference during training and during evaluation (Figure \ref{fi
             $HVI_5$\textdagger &  90.86 & 87.16 \\ 
             $HVI_{10}$\textdagger & 87.60 & 85.56 \\ 
             \hline
-            DLGM+NF & \alert{TODO} &\\
+            DLGM+NF & 89.9 &\\
             \hline
             IWAE ($K=50$)\textdaggerdbl & & 84.78 \\ 
             \hline
