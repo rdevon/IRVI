@@ -884,11 +884,8 @@ class DeepSBN(Layer):
 
             hs = []
             for l, q in enumerate(qs):
-                if n_samples == 0:
-                    h = q[None, :, :]
-                else:
-                    h = self.posteriors[l].sample(
-                        q, size=(n_samples, q.shape[0], q.shape[1]))
+                h = self.posteriors[l].sample(
+                    q, size=(n_samples, q.shape[0], q.shape[1]))
                 hs.append(h)
 
             ys = [y] + qs[:-1]
@@ -920,5 +917,43 @@ class DeepSBN(Layer):
             lower_bounds=lower_bounds,
             lower_bound_gain=(lower_bounds[0] - lower_bounds[-1])
         )
+
+        y_energy = self.conditional.neg_log_prob(y, py)
+        prior_energy = self.posterior.neg_log_prob(h, prior)
+        entropy_term = self.posterior.neg_log_prob(h, q)
+
+        log_p = -y_energy - prior_energy + entropy_term
+        log_p_max = T.max(log_p, axis=0, keepdims=True)
+        w = T.exp(log_p - log_p_max)
+
+        return (T.log(w.mean(axis=0, keepdims=True)) + log_p_max).mean()
+
+        if calculate_log_marginal:
+            zs = [z[-1] for z in zss]
+            qs = [T.nnet.sigmoid(z) for z in zs]
+
+            hs = []
+            for l, q in enumerate(qs):
+                h = self.posteriors[l].sample(
+                    q, size=(n_samples, q.shape[0], q.shape[1]))
+                hs.append(h)
+
+            ys = [y] + qs[:-1]
+            p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
+
+            log_w = -self.posteriors[-1].neg_log_prob()
+
+            for l in xrange(self.n_layers):
+                y_ = ys[l]
+                cond_term = -self.conditionals[l].neg_log_porb(ys[l], p_ys[l])
+                post_term = -self.posteriors[l].neg_log_prob(hs[l], qs[l][None, :, :])
+                log_w += cond_term - post_term
+
+            log_w_max = T.max(log_w, axis=0, keepdims=True)
+            w = T.exp(log_w - log_w_max)
+            w_tilde = w / w.sum(axis=0, keepdims=True)
+
+            nll = -(T.log(w_tilde.mean(axis=0, keepdims=True)) + log_w_max).mean()
+            outs.update(nll=nll)
 
         return outs, updates
