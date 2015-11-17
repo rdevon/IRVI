@@ -918,17 +918,8 @@ class DeepSBN(Layer):
             lower_bound_gain=(lower_bounds[0] - lower_bounds[-1])
         )
 
-        y_energy = self.conditional.neg_log_prob(y, py)
-        prior_energy = self.posterior.neg_log_prob(h, prior)
-        entropy_term = self.posterior.neg_log_prob(h, q)
-
-        log_p = -y_energy - prior_energy + entropy_term
-        log_p_max = T.max(log_p, axis=0, keepdims=True)
-        w = T.exp(log_p - log_p_max)
-
-        return (T.log(w.mean(axis=0, keepdims=True)) + log_p_max).mean()
-
         if calculate_log_marginal:
+            prior = T.nnet.sigmoid(self.z)
             zs = [z[-1] for z in zss]
             qs = [T.nnet.sigmoid(z) for z in zs]
 
@@ -941,11 +932,11 @@ class DeepSBN(Layer):
             ys = [y] + qs[:-1]
             p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
 
-            log_w = -self.posteriors[-1].neg_log_prob()
+            log_w = -self.posteriors[-1].neg_log_prob(hs[-1], prior[None, None, :])
 
             for l in xrange(self.n_layers):
                 y_ = ys[l]
-                cond_term = -self.conditionals[l].neg_log_porb(ys[l], p_ys[l])
+                cond_term = -self.conditionals[l].neg_log_prob(ys[l], p_ys[l])
                 post_term = -self.posteriors[l].neg_log_prob(hs[l], qs[l][None, :, :])
                 log_w += cond_term - post_term
 
