@@ -926,13 +926,13 @@ class DeepSBN(Layer):
                     q, size=(n_samples, q.shape[0], q.shape[1]))
                 hs.append(h)
 
-            ys = [y[None, :, :]] + hs[:-1]
+            ys = [y] + qs[:-1]
             p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
 
             log_w = -self.posteriors[-1].neg_log_prob(hs[-1], prior[None, None, :])
 
             for l in xrange(self.n_layers):
-                cond_term = -self.conditionals[l].neg_log_porb(ys[l], p_ys[l])
+                cond_term = -self.conditionals[l].neg_log_porb(ys[l][None, :, :], p_ys[l])
                 post_term = -self.posteriors[l].neg_log_prob(hs[l], qs[l][None, :, :])
                 log_w += cond_term - post_term
 
