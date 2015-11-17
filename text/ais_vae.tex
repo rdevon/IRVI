@@ -497,11 +497,12 @@ to estimate the lower bounds and log likelihoods.
 For continuous latent variables, we used the same network structure as in
 \citep{kingma2013auto, salimans2014markov}, with $200$ latent variables and a
 generation and recognition network with $500$ intermediate deterministic
-softplus ($\log (1 + \exp(x))$) units. Each of our models were trained using using an initial learning
+softplus ($\log (1 + \exp(x))$) units. We excluded the mean and variance parameters for the prior constant at zero mean and unit variance.
+Each of our models were trained using using an initial learning
 rate of \num{0.0001}, an inference rate of \num{0.003}, $20$ or $50$ samples
 during inference using GDIR to refine output of the recognition network, and
 $20$ or $50$ samples to approximate the lower bound during the M-step; with all
-hyperparameters chosen from validation runs. In order to demonstrate the effect
+hyper-parameters chosen from validation runs. In order to demonstrate the effect
 of inference steps on learning, we varied the number of inference steps from
 $1$, $5$, $10$, $20$, and $50$.
 
@@ -581,7 +582,7 @@ $\approx$ -log(x) & 95.24 & 91.59 & 90.85 & 89.51 & \\
 \end{table}
 
 \subsection{Bernoulli Variables}
-For binary latent variables, we used two different parameterizations in order compare to wake-sleep and
+For binary latent variables, we used two different parameterizations in order compare to shallow and 2-layer wake-sleep and
 NVIL using both GDIR and AIR. For comparison to wake-sleep, we used a shallow
 feed-forward network with $200$ output neurons, $z$, for the local variational parameters as $\TT^l = \mu = \sigmoid(z)$, with no additional deterministic units, for both the recognition and generation nets.
 As NVIL uses an additional feed forward network for baseline prediction, we added
@@ -591,33 +592,39 @@ were trained using an initial learning rate of \num{0.001} and $20$ samples
 during inference, and $20$ posterior samples were used to estimate the lower bound during the
 M-step.
 
-GDIR and AIR models were trained with $1$, $5$, $10$, $20$, and $50$ inference steps. All
+To demonstrate IRVI with multiple layers, we used an SBN with a generation network with a structure of 200-200 binary latent layers and a generation network with a matched parameterization. However, for our approximate posterior we treated the outputs of each layer as the factors of the complete approximate posterior, that is $q(h1, h2 | x) = q(h1|x) q(h2|x)$, where $q(h2|x)$ shares the lower-level parameters with those of $q(h1|x)$. This allows us to adapt the Bernoulli means of $h1$ and $h2$ simultaneously, without having to account for dependencies.
+
+Single-layer GDIR and AIR models were trained with $1$, $5$, $10$, $20$, and $50$ inference steps, while the 2-layer SBN was trained only with $50$ inference steps. All
 models were trained for $500$ epochs with the initial learning rate. For AIR, an
 adaptive damping rate of $0.9$ was used, as lower damping rates proved unstable, though often gave competitive results.
-During test, $100$ steps were used during inference, and final models were selected
-based on validation performance.
+During test, $100$ steps were used during inference for the single-layer SBN, while $300$ steps were used for the 2-layer SBN, and final models were selected
+based on lower-bound validation performance.
 
 \begin{minipage}{\textwidth}
     \begin{minipage}[l]{0.5\textwidth}
 
-\begin{tabular}{ | m{8em} | m{1.4cm}| m{1.4cm} | } 
+\begin{tabular}{ | m{8.7em} | m{1.4cm}| m{1.4cm} | } 
 \hline
 Model & $\ge$ -log(x) & $\approx$ -log(x) \\ 
 \hline
 \hline
 Wake-sleep & 120.7 & 116.3 \\ 
+WS (200-200) & 109.4 & 106.9 \\
 RWS & & 103.1 \\
+RWS (200-200) & & 93.4 \\
 \hline
-NVIL & 113.1 &  \\ 
+NVIL & 113.1 &  \\
+NVIL (200-200) & 99.8 & \\ 
 \hline
 $AIR_{50}$ & 103.98 & 101.67 \\
-$AIR_{20}$ (240 sp) & 96.64 & 94.86 \\
+$AIR_{20}$ (240 det sp) & 96.64 & 94.86 \\
+$AIR_{50}$ (200-200) & 97.15 & 94.61 \\
 \hline
 $GDIR_{20}$ & 129.94 & 113.6 \\
-$GDIR_{20}$ (240 sp) & 118.28  & 104.22 \\
+$GDIR_{20}$ (240 det sp) & 118.28  & 104.22 \\
 \hline
 \end{tabular}
-\captionof{table}{Results for GDIR and AIR with and without an intermediate softplus layer of $240$ units compared to similar models trained on the same MNIST dataset.}
+\captionof{table}{Results for GDIR and AIR for a single-layer SBN with and without an intermediate softplus layer of $240$ units and a 2-layer SBN compared to similar models trained on the same MNIST dataset.}
 \label{table:binary}
 
 \end{minipage}
@@ -625,7 +632,7 @@ $GDIR_{20}$ (240 sp) & 118.28  & 104.22 \\
     \begin{minipage}[r]{0.43\textwidth}
 
 \includegraphics[scale=0.3]{figures/binary_eval}
-\captionof{figure}{Log likelihood and lower bound for a single binary latent variable
+\captionof{figure}{Log likelihood and lower bound for a single-layer binary latent variable
 model with varying number of inference steps during test over a subset of $500$
 samples from the test data.}
 \label{fig:binary}
@@ -649,7 +656,7 @@ $\approx$ -log(x) & 109.77 & 106.9 & 104.86 & 103.49 & 101.67 \\
 The comparative results are compiled in table \ref{table:binary}. While GDIR does not perform nearly as well, AIR greatly outperforms NVIL, whether parameter-matched or not. In addition, AIR outperforms RWS in log likelihood estimates. As with continuous variables, we observe that higher number of inference steps during training (Table \ref{table:binary_step}) and during test (Figure \ref{fig:binary}) improves and tightens the lower bound.
 
 \section{Conclusion}
-We have introduced a unsophisticated method for improving variational inference using a transition operator that maximizes the lower bound which is flexible. We achieve comparable performance to methods for improving VAE, and achieve state-of-the-art results with a single layer SBN.
+We have introduced a unsophisticated method for improving variational inference using a transition operator that maximizes the lower bound which is flexible. We achieve comparable performance to methods for improving VAE, and achieve state-of-the-art results with a single layer SBN with RWS and comparable results on 2-layer SBN RWS.
 
 \subsubsection*{Acknowledgments}
 Work was partially funded by Microsoft Research and NIH\ grants R01EB005846 and P20GM103472 (to VDC).
