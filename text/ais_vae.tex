@@ -556,8 +556,8 @@ as the number of inference during training and during evaluation (Figure \ref{fi
     \captionof{table}{Lower bounds and NLL for various continuous latent variable models and training algorithms. \textasteriskcentered{Approximate value from \cite{kingma2013auto}.} \textdagger{Using the Larochelle dataset and validation dataset during training}. \textdaggerdbl{Sampling from continuous MNIST and using an additional linear layer and parameters to model the mean.}}
     \label{table:continuous}
     \end{minipage}
-    \hspace{0.1\textwidth}
-    \begin{minipage}[r]{0.4\textwidth}
+    \hspace{0.05\textwidth}
+    \begin{minipage}[r]{0.43\textwidth}
         \includegraphics[scale=0.3]{figures/continuous_eval}
         \captionof{figure}{Log likelihood and lower bound for a single continuous latent variable
         model with varying number of inference steps during test over a subset of $500$
@@ -583,7 +583,7 @@ $\approx$ -log(x) & 95.24 & 91.59 & 90.85 & 89.51 & \\
 \subsection{Bernoulli Variables}
 For binary latent variables, we used two different parameterizations in order compare to wake-sleep and
 NVIL using both GDIR and AIR. For comparison to wake-sleep, we used a shallow
-feed-forward network with $200$ output neurons, $z$, for the local variational parameters as $\TT^l = \mu = sigmoid(z)$, with no additional deterministic units, for both the recognition and generation nets.
+feed-forward network with $200$ output neurons, $z$, for the local variational parameters as $\TT^l = \mu = \sigmoid(z)$, with no additional deterministic units, for both the recognition and generation nets.
 As NVIL uses an additional feed forward network for baseline prediction, we added
 an intermediate deterministic layer with $240$ softplus units in both the recognition and generation
 networks to roughly match the total number of parameters between each model. Models
@@ -621,8 +621,8 @@ $GDIR_{20}$ (240 sp) & 118.28  & 104.22 \\
 \label{table:binary}
 
 \end{minipage}
-    \hspace{0.1\textwidth}
-    \begin{minipage}[r]{0.4\textwidth}
+    \hspace{0.05\textwidth}
+    \begin{minipage}[r]{0.43\textwidth}
 
 \includegraphics[scale=0.3]{figures/binary_eval}
 \captionof{figure}{Log likelihood and lower bound for a single binary latent variable
