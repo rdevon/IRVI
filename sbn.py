@@ -863,14 +863,12 @@ class DeepSBN(Layer):
         return (zs, prior_energy, h_energy, y_energy), updates, constants
 
     def __call__(self, x, y,
-                 n_samples=100, n_inference_steps=0, n_sampling_steps=0,
-                 calculate_log_marginal=False):
+                 n_samples=100, n_inference_steps=0, calculate_log_marginal=False):
 
         outs = OrderedDict()
         updates = theano.OrderedUpdates()
 
-        (zss, i_costs), updates_i = self.infer_q(
-            x, y, n_inference_steps, n_sampling_steps=n_sampling_steps)
+        (zss, i_costs), updates_i = self.infer_q(x, y, n_inference_steps)
         updates.update(updates_i)
 
         lower_bounds = []
