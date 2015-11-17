@@ -120,6 +120,7 @@ def eval_model(
 
     if rs is None:
         rs = range(inference_stride, inference_stride * 10 + 1, inference_stride)
+    #rs = [50]
 
     best_r = 0
     best_lb = lb
