@@ -932,7 +932,7 @@ class DeepSBN(Layer):
             log_w = -self.posteriors[-1].neg_log_prob(hs[-1], prior[None, None, :])
 
             for l in xrange(self.n_layers):
-                cond_term = -self.conditionals[l].neg_log_porb(ys[l], p_ys[l])
+                cond_term = -self.conditionals[l].neg_log_prob(ys[l], p_ys[l])
                 post_term = -self.posteriors[l].neg_log_prob(hs[l], qs[l][None, :, :])
                 log_w += cond_term - post_term
 
