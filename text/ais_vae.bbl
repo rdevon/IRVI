@@ -1,4 +1,4 @@
-\begin{thebibliography}{21}
+\begin{thebibliography}{22}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -118,6 +118,12 @@ Salakhutdinov, Ruslan and Murray, Iain.
 Salimans, Tim.
 \newblock Markov chain monte carlo and variational inference: Bridging the gap.
 \newblock \emph{arXiv preprint arXiv:1410.6460}, 2014.
+
+\bibitem[Saul et~al.(1996)Saul, Jaakkola, and Jordan]{saul1996mean}
+Saul, Lawrence~K, Jaakkola, Tommi, and Jordan, Michael~I.
+\newblock Mean field theory for sigmoid belief networks.
+\newblock \emph{Journal of artificial intelligence research}, 4\penalty0
+  (1):\penalty0 61--76, 1996.
 
 \bibitem[Tang \& Salakhutdinov(2013)Tang and Salakhutdinov]{tang2013learning}
 Tang, Yichuan and Salakhutdinov, Ruslan~R.
