@@ -395,7 +395,7 @@ class SigmoidBeliefNetwork(Layer):
             zs, dzs, costs = outs
             if zs.ndim == 2:
                 zs = zs[None, :, :]
-                costs = costs[None, :]
+                costs = [costs]
             zs = concatenate([z0[None, :, :], zs])
         else:
             zs = z0[None, :, :]
@@ -736,13 +736,13 @@ class DeepSBN(Layer):
                 q, size=(self.n_inference_samples, q.shape[0], q.shape[1]))
             hs.append(h)
 
-        ys = [y] + qs[:-1]
+        ys = [y[None, :, :]] + hs[:-1]
         p_ys = [self.p_y_given_h(h, l, *params) for l, h in enumerate(hs)]
 
         log_w = -self.posteriors[-1].neg_log_prob(hs[-1], prior[None, None, :])
 
         for l in xrange(self.n_layers):
-            cond_term = -self.conditionals[l].neg_log_prob(ys[l][None, :, :], p_ys[l])
+            cond_term = -self.conditionals[l].neg_log_prob(ys[l], p_ys[l])
             post_term = -self.posteriors[l].neg_log_prob(hs[l], qs[l][None, :, :])
             log_w += cond_term - post_term
 
