@@ -497,7 +497,7 @@ to estimate the lower bounds and log likelihoods.
 For continuous latent variables, we used the same network structure as in
 \citep{kingma2013auto, salimans2014markov}, with $200$ latent variables and a
 generation and recognition network with $500$ intermediate deterministic
-softplus units. Each of our models were trained using using an initial learning
+softplus ($\log (1 + \exp(x))$) units. Each of our models were trained using using an initial learning
 rate of \num{0.0001}, an inference rate of \num{0.003}, $20$ or $50$ samples
 during inference using GDIR to refine output of the recognition network, and
 $20$ or $50$ samples to approximate the lower bound during the M-step; with all
@@ -514,7 +514,7 @@ inference steps during the E-step when refining the approximate posterior.
 Our test results with continuous latent variables (GDIR) are presented in Table
 \ref{table:continuous} with the number of posterior samples, $K$, and inference
 steps, $n$, specified as $GDIR_{K, n}$, with $K=20$ and $n=20$ chosen from
-validation \alert{waiting on some more results from 50 inference steps}. For comparison are
+validation. For comparison are
 (approximate) VAE results \alert{(They just have plots, no numbers)} from
 \citep{kingma2013auto}, deep latent gaussian models with normalizing flow
 \citep[DLGM+NF,][]{rezende2015variational}, HVI with the number of leapfrog steps
@@ -653,9 +653,6 @@ We have introduced a unsophisticated method for improving variational inference 
 
 \subsubsection*{Acknowledgments}
 Work was partially funded by Microsoft Research and NIH\ grants R01EB005846 and P20GM103472 (to VDC).
-
-\alert{TODO}
-
 
 \bibliography{ais_vae}
 \bibliographystyle{iclr2016_conference}
