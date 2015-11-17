@@ -817,7 +817,7 @@ class DeepSBN(Layer):
 
         return z0s
 
-    def infer_q(self, x, y, n_inference_steps, n_sampling_steps=0):
+    def infer_q(self, x, y, n_inference_steps):
         updates = theano.OrderedUpdates()
 
         ys = T.alloc(0., n_inference_steps + 1, y.shape[0], y.shape[1]) + y[None, :, :]
@@ -848,8 +848,7 @@ class DeepSBN(Layer):
         return (zss, i_costs), updates
 
     # Inference
-    def inference(self, x, y, n_inference_steps=20,
-                  n_sampling_steps=0, n_samples=100):
+    def inference(self, x, y, n_inference_steps=20, n_samples=100):
 
         (zss, _), updates = self.infer_q(
             x, y, n_inference_steps, n_sampling_steps=n_sampling_steps)
@@ -929,14 +928,13 @@ class DeepSBN(Layer):
                     q, size=(n_samples, q.shape[0], q.shape[1]))
                 hs.append(h)
 
-            ys = [y] + qs[:-1]
+            ys = [y[None, :, :]] + hs[:-1]
             p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
 
             log_w = -self.posteriors[-1].neg_log_prob(hs[-1], prior[None, None, :])
 
             for l in xrange(self.n_layers):
-                y_ = ys[l]
-                cond_term = -self.conditionals[l].neg_log_prob(ys[l], p_ys[l])
+                cond_term = -self.conditionals[l].neg_log_porb(ys[l], p_ys[l])
                 post_term = -self.posteriors[l].neg_log_prob(hs[l], qs[l][None, :, :])
                 log_w += cond_term - post_term
 
