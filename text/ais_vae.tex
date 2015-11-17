@@ -5,6 +5,7 @@
 \usepackage{latexsym}
 
 \usepackage{times}
+\usepackage{caption}
 \usepackage[scientific-notation=true]{siunitx}
 \usepackage{amsmath}
 \usepackage{amsthm}
@@ -150,11 +151,11 @@
 \title{Iterative Refinement of \\ Approximate Posterior for \\ Training Directed Belief Networks}
 
 \author{R Devon Hjelm \\
-Mind Research Network and \\ the University of New Mexico \\
+Mind Research Network \\ \& the University of New Mexico \\
 \texttt{\small dhjelm@mrn.org} 
 \And
 Kyunghyun Cho \\
-Courant Institute \& Center for Data Science \\
+Courant Institute \\ \& Center for Data Science \\
 New York University \\
 \texttt{\small kyunghyun.cho@nyu.edu}
 \And
@@ -167,7 +168,7 @@ University of Toronto \\
 \texttt{\small rsalakhu@cs.toronto.edu}
 \And
 Vince Calhoun \\
-Mind Research Network and \\ the University of New Mexico \\
+Mind Research Network \\ \& the University of New Mexico \\
 \texttt{\small vcalhoun@mrn.org}
 \And
 Yoshua Bengio \\
@@ -197,13 +198,13 @@ Microsoft Research \\
 \maketitle
 
 \begin{abstract}
-    Deep directed graphical models, while representing a potentially powerful
+    Deep directed graphical models, while a potentially powerful
     class of generative representations, are challenging to train due to difficult inference. Recent advances in variational inference that make use
     of an inference or \emph{recognition network} have advanced well beyond
     traditional variational inference and Markov chain Monte Carlo methods. While these techniques
     offer higher flexibility as well as simpler and faster inference, they are
     still limited by the choice of approximate posterior and require variance
-    reduction. Less focus has been given to improving or \emph{refining} the
+    reduction techniques. Less focus has been given to improving or \emph{refining} the
     approximate posterior beyond what is provided by variational inference. We
     show that iterative refinement of the approximate posterior can provide
     notable gains in maximizing the lower bound of the log likelihood, either
@@ -216,8 +217,8 @@ Microsoft Research \\
 \section{Introduction}
 
 Deep generative models offer the capacity for rich representations of complex
-data while as they can capture multimodal properties of the distribution of
-interest and generalize better. Deep directed
+data as they can capture multimodal properties of the distribution of
+interest and generalize better than models based purely on deterministic processes. Deep directed
 graphical models in particular have some advantage over their undirected
 cousins such as deep Boltzmann machines \citep[DBMs,][]{salakhutdinov2009deep} as they do not suffer from
 learning and evaluation difficulties arising from an intractable partition
@@ -242,7 +243,7 @@ of approximate posterior, which translates to a looseness in the lower bound.
 Some recent work has begun to address this limitation by either relaxing the
 factorial assumption \citep{burda2015importance} on the approximate posterior or
 through the introduction of auxiliary inference networks
-\citep{rezende2015variational}. 
+\citep{rezende2015variational}.
 
 There has been recent focus on
 refining the variational posterior by applying gradient descent to variational
@@ -255,7 +256,7 @@ We first show that, given lower bound optimization can be
 reinterpreted in terms of a deterministic function with auxiliary noise, we can use simple gradient descent
 to refine the approximate posterior during inference. Next, we show that with
 binary latent variables, adaptive importance sampling
-\citep[AdIS][]{karamchandani1989adaptive} can be used to refine the posterior when gradient descent is not efficient.
+\citep[AdIS][]{karamchandani1989adaptive} can be used instead of gradient descent.
 
 \section{Directed Belief Networks and Variational Inference}
 
@@ -324,7 +325,7 @@ $\PP$ are chosen/updated to maximize the likelihood function.
 
 In general, the gradient w.r.t. the model parameters of the lower bound can be
 estimated using the following Monte Carlo approximation:
-\begin{align}
+\begin{align} \label{eq:grad}
 \nabla_{\PP} \LL \approx \frac{1}{N} \sum_n \nabla_{\PP} \log p_{\PP}(x, h^{(n)}),
 \end{align}
 where $h^{(n)} \sim q(h|x)$.
@@ -362,28 +363,25 @@ iteratively to approximate posterior, $q$.
 %We then adjust our global variational
 %parameters by minimizing the KL divergence, $D_{KL}(\tilde{q}||p)$.
 
-\section{Iterative Refinement for Variational Inference}
+\section{Iterative Refinement for Variational Inference (IRVI)}
 
 \subsection{Iterative Refinement of Approximate Posterior}
 We restrict ourselves to the case where the prior and approximate posterior are
 factorial, that is: $p(h) = \prod_i p(h_i)$ and $\tilde{q}(h|x; \TT) = \prod_i
-\tilde{q}(h_i|x; \TT)$, respectively. In
-order to refine our inference from those available from the parameterized
-approximate posterior, we wish to achieve a better posterior by taking a set
-number of iterative steps in the \emph{local} variational parameters $\TT^l$
-from variational inference by applying a series of transition operators
-$T(\TT^l_t, \TT^l_{t-1}; \LL)$ parameterized by $\LL$. These transition
-operators should be a function of the lower bound and maximize it as well.
+\tilde{q}(h_i|x; \TT)$, respectively. The method relies on an initial set of \emph{local} variational parameters, $\TT^l$, optionally a function of the data
+such as ones given from a recognition network. Given a lower bound $\LL(\theta^l)$, we achieve a better posterior, maximizing $\LL$, by taking iterative steps 
+in $\TT^l$, using a series of transition operators $T(\TT^l_t, \TT^l_{t-1}; \LL)$. 
+The only criteria on the transition operators, $T$, is that they should be parameterized by and maximize $\LL$.
 
-After we find $\tilde{q}$, we maximize the lower bound w.r.t. the model
+After we find $\tilde{q}$, parameterized by an optimal set of variational parameters $\TT^{l\star}$, we maximize the lower bound w.r.t. the model
 parameters using stochastic gradient descent, using samples from the refined
-approximate posterior. Our loss w.r.t. the global variational parameters becomes
+approximate posterior. Learning for the model parameters follows equation \ref{eq:grad}, and the loss w.r.t. the global variational parameters becomes
 $D_{KL}(\tilde{q}(\theta^l)||q_{\TT})$.
 
 \subsubsection{Gradient Descent Iterative Refinement (GDIR)}
 If we can rephrase the lower bound as a deterministic function $g(\TT^l; \epsilon)$ of the local
 variational parameters and some optional auxiliary noise variables, $\epsilon$,
-then we can improve the local variational parameters by applying iterative steps
+then we are guaranteed to improve the local variational parameters by applying iterative steps
 of gradient ascent:
 
 \begin{align}
@@ -411,7 +409,7 @@ from a unit-variance, zero-mean normal distribution.
 The gradient of the lower bound w.r.t. the local variational parameters can be
 approximated easily by Monte Carlo method:
 \begin{align}
-\grad_{\TT^l} g(\TT^l, \epsilon) = \frac{1}{N} \grad_{\TT^l} \bigg(\sum_n \log p(x, h(\TT^l)^{(n)}) - \log \tilde{q}(h(\TT^l)^{(n)})\bigg)
+\grad_{\TT^l} g(\TT^l, \epsilon) = \frac{1}{N} \grad_{\TT^l} \bigg(\sum_n \log p(x, h(\TT^l)^{(n)}) - \log \tilde{q}(h(\TT^l)^{(n)})\bigg).
 \end{align}
 
 \paragraph{Bernoulli Latent Variables}
@@ -431,10 +429,10 @@ bound becomes:
 where $\log p(x | \mu)$ is the log-output of the generation network using the
 variational parameters $\mu = \sigmoid(z)$ as input. However, this approximation
 is likely highly biased, and becomes worse as $\mu$ moves away from $(0, 1)$, so
-we would expect this approximation to be best when the entropy is low.
+we would expect this approximation to be best when $\HH(\tilde{q})$ is small.
 
 \subsubsection{Adaptive Importance Sampling Iterative Refinement (AIR)}
-As an alternative and to address the issues with binary latent variables, we use \emph{adaptive importance sampling} \citep{karamchandani1989adaptive} to iteratively refine the Bernoulli centers at each inference step:
+As an alternative to and to address the issues with the binary latent variable approximation above, we use \emph{adaptive importance sampling} \citep[AdIS,][]{karamchandani1989adaptive} to iteratively refine the Bernoulli centers at each inference step:
 
 \begin{align}
     h^{(n)} &\sim \Bernoulli(\mu_t) \nonumber \\
@@ -444,45 +442,43 @@ w^{(n)} &= p(x, h^{(n)}) / q(h^{(n)} | x) \nonumber \\
 \grad_{\TT^l} \LL \approx \grad_{\TT^l} g(\TT^l) &= q_t - \mu_t  = \sum_n
     \tilde{w}^{(n)} h^{(n)} - \mu_t,
 \end{align}
-<<<<<<< HEAD
 
-where $\gamma$ is the learning rate and $(1 - \gamma)$ can be though of as the adaptive "damping" rate. Adaptive importance sampling, when applied iteratively, "recenters" the proposed distribution using a weighted average of samples, weighting by the suitability of each sample. This will clearly lead to a biased estimate of the lower bound when with a finite number of samples from $\tilde{q}$. However, we will show that it works very well in practice. This approach 
+where $\gamma$ is the learning rate and $(1 - \gamma)$ can be though of as the adaptive "damping" rate. Adaptive importance sampling "recenters" the proposed distribution using a weighted average of samples from said distribution, weighting by the importance weights. This will clearly lead to a biased estimate of the lower bound when with a finite number of samples from $\tilde{q}$. However, we will show that it works very well in practice. This approach is simpler for binary variables, as the distribution is parameterized Bernoulli centers, than for Gaussian variables which have both mean and covariance. Though it may be applicable, AIR with Gaussian variables is not explored here.
 
 \section{Related Works}
-Our work combines elements found in variational inference and MCMC methods. In
+IRVI combines elements found in variational inference and MCMC methods. In
 spirit, it is closest to the refinement procedure of hybrid MCMC for variational
-inference \citep{salimans2014markov}, but uses a much simpler MCMC transition
-than the Hamiltonian MC used there. In addition, the method detailed there
-requires the same re-parameterization trick as in VAE, limiting it's application
-to continuous latent variables.
+inference \citep[HVI,][]{salimans2014markov}, and in some senses HVI can be thought as a type of iterative refinement. However, the MCMC transitions in GDIR and AIR are substantially simpler than those used in HVI. In addition, HVI
+requires same re-parameterization trick as in VAE, as is used in GDIR, limiting it's application to continuous latent variables.
 
-Our work shares similarities with stochastic variational inference
+Our work also shares similarities with stochastic variational inference
 \citep{hoffman2013stochastic} also uses gradient descent to improve on the
 variational inference algorithm. However, the exact parameterization of the
 posterior is very limited and the method cannot be used with complex approximate
 posteriors. 
 
-Normalizing flows for VAE \citep{rezende2015variational} make use of auxiliary
+Normalizing flows for VAE \citep[NF]{rezende2015variational} make use of auxiliary
 networks to improve the approximate posterior. In doing so, they are able to
-escape the factorial condition that GDIR and AdISIR have. However, they require
+escape the factorial condition that GDIR and AdISIR have. However, NF requires
 additional parameters to improve the posterior as well as a complex learning
-algorithm.
+algorithm, as it requires the choice of a parametric and invertible transformation.
 
 Importance sampling has shown to be successful in achieving better gradient
 estimates, such as in re-weighted wake-sleep \citep[RWS,
 ][]{bornschein2014reweighted}, importance-weighted autoencoders
 \citep[IWAE,][]{burda2015importance}, and work on stochastic feed-forward
-networks \citep[SFFN, ][]{tang2013learning}. Iterative refinement, however, uses
-importance sampling to achieve a better posterior, using gradients of the lower
-bound in optimization. 
+networks \citep[SFFN, ][]{tang2013learning}. Iterative refinement, however, takes a distinct approach, as it uses
+importance sampling instead to achieve a better posterior through refinement.
+
+Finally, IRVI is not entirely orthogonal to many variational inference methods, and could be combined to enhance results, particularly with variational inference methods that follow an EM training procedure.
 
 \section{Experiments}
 
 \subsection{Settings}
 
-We test GDIR and AIR on MNIST, using the binarized dataset found in
+We test GDIR and AIR on MNIST, using the benchmark binarized dataset found in
 \citep{salakhutdinov2008quantitative}, with a standard train, validation, and
-test split of $50$k, $10$k, and $10$k samples. Unfortunately, recent papers on
+test split of $50$k, $10$k, and $10$k samples. We centered the entire MNIST dataset by subtracting the mean digit over the corresponding dataset (train, valid, and test). Unfortunately, recent papers on
 VAE \citep{mnih2014neural, salimans2014markov} have used different, non-standard
 splits, or actively sample from continuous MNIST \citep{burda2015importance},
 making it difficult to compete. We however make sure that our results are from
@@ -490,18 +486,18 @@ the most conservative setting (having the least amount of training examples and
 binarizing only once),
 thereby making any comparison as meaningful as possible.
 
-All models used a recognition network, for comparison to similar models, with
-the number of parameters and deterministic layers (if present) to match the
+All models used a recognition network for comparison to similar models, with
+the number of parameters and deterministic layers (if present) matching the
 generation network. Models were trained using the the RMSprop algorithm
 \citep{Hinton-Coursera2012}, with a batch size of $100$, with early stopping by
 recording best validation lowerbound. All models were tested using $1000$ posterior samples
 to estimate the lower bounds and log likelihoods.
 
 \subsection{Continuous Variables}
-For continuous latent variables we used the same network structure as in
+For continuous latent variables, we used the same network structure as in
 \citep{kingma2013auto, salimans2014markov}, with $200$ latent variables and a
 generation and recognition network with $500$ intermediate deterministic
-softplus units. Each of our models were trained using using an initial learning
+softplus ($\log (1 + \exp(x))$) units. Each of our models were trained using using an initial learning
 rate of \num{0.0001}, an inference rate of \num{0.003}, $20$ or $50$ samples
 during inference using GDIR to refine output of the recognition network, and
 $20$ or $50$ samples to approximate the lower bound during the M-step; with all
@@ -513,70 +509,71 @@ All models were trained for $1000$ epochs with the initial learning rate,
 followed by $100$ epochs at a learning rate of \num{0.00001}, and finished with
 $100$ epochs of \num{0.000001}. We also used $L2$ weight decay with a decay
 coefficient of \num{0.0002}. During test, all models were evaluated using $50$
-steps during inference when refining the approximate posterior.
+inference steps during the E-step when refining the approximate posterior.
 
-Our test results with continuous latent variables (GDIR) are presented in table
+Our test results with continuous latent variables (GDIR) are presented in Table
 \ref{table:continuous} with the number of posterior samples, $K$, and inference
 steps, $n$, specified as $GDIR_{K, n}$, with $K=20$ and $n=20$ chosen from
-validation \alert{waiting on some more results}. For comparison are
-(approximate) VAE results \alert{They just have plots, no numbers} from
+validation. For comparison are
+(approximate) VAE results \alert{(They just have plots, no numbers)} from
 \citep{kingma2013auto}, deep latent gaussian models with normalizing flow
-\citep[DLGM+NF,][]{rezende2015variational}, Hamiltonian MCMC variational
-inference \citep[HVI,][]{salimans2014markov} with the number of leapfrog steps
-specified, and importance weighted autoencoders
-\citep[IWAE,][]{burda2015importance}. Included in table \ref{table:cont_step} is
+\citep[DLGM+NF,][]{rezende2015variational}, HVI with the number of leapfrog steps
+specified, and IWAE. Included in Table \ref{table:cont_step} is
 the effect of inference steps during training on the lower bound and log
 likelihood.
 
 GDIR shows notable improvement over VAE, while showing comparable performance to
 Hamiltonian MCMC with 5 leapfrog steps, despite conservative training.
-Performance falls short of HVI with $10$ leapfrog steps, IWAE and DLGM+NF,
-though not without notable advantages for those models.
+Performance falls short of HVI with $10$ leapfrog steps, IWAE, and DLGM+NF (diagonal covariance),
+though differences in model and training specification make a direct comparison difficult.
 
-We observe that the number of inference steps during learning improves lower
+We observe that the number of inference steps during training improves lower
 bound and log likelihood estimates. In addition, the bound becomes tighter both
-as the number of inference during training and during evaluation.
+as the number of inference during training and during evaluation (Figure \ref{fig:continuous}).
+
+\begin{minipage}{\textwidth}
+    \begin{minipage}[l]{0.5\textwidth}
+        \begin{tabular}{ | m{8em} | m{1.4cm} | m{1.4cm} | } 
+            \hline
+            Model & $\ge$ -log(x) & $\approx$ -log(x) \\ 
+            \hline
+            \hline
+            VAE \textasteriskcentered & 99 &  \\ 
+            \hline
+            \hline
+            $GDIR_{20, 20}$ & 91.89 & 89.51 \\ 
+            $GRID_{50, 20}$ & 91.80 & 89.42 \\
+            \hline
+            \hline
+            $HVI_5$\textdagger &  90.86 & 87.16 \\ 
+            $HVI_{10}$\textdagger & 87.60 & 85.56 \\ 
+            \hline
+            DLGM+NF & 89.9 &\\
+            \hline
+            IWAE ($K=50$)\textdaggerdbl & & 84.78 \\ 
+            \hline
+        \end{tabular}
+    \captionof{table}{Lower bounds and NLL for various continuous latent variable models and training algorithms. \textasteriskcentered{Approximate value from \cite{kingma2013auto}.} \textdagger{Using the Larochelle dataset and validation dataset during training}. \textdaggerdbl{Sampling from continuous MNIST and using an additional linear layer and parameters to model the mean.}}
+    \label{table:continuous}
+    \end{minipage}
+    \hspace{0.05\textwidth}
+    \begin{minipage}[r]{0.43\textwidth}
+        \includegraphics[scale=0.3]{figures/continuous_eval}
+        \captionof{figure}{Log likelihood and lower bound for a single continuous latent variable
+        model with varying number of inference steps during test over a subset of $500$
+        samples from the test data.}
+        \label{fig:continuous}
+        \end{minipage}
+\end{minipage}
 
 \begin{table}
-\begin{tabular}{ | m{8em} | m{1cm}| m{1cm} | } 
-\hline
-Model & $\ge$ & $\approx$ \\ 
-\hline
-\hline
-VAE \textasteriskcentered & 99 &  \\ 
-\hline
-\hline
-$GDIR_{20, 20}$ & 91.89 & 89.51 \\ 
-\hline
-\hline
-$HVI_5$\textdagger &  90.86 & 87.16 \\ 
-$HVI_{10}$\textdagger & 87.60 & 85.56 \\ 
-\hline
-DLGM+NF & \alert{TODO} &\\
-\hline
-IWAE ($K=50$)\textdaggerdbl & & 84.78 \\ 
-\hline
-\end{tabular}
-\caption{Lower bounds and NLL for various continuous latent variable models and training algorithms. \textasteriskcentered{Approximate value from \cite{kingma2013auto}.} \textdagger{Using the Larochelle dataset and validation dataset during training}. \textdaggerdbl{Sampling from continuous MNIST.}}
-\label{table:continuous}
-\end{table}
-
-\begin{figure}
-\includegraphics[scale=0.3]{figures/continuous_eval}
-\caption{Log likelihood and lower bound for a single continuous latent variable
-model with varying number of inference steps during test over a subset of $500$
-samples from the test data.}
-\end{figure}
-
-\begin{table}
-\begin{tabular}{ | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} |}
+\begin{tabular}{ | m{1.4cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} |}
 \hline
 n & 1 & 5 & 10 & 20 & 50 \\
 \hline
-<<<<<<< HEAD
-$\ge$ & 96.24 & 93.72 & 93.36 & 91.89 & \\
+$\ge$ -log(x) & 96.24 & 93.72 & 93.36 & 91.89 & \\
 \hline
-$\approx$ & 95.24 & 91.59 & 90.85 & 89.51 & \\
+$\approx$ -log(x) & 95.24 & 91.59 & 90.85 & 89.51 & \\
 \hline
 \end{tabular}
 \caption{Results for models trained with GDIR with number of steps, $n$, during training. Each model was evaluated using $50$ steps during inference.}
@@ -584,27 +581,28 @@ $\approx$ & 95.24 & 91.59 & 90.85 & 89.51 & \\
 \end{table}
 
 \subsection{Bernoulli Variables}
-For binary latent variables, we used two structures to compare to wake-sleep and
+For binary latent variables, we used two different parameterizations in order compare to wake-sleep and
 NVIL using both GDIR and AIR. For comparison to wake-sleep, we used a shallow
-feed forward network with $200$ output neurons for the binary latent variables
-for the posterior and no deterministic units for the posterior nor conditional.
-As NVIL uses an additional feed forward network for baseline prediction, we used
-an deterministic layer of $240$ softplus units in the recognition and generation
-networks to roughly match the total number of parameters in each model. Models
+feed-forward network with $200$ output neurons, $z$, for the local variational parameters as $\TT^l = \mu = \sigmoid(z)$, with no additional deterministic units, for both the recognition and generation nets.
+As NVIL uses an additional feed forward network for baseline prediction, we added
+an intermediate deterministic layer with $240$ softplus units in both the recognition and generation
+networks to roughly match the total number of parameters between each model. Models
 were trained using an initial learning rate of \num{0.001} and $20$ samples
-during inference and $20$ samples to approximate the lower bound during the
+during inference, and $20$ posterior samples were used to estimate the lower bound during the
 M-step.
 
-GDIR and AIR models were trained with $1$, $5$, $10$, $20$, and $50$ steps. All
+GDIR and AIR models were trained with $1$, $5$, $10$, $20$, and $50$ inference steps. All
 models were trained for $500$ epochs with the initial learning rate. For AIR, an
-adaptive damping rate of $0.9$ was used, as lower damping rates proved unstable.
-During test, $100$ steps were used during inference. Final models were selected
+adaptive damping rate of $0.9$ was used, as lower damping rates proved unstable, though often gave competitive results.
+During test, $100$ steps were used during inference, and final models were selected
 based on validation performance.
 
-\begin{table}
-\begin{tabular}{ | m{8em} | m{1cm}| m{1cm} | } 
+\begin{minipage}{\textwidth}
+    \begin{minipage}[l]{0.5\textwidth}
+
+\begin{tabular}{ | m{8em} | m{1.4cm}| m{1.4cm} | } 
 \hline
-Model & $\ge$ & $\approx$ \\ 
+Model & $\ge$ -log(x) & $\approx$ -log(x) \\ 
 \hline
 \hline
 Wake-sleep & 120.7 & 116.3 \\ 
@@ -619,36 +617,42 @@ $GDIR_{20}$ & 129.94 & 113.6 \\
 $GDIR_{20}$ (240 sp) & 118.28  & 104.22 \\
 \hline
 \end{tabular}
-\caption{Results for GDIR and AIR with and without an intermediate softplus layer of $240$ units compared to similar models trained on the same MNIST dataset.}
+\captionof{table}{Results for GDIR and AIR with and without an intermediate softplus layer of $240$ units compared to similar models trained on the same MNIST dataset.}
 \label{table:binary}
-\end{table}
+
+\end{minipage}
+    \hspace{0.05\textwidth}
+    \begin{minipage}[r]{0.43\textwidth}
+
+\includegraphics[scale=0.3]{figures/binary_eval}
+\captionof{figure}{Log likelihood and lower bound for a single binary latent variable
+model with varying number of inference steps during test over a subset of $500$
+samples from the test data.}
+\label{fig:binary}
+        \end{minipage}
+\end{minipage}
 
 \begin{table}
-\begin{tabular}{ | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} |}
+\begin{tabular}{ | m{1.4cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} |}
 \hline
 n & 1 & 5 & 10 & 20 & 50 \\
 \hline
-$\ge$ & 115.39 & 108.66 & 107.35 & 105.93 & 103.98 \\
+$\ge$ -log(x) & 115.39 & 108.66 & 107.35 & 105.93 & 103.98 \\
 \hline
-$\approx$ & 109.77 & 106.9 & 104.86 & 103.49 & 101.67 \\
+$\approx$ -log(x) & 109.77 & 106.9 & 104.86 & 103.49 & 101.67 \\
 \hline
 \end{tabular}
 \caption{Results for models without intermediate deterministic layer trained with AIR with number of steps, $n$, during training. Each model was evaluated using $100$ steps during inference.}
-\label{table:cont_step}
+\label{table:binary_step}
 \end{table}
 
-The results are compiled in table \ref{table:binary}. While GDIR does not perform nearly as well, AIR greatly outperforms NVIL, whether parameter-matched or not. In addition, AIR outperforms RWS in log likelihood estimates.
+The comparative results are compiled in table \ref{table:binary}. While GDIR does not perform nearly as well, AIR greatly outperforms NVIL, whether parameter-matched or not. In addition, AIR outperforms RWS in log likelihood estimates. As with continuous variables, we observe that higher number of inference steps during training (Table \ref{table:binary_step}) and during test (Figure \ref{fig:binary}) improves and tightens the lower bound.
 
 \section{Conclusion}
-
-\alert{TBD}
-
+We have introduced a unsophisticated method for improving variational inference using a transition operator that maximizes the lower bound which is flexible. We achieve comparable performance to methods for improving VAE, and achieve state-of-the-art results with a single layer SBN.
 
 \subsubsection*{Acknowledgments}
-Microsoft, Mind Research Grants, PIBBS maybe
-
-\alert{TODO}
-
+Work was partially funded by Microsoft Research and NIH\ grants R01EB005846 and P20GM103472 (to VDC).
 
 \bibliography{ais_vae}
 \bibliographystyle{iclr2016_conference}
