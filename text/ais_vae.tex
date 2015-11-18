@@ -501,7 +501,7 @@ Each of our models were trained using an initial learning
 rate of \num{0.0001}, an inference rate of \num{0.003}, $20$ or $50$ samples
 during inference using GDIR to refine output of the recognition network, and
 $20$ or $50$ samples to approximate the lower bound during the M-step; with all
-hyper-parameters chosen from validation runs. In order to demonstrate the effect
+hyper-parameters chosen from validation runs. We used momentum for each GDIR step, with a coefficient of $0.9$. In order to demonstrate the effect
 of inference steps on learning, we varied the number of inference steps from
 $1$, $5$, $10$, $20$, and $50$.
 
