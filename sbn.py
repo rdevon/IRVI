@@ -1,5 +1,5 @@
 '''
-Module of Stochastic Feed Forward Networks
+module of Stochastic Feed Forward Networks
 '''
 
 from collections import OrderedDict
@@ -681,13 +681,13 @@ class DeepSBN(Layer):
         constants = []
 
         qs = [T.nnet.sigmoid(z) for z in zs]
-        ys = [y] + qs[:-1]
 
         hs = []
         for l, q in enumerate(qs):
             h = self.posteriors[l].sample(q, size=(n_samples, q.shape[0], q.shape[1]))
             hs.append(h)
         p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
+        ys = [y[None, :, :]] + hs[:-1]
 
         p_hs = []
         state = x
@@ -701,7 +701,7 @@ class DeepSBN(Layer):
         for l in xrange(self.n_layers):
             posterior_energy += self.posteriors[l].neg_log_prob(qs[l], p_hs[l])
             conditional_energy += self.conditionals[l].neg_log_prob(
-                ys[l][None, :, :], p_ys[l]).mean(axis=0)
+                ys[l], p_ys[l]).mean(axis=0)
 
         prior = T.nnet.sigmoid(self.z)
         prior_energy = self.posteriors[-1].neg_log_prob(qs[-1], prior[None, :])
@@ -850,8 +850,7 @@ class DeepSBN(Layer):
     # Inference
     def inference(self, x, y, n_inference_steps=20, n_samples=100):
 
-        (zss, _), updates = self.infer_q(
-            x, y, n_inference_steps, n_sampling_steps=n_sampling_steps)
+        (zss, _), updates = self.infer_q(x, y, n_inference_steps)
 
         zs = [z[-1] for z in zss]
 
@@ -877,30 +876,21 @@ class DeepSBN(Layer):
             zs = [z[step] for z in zss]
             qs = [T.nnet.sigmoid(z) for z in zs]
 
-            lower_bound = T.constant(0.).astype(floatX)
-
             hs = []
             for l, q in enumerate(qs):
                 h = self.posteriors[l].sample(
                     q, size=(n_samples, q.shape[0], q.shape[1]))
                 hs.append(h)
 
-            ys = [y] + qs[:-1]
+            ys = [y[None, :, :]] + hs[:-1]
             p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
             prior = T.nnet.sigmoid(self.z)
 
+            lower_bound = self.posteriors[-1].neg_log_prob(hs[-1], prior[None, None, :]).mean(axis=(0, 1))
             for l in xrange(self.n_layers):
-                q = qs[l]
-                y_ = ys[l]
-
-                if l == self.n_layers - 1:
-                    kl_term = self.kl_divergence(q, prior[None, :])
-                else:
-                    kl_term = -self.posteriors[l].entropy(q)
-
-                cond_term = self.conditionals[l].neg_log_prob(y_[None, :, :], p_ys[l]).mean(axis=0)
-
-                lower_bound += (kl_term + cond_term).mean(axis=0)
+                post_term = self.posteriors[l].entropy(qs[l])
+                cond_term = self.conditionals[l].neg_log_prob(ys[l], p_ys[l]).mean(axis=0)
+                lower_bound += (cond_term - post_term).mean(axis=0)
 
             return lower_bound, p_ys[0]
 
@@ -926,7 +916,7 @@ class DeepSBN(Layer):
                     q, size=(n_samples, q.shape[0], q.shape[1]))
                 hs.append(h)
 
-            ys = [y] + qs[:-1]
+            ys = [y[None, :, :]] + hs[:-1]
             p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
 
             log_w = -self.posteriors[-1].neg_log_prob(hs[-1], prior[None, None, :])
@@ -938,9 +928,8 @@ class DeepSBN(Layer):
 
             log_w_max = T.max(log_w, axis=0, keepdims=True)
             w = T.exp(log_w - log_w_max)
-            w_tilde = w / w.sum(axis=0, keepdims=True)
 
-            nll = -(T.log(w_tilde.mean(axis=0, keepdims=True)) + log_w_max).mean()
+            nll = -(T.log(w.mean(axis=0, keepdims=True)) + log_w_max).mean()
             outs.update(nll=nll)
 
         return outs, updates
