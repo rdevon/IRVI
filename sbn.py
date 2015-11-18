@@ -861,8 +861,8 @@ class DeepSBN(Layer):
 
         return (zs, prior_energy, h_energy, y_energy), updates, constants
 
-    def __call__(self, x, y,
-                 n_samples=100, n_inference_steps=0, calculate_log_marginal=False):
+    def __call__(self, x, y, n_samples=100, n_inference_steps=0,
+                 calculate_log_marginal=False):
 
         outs = OrderedDict()
         updates = theano.OrderedUpdates()
@@ -905,9 +905,9 @@ class DeepSBN(Layer):
             lower_bound_gain=(lower_bounds[0] - lower_bounds[-1])
         )
 
-        if calculate_log_marginal:
+        def get_log_marginal(step):
             prior = T.nnet.sigmoid(self.z)
-            zs = [z[-1] for z in zss]
+            zs = [z[step] for z in zss]
             qs = [T.nnet.sigmoid(z) for z in zs]
 
             hs = []
@@ -930,6 +930,14 @@ class DeepSBN(Layer):
             w = T.exp(log_w - log_w_max)
 
             nll = -(T.log(w.mean(axis=0, keepdims=True)) + log_w_max).mean()
-            outs.update(nll=nll)
+            return nll
+
+        if calculate_log_marginal:
+            nlls = []
+            for i in xrange(n_inference_steps):
+                nlls.append(get_log_marginal(i))
+
+            outs.update(nll=nlls[-1],
+                        nlls=nlls)
 
         return outs, updates
