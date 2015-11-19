@@ -171,10 +171,6 @@ Vince Calhoun \\
 Mind Research Network \\ University of New Mexico \\
 \texttt{\small vcalhoun@mrn.org}
 \And
-Yoshua Bengio \\
-University of Montreal \\
-\texttt{\small yoshua.bengio@umontreal.ca}
-\And
 Nebojsa Jojic \\
 Microsoft Research \\
 \texttt{\small jojic@microsoft.com}
@@ -234,7 +230,7 @@ Markov chain Monte Carlo (MCMC) \citep{neal1992connectionist} or variational
 inference based methods such as mean field coordinate ascent inference
 \citep{saul1996mean} in training deep generative models. The gains offered by
 these methods are due to parameterizing the approximate posterior with a
-\emph{recognition network} on top of clever learning algorithms. As opposed to
+\emph{recognition network} in addition to clever learning algorithms. As opposed to
 traditional methods, this general approach provides a fast and effective means
 of performing inference and learning which scales well to large datasets.
 
@@ -307,8 +303,8 @@ approximate posterior $q$.
 This introduces \emph{lower bound}, $\LL$, of the exact likelihood. Variational
 inference rephrases learning as choosing the variational parameters $\TT$ to
 maximize this bound, rather than choosing the latent variables directly. The
-bound is tight (i.e., $\LL = \log p(x)$) when the KL divergence between the
-approximate and true posterior is $0$ (i.e., $D_{KL}(q_{\TT}(h|x)||p(h|x)) =
+bound is tight (e.g., $\LL = \log p(x)$) when the KL divergence between the
+approximate and true posterior is $0$ (e.g., $D_{KL}(q_{\TT}(h|x)||p(h|x)) =
 0$); or equivalently when the approximate matches the true posterior.
 Optimization then is dependent on the choice of a parametric form for the
 posterior that can best approximate the exact posterior, and models generally
@@ -378,7 +374,7 @@ $D_{KL}(\tilde{q}(\theta^l)||q_{\TT})$.
 \subsubsection{Gradient Descent Iterative Refinement (GDIR)}
 If we can rephrase the lower bound as a deterministic function $g(\TT^l; \epsilon)$ of the local
 variational parameters and some optional auxiliary noise variables, $\epsilon$,
-then we are guaranteed to improve the local variational parameters by applying iterative steps
+then we are guaranteed to improve the approximate posterior by applying iterative steps
 of gradient ascent:
 
 \begin{align}
@@ -386,8 +382,7 @@ of gradient ascent:
 \TT^l_t &= \TT^l_{t-1} + \gamma \grad_{\TT^l} g(\TT^l, \epsilon)
 \end{align}
 where $\gamma$ is the "inference rate" and $\TT^l_0$ are the initial local
-parameters found through the initial variational inference. The success of this
-approach will depend on the choice of approximation, which we will show.
+parameters. The success of this approach will depend on the choice of approximation, which we will show.
 
 \paragraph{Gaussian Latent Variables}
 
@@ -441,32 +436,30 @@ w^{(n)} &= p(x, h^{(n)}) / q(h^{(n)} | x) \nonumber \\
 \mu_{t+1} = \mu_t + \gamma \grad_{\TT^l} g(\TT^l) &= (1 - \gamma) \mu_t + \gamma \sum_n \tilde{w}^{(n)} h^{(n)},
 \end{align}
 
-where $\gamma$ is the learning rate and $(1 - \gamma)$ can be though of as the adaptive "damping" rate. Adaptive importance sampling "recenters" the proposed distribution using a weighted average of samples from said distribution, weighting by the importance weights. This will clearly lead to a biased estimate of the lower bound when with a finite number of samples from $\tilde{q}$. However, we will show that it works very well in practice. This approach should work with any discrete parametric distribution, and we use Bernoulli variables as an exemplar here. Although AIR should be applicable with continuous Gaussian variables, which have both mean and covariance, we were able to make substantial gains using GDIR, leaving applying AIR to continuous latent variables for future work.
+where $\gamma$ is the learning rate and $(1 - \gamma)$ can be thought of as the adaptive "damping" rate. Adaptive importance sampling "recenters" the proposed distribution using a weighted average of samples from said distribution, weighting by the importance weights. This will clearly lead to a biased estimate of the lower bound when performed with a finite number of samples from $\tilde{q}$. However, we will show that it works very well in practice. This approach should work with any discrete parametric distribution, and we use Bernoulli variables as an exemplar here. Although AIR should be applicable with continuous Gaussian variables, which have both mean and covariance, we were able to make substantial gains using GDIR, leaving applying AIR to continuous latent variables for future work.
 
 \section{Related Works}
 IRVI combines elements found in variational inference and MCMC methods. In
 spirit, it is closest to the refinement procedure of hybrid MCMC for variational
 inference \citep[HVI,][]{icml2015_salimans15}, and in some senses HVI can be thought as a type of iterative refinement. However, the MCMC transitions in GDIR and AIR are substantially simpler than those used in HVI. In addition, HVI
-requires same re-parameterization trick as in VAE, as is used in GDIR, limiting it's application to continuous latent variables.
-
-GDIR also shares similarities with stochastic variational inference
-\citep{hoffman2013stochastic}, which also uses gradient descent to improve on the
-variational inference algorithm. 
+requires the same re-parameterization trick as in VAE, as is used in GDIR, limiting it's application to continuous latent variables.
 
 Normalizing flows for VAE \citep[NF,][]{rezende2015variational} make use of auxiliary
 networks to improve the approximate posterior. In doing so, they are able to
 escape the factorial condition that GDIR and AIR have. However, NF requires
 additional parameters to improve the posterior as well as a complex learning
-algorithm, as it requires the choice of a parametric and invertible transformation.
+algorithm, as it requires the choice of an additional invertible network for inference, in addition to the normal recognition network.
 
 Importance sampling has shown to be successful in achieving better gradient
 estimates, such as in re-weighted wake-sleep \citep[RWS,
 ][]{bornschein2014reweighted}, importance-weighted autoencoders
 \citep[IWAE,][]{burda2015importance}, and work on stochastic feed-forward
 networks \citep[SFFN, ][]{tang2013learning}. Iterative refinement, however, takes a distinct approach, as it uses
-importance sampling instead to achieve a better posterior through refinement.
+importance sampling instead to achieve a better posterior through refinement, not to reduce the variance of the gradients with respect to global variational parameters directly.
 
-Finally, IRVI is not entirely orthogonal to many variational inference methods, and could be combined to enhance results, particularly with variational inference methods that follow an EM training procedure.
+GDIR also shares similarities with stochastic variational inference
+\citep{hoffman2013stochastic}, which also uses gradient descent to improve on the
+variational inference algorithm. However, IRVI is not entirely orthogonal to many variational inference methods, including many mentioned above, and could be combined to enhance results, particularly with variational inference methods that follow an EM training procedure.
 
 \section{Experiments}
 
@@ -477,7 +470,7 @@ We test GDIR and AIR on MNIST, using the benchmark binarized dataset found in
 test split of $50$k, $10$k, and $10$k samples. We centered the entire MNIST dataset by subtracting the mean digit over the corresponding dataset (train, valid, and test) for inference only. Unfortunately, recent papers on
 VAE \citep{mnih2014neural, icml2015_salimans15} have used different, non-standard
 splits, or actively sample from continuous MNIST \citep{burda2015importance},
-making it difficult to compare performance or compete. We however make sure that our results are from
+making it difficult to compare performance or compete. We, however, make sure that our results are from
 the most conservative setting (having the least amount of training examples and
 binarizing only once),
 thereby making any comparison as meaningful as possible.
@@ -486,14 +479,14 @@ All models used a recognition network for comparison to similar models, with
 the number of parameters and deterministic layers (if present) matching the
 generation network. Models were trained using the the RMSprop algorithm
 \citep{Hinton-Coursera2012}, with a batch size of $100$, with early stopping by
-recording best validation lowerbound. All models were tested using $5000$ posterior samples
+recording best validation lowerbound. All models were tested using $1000$ posterior samples
 to estimate the lower bounds and log-likelihoods.
 
 \subsection{Continuous Variables}
 For continuous latent variables, we used the same network structure as in
 \citep{kingma2013auto, icml2015_salimans15}, with $200$ latent variables and a
 generation and recognition network with $500$ intermediate deterministic
-softplus ($\log (1 + \exp(x))$) units. We excluded the mean and variance of the prior distribution from learning, keeping the prior at zero-mean unit-variance.
+softplus ($\log (1 + \exp(x))$) units. We excluded the mean and variance of the prior distribution from learning, keeping the prior at zero-mean, unit-variance.
 Each of our models were trained using an inference rate of \num{0.003}, $20$ or $50$ samples
 during inference using GDIR to refine output of the recognition network, and
 $20$ or $50$ samples to approximate the lower bound during the M-step; with all
@@ -577,19 +570,18 @@ $\approx$ -log(x) & 95.24 & 91.59 & 90.85 & 89.51 & 89.39 \\
 \end{table}
 
 \subsection{Discrete Variables}
-Here we use Bernoulli variables, which have been widely used by earlier work. We used two different model parameterizations in order compare to results from wake-sleep, RWS, and NVIL on 1-layer and 2-layer SBNs against both GDIR (mu-push) and AIR. For comparison to wake-sleep and RWS, we used a shallow
+Here we use Bernoulli variables, which have been widely used in previous related work. We used two different model parameterizations in order compare to results from wake-sleep, RWS, and NVIL on 1-layer and 2-layer SBNs against both GDIR (mu-push) and AIR. For comparison to wake-sleep and RWS, we used a shallow
 feed-forward network with $200$ output neurons, $z$, for the local variational parameters as $\TT^l = \mu = \sigmoid(z)$, with no additional deterministic units, for both the recognition and generation nets.
 As NVIL uses an additional feed forward network for baseline prediction, we trained an additional model with
 an intermediate deterministic layer with $240$ softplus units in both the recognition and generation
 networks to roughly match the total number of parameters to NVIL. Models
-were trained using an initial learning rate of \num{0.001} and $20$ samples
-during inference, and $20$ posterior samples were used to estimate the lower bound during the
+were trained using $20$ samples during inference and $20$ posterior samples to estimate the lower bound during the
 M-step.
 
-To demonstrate IRVI with multiple layers, we used an SBN with a generation network with a structure of 200-200 binary latent layers and a recognition network with a matched parameterization. However, for our approximate posterior we used a completely deterministic network, treating the outputs of each layer as the factors of the complete approximate posterior, that is $q(h1, h2 | x) = q(h1|x) q(h2|x)$, where $q(h2|x)$ shares the lower-level parameters with those of $q(h1|x)$. This allows us to adapt the Bernoulli means of $h1$ and $h2$ simultaneously, without having to account for dependencies during inference.
+To demonstrate IRVI with multiple layers, we used an SBN with a generation network with a structure of 200-200 binary latent layers and a recognition network with a matched parameterization. However, for our approximate posterior we used a completely deterministic network, treating the outputs of each layer as the factors of the complete approximate posterior, that is $q(h1, h2 | x) = q(h1|x) q(h2|x)$, where $q(h2|x)$ shares the lower-level parameters with those of $q(h1|x)$, allowing us to adapt the Bernoulli means of $h1$ and $h2$ simultaneously.
 
-Single-layer GDIR and AIR models were trained with $1$, $5$, $10$, $20$, and $50$ inference steps, while the 2-layer SBN was trained only with $50$ inference steps. Single-layer SBNs (with and without intermediate deterministic layer) were trained for $500$ epochs with the initial learning rate, while the 2-layer SBN was trained with a learning rate of \num{0.0002}. For AIR, an
-adaptive damping rate of $0.9$ was used, as lower damping rates proved unstable, though often gave competitive results.
+Single-layer GDIR and AIR models were trained with $1$, $5$, $10$, $20$, and $50$ inference steps, while the 2-layer SBN was trained only with $50$ inference steps. Single-layer SBNs (with and without intermediate deterministic layer) were trained for $500$ epochs with a learning rate of \num{0.0001}, while the 2-layer SBN was trained with a learning rate of \num{0.0002}. For AIR, an
+adaptive damping rate of $0.9$ was used, as lower damping rates proved unstable, though these models often gave competitive results.
 During test, more inference samples were needed to ensure stable inference, and more steps were needed for lower bounds and log-likelihood estimates to converge. $200$ steps were used during inference for the single-layer SBN and $1000$ steps were used for the 2-layer SBN. However, while these step numbers proved sufficient for our analysis (Figure \ref{fig:binary}), neither model converged completely at test, so we are confident we are underestimating the log-likelihood. 
 
 \begin{minipage}{\textwidth}
@@ -636,25 +628,25 @@ samples from the test data.}
 \hline
 n & 1 & 5 & 10 & 20 & 50 \\
 \hline
-$\ge$ -log(x) & 115.39 & 108.66 & 107.35 & 105.93 & 103.98 \\
+$\ge$ -log(x) & 110.92 & 108.46 & 107.76 & 106.72 & 104.52 \\
 \hline
-$\approx$ -log(x) & 109.77 & 106.9 & 104.86 & 103.49 & 101.67 \\
+$\approx$ -log(x) & 107.52 & 105.01 & 103.98 & 102.39 & 100.02 \\
 \hline
 \end{tabular}
-\caption{Results for models without intermediate deterministic layer trained with AIR with number of steps, $n$, during training. Each model above was evaluated using $100$ steps and only $20$ samples during inference.}
+\caption{Results for models without intermediate deterministic layer trained with AIR with number of steps, $n$, during training. Each model above was evaluated using $200$ steps and $1000$ samples during inference.}
 \label{table:binary_step}
 \end{table}
 
-The comparative results are compiled in Table \ref{table:binary}. While mu-push GDIR does not perform nearly as well, AIR greatly outperforms NVIL with a single-layer SBN, whether parameter-matched or not, and AIR outperforms NVIL in 2-layer SBN. In addition, AIR outperforms RWS in log-likelihood estimates with a single-layer SBN, and slightly outperforms with 2 layers, despite the extremely simple deterministic recognition network. As with continuous variables, we observe that higher number of inference steps during training (Table \ref{table:binary_step}) and during test (Figure \ref{fig:binary}) improves and tightens the lower bound.
+The comparative results are compiled in Table \ref{table:binary}. While mu-push GDIR does not perform nearly as well, AIR greatly outperforms NVIL with a single-layer SBN, whether parameter-matched or not, and also outperforms NVIL in 2-layer SBN. In addition, AIR outperforms RWS in log-likelihood estimates with a single-layer SBN, and slightly outperforms with 2 layers, despite the extremely simple deterministic recognition network. As with continuous variables, we observe that higher number of inference steps during training (Table \ref{table:binary_step}) and during test (Figure \ref{fig:binary}) improves and tightens the lower bound.
 
 \section{Conclusion}
-We have introduced a unsophisticated approach for improving variational inference using a transition operator that maximizes the lower bound which is powerful and flexible. We achieve comparable performance to methods for improving VAE, and achieve state-of-the-art results with a single layer SBN with RWS and 2-layer SBN RWS.
+We have introduced a unsophisticated approach for improving variational inference using a transition operator that maximizes the lower bound which is powerful and flexible. We achieve comparable performance to methods for improving VAE and state-of-the-art results with a single layer SBN with RWS and 2-layer SBN RWS.
 
-Our 2-layer results indicate we can achieve similar results as RWS with a less-sophisticated recognition network, indicating that we can initiate inference with IRVI with a less complex recognition network than existing methods to achieve similar performance. The tradeoff seems to occur at test, as it appears that the choice of deterministic recognition network requires more inference steps during test to correct for an overestimation of the log-likelihood. This needs to be explored in more detail in future work.
+We can also achieve similar results as RWS with a less-sophisticated recognition network, indicating that we can initiate inference with IRVI with a less complex recognition network than existing methods and achieve similar performance.
 
 While we applied IVRI to variational inference with simple approximate posteriors parameterized by deterministic feed-forward networks, this is not a limitation of the method. Iterative refinement should be applicable to numerous formulations of variational inference, making it a potentially valuable means of general improvement.
 
-As the results show definite improvement over NVIL, this indicates that IRVI may be used as an alternative to REINFORCE in reinforcement learning tasks, such as Q-learning (citation? other examples?). Finally, many real-world applications in latent factor analysis, such as intrinsic networks from fMRI \citep{hjelm2014restricted}, require additional regularization to improve "interpretability" of results; by modifying the cost function, IRVI indicates a principled way to regularize latent variables during inference.
+As the results show definite improvement over NVIL, this indicates that IRVI may be used as an alternative to REINFORCE in reinforcement learning tasks, such as Q-learning (citation? other examples?). Finally, many real-world applications in latent factor analysis, such as intrinsic networks from fMRI \citep{hjelm2014restricted}, require additional regularization to improve "interpretability" of results. By modifying the cost function at inference, IRVI indicates a principled way to regularize or have control of the the final form of latent variables.
 
 \subsubsection*{Acknowledgments}
 Work was partially funded by Microsoft Research (to RDH) and NIH\ grants R01EB005846 and P20GM103472 (to VDC). Special thanks to the maintainers of Theano for providing a fast and efficient research tool for optimization using deep learning.
