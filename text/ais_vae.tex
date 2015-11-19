@@ -508,8 +508,8 @@ $1$, $5$, $10$, $20$, and $50$.
 All models were trained for $1000$ epochs with the initial learning rate,
 followed by $100$ epochs at a learning rate of \num{0.00001}, and finished with
 $100$ epochs of \num{0.000001}. We also used $L2$ weight decay with a decay
-coefficient of \num{0.0002}. During test, all models were evaluated using $50$
-inference steps during the E-step when refining the approximate posterior.
+coefficient of \num{0.0002}. During test, all models were evaluated using \alert{$100$}
+inference steps and \alert{$500$} inference samples during the E-step when refining the approximate posterior.
 
 Our test results with continuous latent variables (GDIR) are presented in Table
 \ref{table:continuous} with the number of posterior samples, $K$, and inference
