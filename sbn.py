@@ -218,12 +218,7 @@ class SigmoidBeliefNetwork(Layer):
     def e_step(self, y, z, *params):
         prior = T.nnet.sigmoid(params[0])
         q = T.nnet.sigmoid(z)
-
-        if self.center_latent:
-            print 'E step: Centering binary latent variables before passing to generation net'
-            py  = self.p_y_given_h(q - prior[None, :], *params)
-        else:
-            py = self.p_y_given_h(q, *params)
+        py = self.p_y_given_h(q, *params)
 
         consider_constant = [y, prior]
         cond_term = self.conditional.neg_log_prob(y, py)
@@ -241,17 +236,10 @@ class SigmoidBeliefNetwork(Layer):
         prior = T.nnet.sigmoid(self.z)
         p_h = self.posterior(x)
 
-        if n_samples == 0:
-            h = q[None, :, :]
-        else:
-            h = self.posterior.sample(
-                q, size=(n_samples, q.shape[0], q.shape[1]))
+        h = self.posterior.sample(
+            q, size=(n_samples, q.shape[0], q.shape[1]))
 
-        if self.center_latent:
-            print 'M step: Centering binary latent variables before passing to generation net'
-            py = self.conditional(h - prior[None, None, :])
-        else:
-            py = self.conditional(h)
+        py = self.conditional(h)
 
         entropy = self.posterior.entropy(q).mean()
 
@@ -283,11 +271,6 @@ class SigmoidBeliefNetwork(Layer):
             py = self.p_y_given_h(h - prior[None, None, :], *params)
         else:
             py = self.p_y_given_h(h, *params)
-
-        '''
-        w = self.importance_weights(
-            y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
-        '''
 
         y_energy = self.conditional.neg_log_prob(y[None, :, :], py)
         prior_energy = self.posterior.neg_log_prob(h, prior[None, None, :])
@@ -430,6 +413,10 @@ class SigmoidBeliefNetwork(Layer):
         outputs_info = [z0] + self.init_infer(z0) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
+        print ('Doing %d inference steps and a rate of %.2f with %d '
+               'inference samples'
+               % (n_inference_steps, self.inference_rate, self.n_inference_samples))
+
         if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 1:
             outs, updates_2 = theano.scan(
                 self.step_infer,
@@ -478,15 +465,16 @@ class SigmoidBeliefNetwork(Layer):
         (zs, i_costs), updates_i = self.infer_q(x, y, n_inference_steps)
         updates.update(updates_i)
 
+        steps = range(n_inference_steps // 10, n_inference_steps + 1, n_inference_steps // 10)
+        steps = steps[:-1] + [n_inference_steps]
+
         lower_bounds = []
-        for i in xrange(n_inference_steps + 1):
+        nlls = []
+        for i in steps:
             z = zs[i]
             q = T.nnet.sigmoid(z)
-            if n_samples == 0:
-                h = q[None, :, :]
-            else:
-                h = self.posterior.sample(
-                    q, size=(n_samples, q.shape[0], q.shape[1]))
+            h = self.posterior.sample(
+                q, size=(n_samples, q.shape[0], q.shape[1]))
 
             if self.center_latent:
                 print 'Centering latents in call'
@@ -498,15 +486,19 @@ class SigmoidBeliefNetwork(Layer):
             kl_term = self.kl_divergence(q, prior[None, :]).mean()
             lower_bounds.append(cond_term + kl_term)
 
+            if calculate_log_marginal:
+                nll = -self.log_marginal(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
+                nlls.append(nll)
+
         outs.update(
             py=py,
             lower_bound=lower_bounds[-1],
+            lower_bounds=lower_bounds,
             inference_cost=(lower_bounds[0] - lower_bounds[-1])
         )
 
         if calculate_log_marginal:
-            nll = -self.log_marginal(y[None, :, :], h, py, q[None, :, :], prior[None, None, :])
-            outs.update(nll=nll)
+            outs.update(nll=nlls[-1], nlls=nlls)
 
         return outs, updates
 
@@ -880,7 +872,7 @@ class DeepSBN(Layer):
         prior = T.nnet.sigmoid(self.z)
 
         def get_lower_bound(step):
-           
+
             zs = [z[step] for z in zss]
             qs = zs
             #qs = [T.nnet.sigmoid(z) for z in zs]
@@ -914,7 +906,7 @@ class DeepSBN(Layer):
         )
 
         def get_log_marginal(step):
-           
+
             zs = [z[step] for z in zss]
             qs = zs
             #qs = [T.nnet.sigmoid(z) for z in zs]
