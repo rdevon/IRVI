@@ -471,7 +471,7 @@ class SigmoidBeliefNetwork(Layer):
         lower_bounds = []
         nlls = []
         for i in steps:
-            z = zs[i]
+            z = zs[i-1]
             q = T.nnet.sigmoid(z)
             h = self.posterior.sample(
                 q, size=(n_samples, q.shape[0], q.shape[1]))

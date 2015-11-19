@@ -482,7 +482,7 @@ def train_model(
                 try:
                     i_cost = outs_v[3]
                     outs.update(inference_cost=i_cost)
-                except KeyError:
+                except IndexError:
                     pass
 
                 monitor.update(**outs)
