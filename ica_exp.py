@@ -88,17 +88,11 @@ def unpack(dim_h=None,
            prior=None,
            dataset=None,
            dataset_args=None,
-           noise_amount=None,
            n_inference_steps=None,
-           inference_decay=None,
+           n_inference_samples=None,
            inference_method=None,
            inference_rate=None,
-           inference_scaling=None,
-           importance_sampling=None,
-           entropy_scale=None,
            input_mode=None,
-           alpha=None,
-           center_latent=None,
            extra_inference_args=None,
            **model_args):
     '''
@@ -110,13 +104,8 @@ def unpack(dim_h=None,
         inference_method=inference_method,
         inference_rate=inference_rate,
         n_inference_steps=n_inference_steps,
-        inference_decay=inference_decay,
         z_init=z_init,
-        entropy_scale=entropy_scale,
-        inference_scaling=inference_scaling,
-        importance_sampling=importance_sampling,
-        alpha=alpha,
-        center_latent=center_latent,
+        n_inference_samples=n_inference_samples,
         extra_inference_args=extra_inference_args,
     )
 
@@ -317,7 +306,7 @@ def train_model(
     # Test function with sampling
     rval, updates_s = model(
         X_i, X, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test)
-       
+
     py_s = rval['py']
     lower_bound = rval['lower_bound']
     pd_s, d_hat_s = concatenate_inputs(model, X, py_s)

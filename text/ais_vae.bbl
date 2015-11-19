@@ -1,4 +1,4 @@
-\begin{thebibliography}{22}
+\begin{thebibliography}{23}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -69,6 +69,11 @@ Karamchandani, A, Bjerager, P, and Cornell, CA.
 Kingma, Diederik and Welling, Max.
 \newblock Auto-encoding variational bayes.
 \newblock \emph{arXiv preprint arXiv:1312.6114}, 2013.
+
+\bibitem[Kingma \& Ba(2014)Kingma and Ba]{kingma2014method}
+Kingma, DP and Ba, J.
+\newblock Adam: A method for stochastic optimization.
+\newblock \emph{arXiv preprint arXiv:1412.6980}, 2014.
 
 \bibitem[Mnih \& Gregor(2014)Mnih and Gregor]{mnih2014neural}
 Mnih, Andriy and Gregor, Karol.
