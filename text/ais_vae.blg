@@ -3,44 +3,44 @@ Capacity: max_strings=35307, hash_size=35307, hash_prime=30011
 The top-level auxiliary file: ais_vae.aux
 The style file: iclr2016_conference.bst
 Database file #1: ais_vae.bib
-You've used 23 entries,
+You've used 24 entries,
             2773 wiz_defined-function locations,
-            727 strings with 8433 characters,
-and the built_in function-call counts, 10651 in all, are:
-= -- 978
-> -- 556
-< -- 19
-+ -- 188
-- -- 165
-* -- 806
-:= -- 1595
-add.period$ -- 72
-call.type$ -- 23
-change.case$ -- 124
-chr.to.int$ -- 23
-cite$ -- 46
-duplicate$ -- 522
-empty$ -- 901
-format.name$ -- 206
-if$ -- 2279
+            738 strings with 8958 characters,
+and the built_in function-call counts, 12038 in all, are:
+= -- 1115
+> -- 632
+< -- 21
++ -- 212
+- -- 188
+* -- 928
+:= -- 1771
+add.period$ -- 76
+call.type$ -- 24
+change.case$ -- 134
+chr.to.int$ -- 24
+cite$ -- 48
+duplicate$ -- 576
+empty$ -- 1007
+format.name$ -- 232
+if$ -- 2597
 int.to.chr$ -- 1
 int.to.str$ -- 1
-missing$ -- 22
-newline$ -- 123
-num.names$ -- 92
-pop$ -- 247
+missing$ -- 23
+newline$ -- 129
+num.names$ -- 98
+pop$ -- 265
 preamble$ -- 1
-purify$ -- 101
+purify$ -- 110
 quote$ -- 0
-skip$ -- 415
+skip$ -- 473
 stack$ -- 0
-substring$ -- 409
-swap$ -- 77
-text.length$ -- 6
+substring$ -- 545
+swap$ -- 104
+text.length$ -- 8
 text.prefix$ -- 0
 top$ -- 0
-type$ -- 253
+type$ -- 264
 warning$ -- 0
-while$ -- 101
+while$ -- 114
 width$ -- 0
-write$ -- 299
+write$ -- 317
