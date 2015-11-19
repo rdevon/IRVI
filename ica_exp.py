@@ -93,7 +93,7 @@ def unpack(dim_h=None,
            inference_method=None,
            inference_rate=None,
            input_mode=None,
-           extra_inference_args=None,
+           extra_inference_args=dict(),
            **model_args):
     '''
     Function to unpack pretrained model into fresh SFFN class.
