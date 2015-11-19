@@ -84,71 +84,9 @@ def eval_model(
     x, _ = data_iter.next()
     x_v, _ = valid_iter.next()
 
-<<<<<<< HEAD
-    xs = [x[i: (i + 100)] for i in range(0, n_samples, 100)]
-
-    N = len(range(0, n_samples, 100))
-    lb_t = 0.
-    nll_t = 0.
-
-    #pbar = ProgressBar(maxval=len(xs)).start()
-    for i, x in enumerate(xs):
-        lb, nll = f_lower_bound(x)
-        lb_t += lb
-        nll_t += nll
-        #pbar.update(i)
-
-    lb = lb_t / N
-    nll = nll_t / N
-    lbs = [lb]
-    nlls = [nll]
-
-    print 'number of inference steps: 0'
-    print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
-
-    # ========================================================================
-    print 'Calculating lower bound curve (on 500 samples)'
-
-    if rs is None:
-        rs = range(inference_stride, inference_stride * 10 + 1, inference_stride)
-    #rs = [50]
-
-    best_r = 0
-    best_lb = lb
-    lbs = []
-    nlls = []
-    try:
-        for r in rs:
-            print 'number of inference steps: %d' % r
-            outs_s, updates_s = model(X_i, X, n_inference_steps=r,
-                                      n_samples=posterior_samples,
-                                      calculate_log_marginal=True)
-            f_lower_bound = theano.function([X], [outs_s['lower_bound'],
-                                                  outs_s['nll']],
-                updates=updates_s)
-
-            lb, nll = f_lower_bound(x[:500])
-
-            lb_v, nll_v = f_lower_bound(x_v)
-
-            if lb_v < best_lb:
-                best_lb = lb_v
-                best_r = r
-
-            lbs.append(lb)
-            nlls.append(nll)
-            print 'lower bound: %.2f, nll: %.2f' % (lb, nll)
-    except MemoryError:
-        print 'Memory Error. Stopped early.'
-
-    fig = plt.figure()
-    plt.plot(range(len(lbs)), lbs)
-    plt.plot(range(len(lbs)), nlls)
-=======
     dx = 100
     xs = [x[i: (i + dx)] for i in range(0, data_samples, dx)]
     N = data_samples // dx
->>>>>>> 21185271c8644b6d04d055fa99f68786588fb4ee
 
     print ('Calculating final lower bound and marginal with %d data samples, %d posterior samples '
            'with %d inference steps' % (N * dx, posterior_samples, steps))
