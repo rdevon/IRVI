@@ -485,6 +485,7 @@ recording best validation lowerbound. All models were tested using $1000$ poster
 to estimate the lower bounds and log-likelihoods.
 
 \subsection{Continuous Variables}
+
 For continuous latent variables, we used the same network structure as in
 \citep{kingma2013auto, icml2015_salimans15}, with $200$ latent variables and a
 generation and recognition network with $500$ intermediate deterministic
@@ -512,15 +513,8 @@ specified, and IWAE. Included in Table \ref{table:cont_step} is
 the effect of inference steps during training on the lower bound and log
 likelihood.
 
-GDIR shows notable improvement over VAE, while showing comparable performance to
-Hamiltonian MCMC with 5 leapfrog steps and DLGM+NF with diagonal covariance, despite conservative training.
-Performance falls short of HVI with $10$ leapfrog steps and IWAE,
-though differences in model and training specification make a direct comparison difficult.
-
-We observe that the number of inference steps during training improves lower
-bound and log likelihood estimates, though there is a slight increase of the lower bound at $50$ inference steps. In addition, the bound becomes tighter and the log-likelihood estimate improves as the number of inference steps increases, both during training (Table \ref{table:cont_step}) and during evaluation (Figure \ref{fig:continuous}).
-
-\begin{minipage}{\textwidth}
+\begin{table}[t]
+%\begin{minipage}{\textwidth}
     \begin{minipage}[l]{0.5\textwidth}
         \begin{tabular}{ | m{8em} | m{1.4cm} | m{1.4cm} | } 
             \hline
@@ -552,9 +546,19 @@ bound and log likelihood estimates, though there is a slight increase of the low
         model with varying number of inference steps during test.}
         \label{fig:continuous}
         \end{minipage}
-\end{minipage}
+%\end{minipage}
+\end{table}
+
+GDIR shows notable improvement over VAE, while showing comparable performance to
+Hamiltonian MCMC with 5 leapfrog steps and DLGM+NF with diagonal covariance, despite conservative training.
+Performance falls short of HVI with $10$ leapfrog steps and IWAE,
+though differences in model and training specification make a direct comparison difficult.
+
+We observe that the number of inference steps during training improves lower
+bound and log likelihood estimates, though there is a slight increase of the lower bound at $50$ inference steps. In addition, the bound becomes tighter and the log-likelihood estimate improves as the number of inference steps increases, both during training (Table \ref{table:cont_step}) and during evaluation (Figure \ref{fig:continuous}).
 
 \begin{table}
+    \centering
 \begin{tabular}{ | m{1.4cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} |}
 \hline
 n & 1 & 5 & 10 & 20 & 50 \\
@@ -583,9 +587,8 @@ Single-layer GDIR and AIR models were trained with $1$, $5$, $10$, $20$, and $50
 adaptive damping rate of $0.9$ was used, as lower damping rates proved unstable, though these models often gave competitive results.
 During test, more inference samples were needed to ensure stable inference, and more steps were needed for lower bounds and log-likelihood estimates to converge. $200$ steps were used during inference for the single-layer SBN and $1000$ steps were used for the 2-layer SBN. However, while these step numbers proved sufficient for our analysis (Figure \ref{fig:binary}), neither model converged completely at test, so we are confident we are underestimating the log-likelihood. 
 
-\begin{minipage}{\textwidth}
+\begin{table}[t]
     \begin{minipage}[l]{0.5\textwidth}
-
 \begin{tabular}{ | m{8.7em} | m{1.4cm}| m{1.4cm} | } 
 \hline
 Model & $\ge$ -log(x) & $\approx$ -log(x) \\ 
@@ -619,9 +622,10 @@ $GDIR_{20}$ (240 det sp) & 118.28  & 104.22 \\
 model with varying number of inference steps during test.}
 \label{fig:binary}
         \end{minipage}
-\end{minipage}
+    \end{table}
 
-\begin{table}
+    \begin{table}[ht]
+    \centering
 \begin{tabular}{ | m{1.4cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} | m{1cm} |}
 \hline
 n & 1 & 5 & 10 & 20 & 50 \\
