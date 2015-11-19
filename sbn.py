@@ -680,7 +680,8 @@ class DeepSBN(Layer):
     def m_step(self, x, y, zs, n_samples=10):
         constants = []
 
-        qs = [T.nnet.sigmoid(z) for z in zs]
+        qs = zs
+        #qs = [T.nnet.sigmoid(z) for z in zs]
 
         hs = []
         for l, q in enumerate(qs):
@@ -776,7 +777,8 @@ class DeepSBN(Layer):
     def _unpack_adapt(self, z0s, outs):
         qss = outs[:self.n_layers]
         qss = [concatenate([z0[None, :, :], qs]) for z0, qs in zip(z0s, qss)]
-        return [logit(qs) for qs in qss], outs[-1]
+        return qss, outs[-1]
+        #return [logit(qs) for qs in qss], outs[-1]
 
     def _params_adapt(self):
         return []
@@ -828,7 +830,7 @@ class DeepSBN(Layer):
         outputs_info = z0s + self.init_infer(z0s) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
-        print 'Doing %d inference steps and a rate of %.2f' % (n_inference_steps, self.inference_rate)
+        print 'Doing %d inference steps and a rate of %.2f with %d inference samples' % (n_inference_steps, self.inference_rate, self.n_inference_samples)
 
         if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 1:
             outs, updates = theano.scan(
@@ -845,8 +847,6 @@ class DeepSBN(Layer):
             zss, i_costs = self.unpack_infer(z0s, outs)
         else:
             raise NotImplementedError()
-
-        #zs = [z[-1] for z in zss]
 
         return (zss, i_costs), updates
 
@@ -882,7 +882,8 @@ class DeepSBN(Layer):
         def get_lower_bound(step):
            
             zs = [z[step] for z in zss]
-            qs = [T.nnet.sigmoid(z) for z in zs]
+            qs = zs
+            #qs = [T.nnet.sigmoid(z) for z in zs]
 
             hs = []
             for l, q in enumerate(qs):
@@ -915,7 +916,8 @@ class DeepSBN(Layer):
         def get_log_marginal(step):
            
             zs = [z[step] for z in zss]
-            qs = [T.nnet.sigmoid(z) for z in zs]
+            qs = zs
+            #qs = [T.nnet.sigmoid(z) for z in zs]
 
             hs = []
             for l, q in enumerate(qs):
