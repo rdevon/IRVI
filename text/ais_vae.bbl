@@ -1,4 +1,4 @@
-\begin{thebibliography}{24}
+\begin{thebibliography}{26}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -82,6 +82,13 @@ Mnih, Andriy and Gregor, Karol.
 \newblock In \emph{Proceedings of the 31st International Conference on Machine
   Learning (ICML-14)}, pp.\  1791--1799, 2014.
 
+\bibitem[Mnih et~al.(2013)Mnih, Kavukcuoglu, Silver, Graves, Antonoglou,
+  Wierstra, and Riedmiller]{mnih2013playing}
+Mnih, Volodymyr, Kavukcuoglu, Koray, Silver, David, Graves, Alex, Antonoglou,
+  Ioannis, Wierstra, Daan, and Riedmiller, Martin.
+\newblock Playing atari with deep reinforcement learning.
+\newblock \emph{arXiv preprint arXiv:1312.5602}, 2013.
+
 \bibitem[Neal(1992)]{neal1992connectionist}
 Neal, Radford~M.
 \newblock Connectionist learning of belief networks.
@@ -148,6 +155,11 @@ Tang, Yichuan and Salakhutdinov, Ruslan~R.
 \newblock Learning stochastic feedforward neural networks.
 \newblock In \emph{Advances in Neural Information Processing Systems}, pp.\
   530--538, 2013.
+
+\bibitem[Watkins \& Dayan(1992)Watkins and Dayan]{watkins1992q}
+Watkins, Christopher~JCH and Dayan, Peter.
+\newblock Q-learning.
+\newblock \emph{Machine learning}, 8\penalty0 (3-4):\penalty0 279--292, 1992.
 
 \bibitem[Williams(1992)]{williams1992simple}
 Williams, Ronald~J.

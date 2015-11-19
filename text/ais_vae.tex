@@ -444,6 +444,10 @@ spirit, it is closest to the refinement procedure of hybrid MCMC for variational
 inference \citep[HVI,][]{icml2015_salimans15}, and in some senses HVI can be thought as a type of iterative refinement. However, the MCMC transitions in GDIR and AIR are substantially simpler than those used in HVI. In addition, HVI
 requires the same re-parameterization trick as in VAE, as is used in GDIR, limiting it's application to continuous latent variables.
 
+GDIR also shares similarities with stochastic variational inference
+\citep[SVI,][]{hoffman2013stochastic}, which also uses gradient descent to improve on the
+variational inference algorithm. SVI, however, requires global latent variables with carefully chosen relationships with the local latent variables (our equivalent of $h$) to do inference.
+
 Normalizing flows for VAE \citep[NF,][]{rezende2015variational} make use of auxiliary
 networks to improve the approximate posterior. In doing so, they are able to
 escape the factorial condition that GDIR and AIR have. However, NF requires
@@ -457,9 +461,7 @@ estimates, such as in re-weighted wake-sleep \citep[RWS,
 networks \citep[SFFN, ][]{tang2013learning}. Iterative refinement, however, takes a distinct approach, as it uses
 importance sampling instead to achieve a better posterior through refinement, not to reduce the variance of the gradients with respect to global variational parameters directly.
 
-GDIR also shares similarities with stochastic variational inference
-\citep{hoffman2013stochastic}, which also uses gradient descent to improve on the
-variational inference algorithm. However, IRVI is not entirely orthogonal to many variational inference methods, including many mentioned above, and could be combined to enhance results, particularly with variational inference methods that follow an EM training procedure.
+Finally, IRVI is not entirely orthogonal to many variational inference methods, including many mentioned above, and could be combined to enhance results, particularly with variational inference methods that follow an EM training procedure.
 
 \section{Experiments}
 
@@ -642,7 +644,7 @@ We can also achieve similar results as RWS with a less-sophisticated recognition
 
 While we applied IVRI to variational inference with simple approximate posteriors parameterized by deterministic feed-forward networks, this is not a limitation of the method. Iterative refinement should be applicable to numerous formulations of variational inference, making it a potentially valuable means of general improvement.
 
-As the results show definite improvement over NVIL, this indicates that IRVI may be used as an alternative to REINFORCE in reinforcement learning tasks, such as Q-learning (citation? other examples?). Finally, many real-world applications in latent factor analysis, such as intrinsic networks from fMRI \citep{hjelm2014restricted}, require additional regularization to improve "interpretability" of results. By modifying the cost function at inference, IRVI indicates a principled way to regularize or have control of the the final form of latent variables.
+As the results show definite improvement over NVIL, this indicates that IRVI may be used as an alternative to REINFORCE in reinforcement learning tasks, such as applications of Q-learning \citep{watkins1992q, mnih2013playing}. Finally, many real-world applications in latent factor analysis, such as intrinsic networks from fMRI \citep{hjelm2014restricted}, require additional regularization to improve "interpretability" of results. By modifying the cost function at inference, IRVI indicates a principled way to regularize or have control of the the final form of latent variables.
 
 \subsubsection*{Acknowledgments}
 Work was partially funded by Microsoft Research (to RDH) and NIH\ grants R01EB005846 and P20GM103472 (to VDC). Special thanks to the maintainers of Theano for providing a fast and efficient research tool for optimization using deep learning.
