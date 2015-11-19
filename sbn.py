@@ -723,6 +723,7 @@ class DeepSBN(Layer):
 
     # Importance Sampling
     def _step_adapt(self, y, *params):
+        print 'AdIS'
         params = list(params)
         qs = params[:self.n_layers]
         params = params[self.n_layers:]
@@ -827,6 +828,8 @@ class DeepSBN(Layer):
         outputs_info = z0s + self.init_infer(z0s) + [None]
         non_seqs = self.params_infer() + self.get_params()
 
+        print 'Doing %d inference steps and a rate of %.2f' % (n_inference_steps, self.inference_rate)
+
         if isinstance(n_inference_steps, T.TensorVariable) or n_inference_steps > 1:
             outs, updates = theano.scan(
                 self.step_infer,
@@ -870,9 +873,14 @@ class DeepSBN(Layer):
         (zss, i_costs), updates_i = self.infer_q(x, y, n_inference_steps)
         updates.update(updates_i)
 
+        steps = range(n_inference_steps // 10, n_inference_steps + 1, n_inference_steps // 10)
+        steps = steps[:-1] + [n_inference_steps]
+
         lower_bounds = []
+        prior = T.nnet.sigmoid(self.z)
 
         def get_lower_bound(step):
+           
             zs = [z[step] for z in zss]
             qs = [T.nnet.sigmoid(z) for z in zs]
 
@@ -884,7 +892,6 @@ class DeepSBN(Layer):
 
             ys = [y[None, :, :]] + hs[:-1]
             p_ys = [conditional(h) for h, conditional in zip(hs, self.conditionals)]
-            prior = T.nnet.sigmoid(self.z)
 
             lower_bound = self.posteriors[-1].neg_log_prob(hs[-1], prior[None, None, :]).mean(axis=(0, 1))
             for l in xrange(self.n_layers):
@@ -894,7 +901,7 @@ class DeepSBN(Layer):
 
             return lower_bound, p_ys[0]
 
-        for l in xrange(n_inference_steps):
+        for l in steps:
             lower_bound, p_y = get_lower_bound(l)
             lower_bounds.append(lower_bound)
 
@@ -906,7 +913,7 @@ class DeepSBN(Layer):
         )
 
         def get_log_marginal(step):
-            prior = T.nnet.sigmoid(self.z)
+           
             zs = [z[step] for z in zss]
             qs = [T.nnet.sigmoid(z) for z in zs]
 
@@ -934,7 +941,7 @@ class DeepSBN(Layer):
 
         if calculate_log_marginal:
             nlls = []
-            for i in xrange(n_inference_steps):
+            for i in steps:
                 nlls.append(get_log_marginal(i))
 
             outs.update(nll=nlls[-1],
