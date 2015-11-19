@@ -51,7 +51,8 @@ def eval_model(
         z_init=z_init,
         inference_method=inference_method,
         inference_rate=inference_rate,
-        n_inference_samples=inference_samples
+        n_inference_samples=inference_samples,
+        extra_inference_args=extra_inference_args
     )
 
     models, _ = load_model(model_file, unpack, **model_args)
