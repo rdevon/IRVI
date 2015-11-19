@@ -497,8 +497,8 @@ $1$, $5$, $10$, $20$, and $50$.
 All models were trained for $1000$ epochs with an initial learning
 rate of \num{0.0001}, followed by $100$ epochs at a learning rate of \num{0.00001}, and finished with
 $100$ epochs of \num{0.000001}. We also used $L2$ weight decay with a decay
-coefficient of \num{0.0002}. During test, all models were evaluated using \alert{$100$}
-inference steps and \alert{$500$} inference samples during the E-step when refining the approximate posterior.
+coefficient of \num{0.0002}. During test, all models were evaluated using $100$
+inference steps and $300$ inference samples during the E-step when refining the approximate posterior.
 
 Our test results with continuous latent variables (GDIR) are presented in Table
 \ref{table:continuous} with the number of posterior samples, $K$, and inference
@@ -511,8 +511,8 @@ the effect of inference steps during training on the lower bound and log
 likelihood.
 
 GDIR shows notable improvement over VAE, while showing comparable performance to
-Hamiltonian MCMC with 5 leapfrog steps, despite conservative training.
-Performance falls short of HVI with $10$ leapfrog steps, IWAE, and DLGM+NF (diagonal covariance),
+Hamiltonian MCMC with 5 leapfrog steps and DLGM+NF with diagonal covariance, despite conservative training.
+Performance falls short of HVI with $10$ leapfrog steps and IWAE,
 though differences in model and training specification make a direct comparison difficult.
 
 We observe that the number of inference steps during training improves lower
@@ -528,10 +528,8 @@ bound and log likelihood estimates, though there is a slight increase of the low
             VAE \textasteriskcentered & 99 &  \\ 
             \hline
             \hline
-            $GDIR_{20, 20}$ & 91.89 & 89.43 \\ 
-            $GDIR_{50, 20}$ & 91.80 & 89.33 \\
-            $GDIR_{20, 50}$ & 92.45 & 89.39 \\
-            $GDIR_{50, 50}$ & 91.24 & 88.61 \\
+            $GDIR_{20, 20}$ & 90.75 & 88.65 \\
+            $GDIR_{20, 50}$ & 91.31 & 88.71 \\
             \hline
             \hline
             $HVI_5$\textdagger &  90.86 & 87.16 \\ 
@@ -549,8 +547,7 @@ bound and log likelihood estimates, though there is a slight increase of the low
     \begin{minipage}[r]{0.43\textwidth}
         \includegraphics[scale=0.3]{figures/continuous_eval}
         \captionof{figure}{Log likelihood and lower bound for a single continuous latent variable
-        model with varying number of inference steps during test over a subset of $500$
-        samples from the test data.}
+        model with varying number of inference steps during test.}
         \label{fig:continuous}
         \end{minipage}
 \end{minipage}
@@ -560,12 +557,12 @@ bound and log likelihood estimates, though there is a slight increase of the low
 \hline
 n & 1 & 5 & 10 & 20 & 50 \\
 \hline
-$\ge$ -log(x) & 96.24 & 93.72 & 93.36 & 91.89 & 92.45\\
+$\ge$ -log(x) & 95.15 & 92.74 & 92.33 & 90.75 & 91.31\\
 \hline
-$\approx$ -log(x) & 95.24 & 91.59 & 90.85 & 89.51 & 89.39 \\
+$\approx$ -log(x) & 94.34 & 90.74 & 89.98 & 88.65 & 88.71 \\
 \hline
 \end{tabular}
-\caption{Results for models trained with GDIR with number of steps, $n$, during training on the validation. Each model above was evaluated using $50$ steps and only $20$ samples during inference.}
+\caption{Results for models trained with GDIR with number of steps, $n$, during training on the validation. Each model above was evaluated using $100$ steps and $300$ samples during inference.}
 \label{table:cont_step}
 \end{table}
 
@@ -602,7 +599,7 @@ NVIL (200-200) & 99.8 & \\
 \hline
 $AIR_{50}$ & 104.52 & 100.02 \\
 $AIR_{20}$ (240 det sp) & 97.16 & 93.31 \\
-$AIR_{50}$ (200-200) & 96.82 & 92.39 \\
+$AIR_{50}$ (200-200) & 96.62 & 92.26 \\
 \hline
 $GDIR_{20}$ & 129.94 & 113.6 \\
 $GDIR_{20}$ (240 det sp) & 118.28  & 104.22 \\
@@ -617,8 +614,7 @@ $GDIR_{20}$ (240 det sp) & 118.28  & 104.22 \\
 
 \includegraphics[scale=0.3]{figures/binary_eval}
 \captionof{figure}{Log likelihood and lower bound for a single-layer binary latent variable
-model with varying number of inference steps during test over a subset of $500$
-samples from the test data.}
+model with varying number of inference steps during test.}
 \label{fig:binary}
         \end{minipage}
 \end{minipage}
