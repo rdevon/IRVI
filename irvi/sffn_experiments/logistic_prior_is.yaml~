@@ -1,0 +1,32 @@
+{
+  name: 'sbn_is',
+  prior: 'logistic',
+  learning_rate: 0.0003,
+  dim_h: 200,
+  epochs: 500,
+  batch_size: 100,
+  max_valid: 1000,
+  recognition_net: {
+    dim_h: 250,
+    h_act: 'T.nnet.softplus',
+    n_layers: 2
+  },
+  generation_net: {
+    dim_h: 250,
+    h_act: 'T.nnet.softplus',
+    n_layers: 2
+  },
+  z_init: 'recognition_net',
+  inference_method: 'adaptive',
+  inference_rate: 1.0,
+  n_inference_steps: 20,
+  n_inference_steps_test: 20,
+  n_inference_samples: 20,
+  inference_decay: 1.0,
+  n_mcmc_samples: 20,
+  n_mcmc_samples_test: 20,
+  dataset: 'mnist',
+  dataset_args: {
+    source: '/Users/devon/Data/mnist_binarized_salakhutdinov.pkl.gz'
+  }
+}

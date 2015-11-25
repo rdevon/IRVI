@@ -1,0 +1,32 @@
+{
+  name: 'gbn_4',
+  prior: 'gaussian',
+  dim_h: 300,
+  learning_rate: 0.003,
+  center_input: True,
+  epochs: 500,
+  optimizer: rmsprop,
+  recognition_net: {
+    dim_h: 300,
+    h_act: 'T.nnet.softplus',
+    n_layers: 2
+  },
+  generation_net: {
+    dim_h: 300,
+    h_act: 'T.nnet.softplus',
+    n_layers: 2
+  },
+  z_init: 'recognition_net',
+  inference_method: 'momentum',
+  inference_rate: .003,
+  n_inference_steps: 20,
+  n_inference_steps_test: 20,
+  n_inference_samples: 20,
+  n_mcmc_samples: 20,
+  n_mcmc_samples_test: 20,
+  dataset: 'mnist',
+  dataset_args: {
+    #source: '/Users/devon/Data/mnist_binarized_salakhutdinov.pkl.gz',
+    #source: '/export/mialab/users/dhjelm/data/mnist.pkl.gz'
+  }
+}
