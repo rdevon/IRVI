@@ -5,7 +5,6 @@ SFFN experiment
 import argparse
 from collections import OrderedDict
 from glob import glob
-from monitor import SimpleMonitor
 import numpy as np
 import os
 from os import path
@@ -19,12 +18,14 @@ from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import time
 
-from layers import MLP
-from mnist import MNIST
-import op
-from gbn import GaussianBeliefNet as GBN
-from sbn import SigmoidBeliefNetwork as SBN
-from tools import (
+from datasets.mnist import MNIST
+from models.gbn import GaussianBeliefNet as GBN
+from models.layers import MLP
+from models.sbn import SigmoidBeliefNetwork as SBN
+from models.sbn import load_mlp
+from utils.monitor import SimpleMonitor
+import utils.op
+from utils.tools import (
     check_bad_nums,
     itemlist,
     load_model,
@@ -44,10 +45,6 @@ def concatenate_inputs(model, y, py):
     y = T.concatenate([y[None, :, :], y_hat], axis=0)
 
     return py, y
-
-def load_mlp(name, dim_in, dim_out, dim_h=None, n_layers=None, **kwargs):
-    mlp = MLP(dim_in, dim_h, dim_out, n_layers, name=name, **kwargs)
-    return mlp
 
 def load_data(dataset,
               train_batch_size,
@@ -81,89 +78,10 @@ def load_data(dataset,
 
     return train, valid, test
 
-def unpack(dim_h=None,
-           z_init=None,
-           recognition_net=None,
-           generation_net=None,
-           prior=None,
-           dataset=None,
-           dataset_args=None,
-           n_inference_steps=None,
-           n_inference_samples=None,
-           inference_method=None,
-           inference_rate=None,
-           input_mode=None,
-           extra_inference_args=dict(),
-           **model_args):
-    '''
-    Function to unpack pretrained model into fresh SFFN class.
-    '''
-
-    kwargs = dict(
-        prior=prior,
-        inference_method=inference_method,
-        inference_rate=inference_rate,
-        n_inference_steps=n_inference_steps,
-        z_init=z_init,
-        n_inference_samples=n_inference_samples,
-        extra_inference_args=extra_inference_args,
-    )
-
-    dim_h = int(dim_h)
-    dataset_args = dataset_args[()]
-
-    if dataset == 'mnist':
-        dim_in = 28 * 28
-        dim_out = dim_in
-    else:
-        raise ValueError()
-
-    if prior == 'logistic':
-        out_act = 'T.nnet.sigmoid'
-    elif prior == 'gaussian':
-        out_act = 'lambda x: x'
-    else:
-        raise ValueError('%s prior not known' % prior)
-
-    models = []
-    if recognition_net is not None:
-        recognition_net = recognition_net[()]
-        posterior = load_mlp('posterior', dim_in, dim_h,
-                             out_act=out_act,
-                             **recognition_net)
-        models.append(posterior)
-    else:
-        posterior = None
-
-    if generation_net is not None:
-        generation_net = generation_net[()]
-        conditional = load_mlp('conditional', dim_h, dim_in,
-                               out_act='T.nnet.sigmoid',
-                               **generation_net)
-        models.append(conditional)
-
-    if prior == 'logistic':
-        C = SBN
-    elif prior == 'gaussian':
-        C = GBN
-    else:
-        raise ValueError('%s prior not known' % prior)
-
-    model = C(dim_in, dim_h, dim_out,
-              conditional=conditional, posterior=posterior,
-              **kwargs)
-    models.append(model)
-
-    return models, model_args, dict(
-        z_init=z_init,
-        dataset=dataset,
-        dataset_args=dataset_args
-    )
-
 def train_model(
     out_path='', name='', load_last=False, model_to_load=None, save_images=True,
 
-    learning_rate=0.1, optimizer='adam', optimizer_args=dict(),
+    learning_rate=0.0001, optimizer='rmsprop', optimizer_args=dict(),
     batch_size=100, valid_batch_size=100, test_batch_size=1000,
     max_valid=10000,
     epochs=100,
@@ -172,7 +90,7 @@ def train_model(
     input_mode=None,
     generation_net=None, recognition_net=None,
     excludes=['log_sigma'],
-    center_input=True, center_latent=False,
+    center_input=True,
 
     z_init=None,
     inference_method='momentum',
@@ -191,7 +109,7 @@ def train_model(
     importance_sampling=False,
 
     dataset=None, dataset_args=None,
-    model_save_freq=1000, show_freq=100, archive_every=0
+    model_save_freq=1000, show_freq=100
     ):
 
     kwargs = dict(
@@ -199,12 +117,6 @@ def train_model(
         inference_method=inference_method,
         inference_rate=inference_rate,
         n_inference_samples=n_inference_samples,
-        inference_decay=inference_decay,
-        entropy_scale=entropy_scale,
-        inference_scaling=inference_scaling,
-        importance_sampling=importance_sampling,
-        alpha=alpha,
-        center_latent=center_latent,
         extra_inference_args=extra_inference_args
     )
 
@@ -214,18 +126,15 @@ def train_model(
 
     # ========================================================================
     print 'Setting up data'
-    train, valid, test = load_data(dataset,
-                                   batch_size,
-                                   valid_batch_size,
-                                   test_batch_size,
+    train, valid, test = load_data(dataset, batch_size,
+                                   valid_batch_size, test_batch_size,
                                    **dataset_args)
 
     # ========================================================================
     print 'Setting model and variables'
     dim_in = train.dim
-    dim_out = train.dim
     X = T.matrix('x', dtype=floatX)
-    X.tag.test_value = np.zeros((batch_size, 784), dtype=X.dtype)
+    X.tag.test_value = np.zeros((batch_size, dim_in), dtype=X.dtype)
     trng = RandomStreams(random.randint(0, 1000000))
 
     if input_mode == 'sample':
@@ -278,7 +187,7 @@ def train_model(
             C = GBN
         else:
             raise ValueError()
-        model = C(dim_in, dim_h, dim_out, trng=trng,
+        model = C(dim_in, dim_h, trng=trng,
                 conditional=conditional,
                 posterior=posterior,
                 **kwargs)
@@ -299,6 +208,10 @@ def train_model(
         X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples)
 
     cost = prior_energy + h_energy + y_energy
+
+    extra_outs = [prior_energy, h_energy, y_energy, entropy]
+    extra_outs_names = ['cost', 'prior_energy', 'h energy',
+                        'train y energy', 'entropy']
 
     # ========================================================================
     print 'Extra functions'
@@ -323,13 +236,6 @@ def train_model(
     f_prior = theano.function([], py_p)
 
     # ========================================================================
-
-    extra_outs = [prior_energy, h_energy, y_energy, entropy]
-
-    extra_outs_names = ['cost', 'prior_energy', 'h energy',
-                        'train y energy', 'entropy']
-
-    # ========================================================================
     print 'Setting final tparams and save function'
 
     all_params = OrderedDict((k, v) for k, v in tparams.iteritems())
@@ -345,6 +251,7 @@ def train_model(
         d = dict((k, v.get_value()) for k, v in all_params.items())
 
         d.update(
+            dim_in=dim_in,
             dim_h=dim_h,
             input_mode=input_mode,
             prior=prior,
@@ -369,7 +276,7 @@ def train_model(
     monitor = SimpleMonitor()
 
     # ========================================================================
-    print 'Actually running'
+    print 'Actually running (main loop)'
 
     best_cost = float('inf')
     best_epoch = 0
@@ -513,7 +420,6 @@ def train_model(
                     )
 
             f_grad_updates(learning_rate)
-
             s += 1
 
     except KeyboardInterrupt:
