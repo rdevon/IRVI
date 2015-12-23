@@ -16,7 +16,7 @@ X = T.matrix('X', dtype=theano.config.floatX)
 S = theano.shared(np.random.normal(0, 1, size=(11, 13)).astype('float32'))
 W = theano.shared(np.random.normal(0, 1, size=(21, 13)).astype('float32'))
 
-Y = trng.normal(avg=T.dot(X, W), std=T.exp(S), size=S.shape)
+Y = trng.normal(avg=s, std=T.exp(T.dot(X, W)), size=S.shape)
 grads = theano.grad(Y.mean(), wrt=W)
 
 f = theano.function([X], grads)
