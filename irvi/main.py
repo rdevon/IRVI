@@ -212,7 +212,7 @@ def train_model(
     (z, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
         X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples)
 
-    cost = y_energy# + h_energy + prior_energy
+    cost = y_energy + h_energy + prior_energy
 
     extra_outs = [prior_energy, h_energy, y_energy, entropy]
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
@@ -277,14 +277,6 @@ def train_model(
     print 'Getting gradients.'
     grads = T.grad(cost, wrt=itemlist(tparams),
                    consider_constant=constants)
-
-    x, _ = train.next()
-    f = theano.function([X], grads, updates=updates)
-    gs = f(x)
-    for i, (k, v) in enumerate(tparams.iteritems()):
-        print k, gs[i].mean(), gs[i].max(), gs[i].min()
-
-    assert False
 
     # ========================================================================
     print 'Building optimizer'
