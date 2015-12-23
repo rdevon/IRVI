@@ -22,9 +22,8 @@ from datasets.mnist import MNIST
 from models.gbn import GaussianBeliefNet as GBN
 from models.layers import MLP
 from models.sbn import SigmoidBeliefNetwork as SBN
-from models.sbn import load_mlp
 from utils.monitor import SimpleMonitor
-import utils.op
+from utils import op
 from utils.tools import (
     check_bad_nums,
     itemlist,
@@ -87,6 +86,8 @@ def train_model(
     epochs=100,
 
     dim_h=300, prior='logistic',
+    l2_decay=0.,
+
     input_mode=None,
     generation_net=None, recognition_net=None,
     excludes=['log_sigma'],
@@ -95,18 +96,13 @@ def train_model(
     z_init=None,
     inference_method='momentum',
     inference_rate=.01,
-    n_inference_steps=100,
-    n_inference_steps_test=0,
-    inference_decay=1.0,
+    n_inference_steps=20,
+    n_inference_steps_test=20,
     n_inference_samples=20,
-    inference_scaling=None,
-    entropy_scale=1.0,
-    alpha=7,
     extra_inference_args=dict(),
 
     n_mcmc_samples=20,
     n_mcmc_samples_test=20,
-    importance_sampling=False,
 
     dataset=None, dataset_args=None,
     model_save_freq=1000, show_freq=100
@@ -132,7 +128,7 @@ def train_model(
 
     # ========================================================================
     print 'Setting model and variables'
-    dim_in = train.dim
+    dim_in = train.dims['mnist']
     X = T.matrix('x', dtype=floatX)
     X.tag.test_value = np.zeros((batch_size, dim_in), dtype=X.dtype)
     trng = RandomStreams(random.randint(0, 1000000))
@@ -168,18 +164,28 @@ def train_model(
             raise ValueError('%s prior not known' % prior)
 
         if recognition_net is not None:
-            posterior = load_mlp('posterior', dim_in, dim_h,
-                                 out_act=out_act,
-                                 **recognition_net)
-        else:
-            posterior = None
-
+            input_layer = recognition_net.pop('input_layer')
+            recognition_net['dim_in'] = train.dims[input_layer]
+            recognition_net['dim_out'] = dim_h
+            recognition_net['out_act'] = out_act
         if generation_net is not None:
-            conditional = load_mlp('conditional', dim_h, dim_in,
-                                   out_act='T.nnet.sigmoid',
-                                   **generation_net)
-        else:
-            conditional = None
+            generation_net['dim_in'] = dim_h
+            t = generation_net.get('type', None)
+            if t is None:
+                generation_net['dim_out'] = train.dims[generation_net['output']]
+                generation_net['out_act'] = train.acts[generation_net['output']]
+            elif t == 'MMMLP':
+                generation_net['graph']['outs'] = dict()
+                for out in generation_net['graph']['outputs']:
+                    generation_net['graph']['outs'][out] = dict(
+                        dim=train.dims[out],
+                        act=train.acts[out]
+                    )
+            else:
+                raise ValueError()
+
+        mlps = SBN.mlp_factory(recognition_net=recognition_net,
+                               generation_net=generation_net)
 
         if prior == 'logistic':
             C = SBN
@@ -187,10 +193,9 @@ def train_model(
             C = GBN
         else:
             raise ValueError()
-        model = C(dim_in, dim_h, trng=trng,
-                conditional=conditional,
-                posterior=posterior,
-                **kwargs)
+
+        kwargs.update(**mlps)
+        model = C(recognition_net['dim_in'], dim_h, trng=trng, **kwargs)
 
         models = OrderedDict()
         models[model.name] = model
@@ -207,11 +212,19 @@ def train_model(
     (z, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
         X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples)
 
-    cost = prior_energy + h_energy + y_energy
+    cost = y_energy# + h_energy + prior_energy
 
     extra_outs = [prior_energy, h_energy, y_energy, entropy]
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
                         'train y energy', 'entropy']
+
+    if l2_decay > 0.:
+        print 'Adding %.5f L2 weight decay' % l2_decay
+        rec_l2_cost = model.posterior.get_L2_weight_cost(l2_decay)
+        gen_l2_cost = model.conditional.get_L2_weight_cost(l2_decay)
+        cost += rec_l2_cost + gen_l2_cost
+        extra_outs += [rec_l2_cost, gen_l2_cost]
+        extra_outs_names += ['Rec net L2 cost', 'Gen net L2 cost']
 
     # ========================================================================
     print 'Extra functions'
@@ -264,6 +277,14 @@ def train_model(
     print 'Getting gradients.'
     grads = T.grad(cost, wrt=itemlist(tparams),
                    consider_constant=constants)
+
+    x, _ = train.next()
+    f = theano.function([X], grads, updates=updates)
+    gs = f(x)
+    for i, (k, v) in enumerate(tparams.iteritems()):
+        print k, gs[i].mean(), gs[i].max(), gs[i].min()
+
+    assert False
 
     # ========================================================================
     print 'Building optimizer'
