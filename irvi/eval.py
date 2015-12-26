@@ -197,8 +197,5 @@ if __name__ == '__main__':
                inference_samples=args.inference_samples,
                data_samples=args.data_samples,
                steps=args.inference_steps,
-<<<<<<< Updated upstream:irvi/eval.py
-=======
                rate=args.rate,
->>>>>>> Stashed changes:sbn-gbn_eval.py
                **exp_dict)
