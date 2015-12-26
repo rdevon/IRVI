@@ -83,11 +83,12 @@ def train_model(
     out_path='', name='', load_last=False, model_to_load=None, save_images=True,
 
     learning_rate=0.0001, optimizer='rmsprop', optimizer_args=dict(),
+    learning_rate_schedule=None,
     batch_size=100, valid_batch_size=100, test_batch_size=1000,
     max_valid=10000,
     epochs=100,
 
-    dim_h=300, prior='logistic',
+    dim_h=300, prior='logistic', pass_gradients=False,
     l2_decay=0.,
 
     input_mode=None,
@@ -212,7 +213,8 @@ def train_model(
     # ========================================================================
     print 'Getting cost'
     (z, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
-        X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples)
+        X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples,
+        pass_gradients=pass_gradients)
 
     cost = y_energy + h_energy + prior_energy
 
@@ -233,13 +235,15 @@ def train_model(
 
     # Test function with sampling
     rval, updates_s = model(
-        X_i, X, n_samples=n_mcmc_samples_test, n_inference_steps=n_inference_steps_test)
+        X_i, X, n_samples=n_mcmc_samples_test,
+        n_inference_steps=n_inference_steps_test)
 
     py_s = rval['py']
     lower_bound = rval['lower_bound']
+    lower_bound0 = rval['lower_bounds'][0]
     pd_s, d_hat_s = concatenate_inputs(model, X, py_s)
 
-    outs_s = [lower_bound, pd_s, d_hat_s]
+    outs_s = [lower_bound, lower_bound0, pd_s, d_hat_s]
 
     if 'inference_cost' in rval.keys():
         outs_s.append(rval['inference_cost'])
@@ -368,6 +372,13 @@ def train_model(
 
                 valid.reset()
                 train.reset()
+
+                if learning_rate_schedule is not None:
+                    if e in learning_rate_schedule.keys():
+                        lr = learning_rate_scheudle[e]
+                        print 'Changing learning rate to %.5f' % lr
+                        learning_rate = lr
+
                 continue
 
             if e > epochs:
@@ -387,7 +398,7 @@ def train_model(
                 outs_v = f_test(x_v)
                 outs_t = f_test(x)
 
-                lb_v, pd_v, d_hat_v = outs_v[:3]
+                lb_v, lb0_v, pd_v, d_hat_v = outs_v[:4]
                 lb_t = outs_t[0]
 
                 outs = OrderedDict((k, v)
@@ -398,11 +409,12 @@ def train_model(
                 outs.update(**{
                     'train lower bound': lb_t,
                     'valid lower bound': lb_v,
+                    'valid lower bound zero': lb0_v,
                     'elapsed_time': t1-t0}
                 )
 
                 try:
-                    i_cost = outs_v[3]
+                    i_cost = outs_v[4]
                     outs.update(inference_cost=i_cost)
                 except IndexError:
                     pass
