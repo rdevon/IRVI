@@ -375,7 +375,7 @@ def train_model(
 
                 if learning_rate_schedule is not None:
                     if e in learning_rate_schedule.keys():
-                        lr = learning_rate_scheudle[e]
+                        lr = learning_rate_schedule[e]
                         print 'Changing learning rate to %.5f' % lr
                         learning_rate = lr
 
