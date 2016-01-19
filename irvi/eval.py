@@ -17,7 +17,7 @@ import time
 
 from datasets.mnist import MNIST
 from models.gbn import GaussianBeliefNet as GBN
-from models.layers import MLP
+from models.mlp import MLP
 from models.sbn import SigmoidBeliefNetwork as SBN
 from models.sbn import unpack
 from utils.monitor import SimpleMonitor
