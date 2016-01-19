@@ -145,6 +145,15 @@ def eval_model(
             path.join(out_path, 'samples_from_prior.png'),
             x_limit=10)
 
+        print 'Saving sampling from posterior'
+        for i, py in enumerate(outs_s['pys']):
+            f_post = theano.function([X], py, updates=updates_s)
+            py_s = f_post(xs[0])
+            data_iter.save_images(
+                py_s,
+                path.join(out_path, 'samples_from_post_%d.png' % i)
+            )
+
 def make_argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('experiment_dir')
