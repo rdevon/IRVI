@@ -105,7 +105,7 @@ def eval_model(
     print ('Calculating final lower bound and marginal with %d data samples, %d posterior samples '
            'with %d inference steps' % (N * dx, posterior_samples, steps))
 
-    outs_s, updates_s = model(X_i, X, n_inference_steps=steps, n_samples=posterior_samples, calculate_log_marginal=True)
+    outs_s, updates_s = model(X_i, X, n_inference_steps=steps, n_samples=posterior_samples, calculate_log_marginal=True, stride=steps//10)
     f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']] + outs_s['lower_bounds'] + outs_s['nlls'], updates=updates_s)
     lb_t = []
     nll_t = []
@@ -113,8 +113,8 @@ def eval_model(
     lbs_t = []
 
     pbar = ProgressBar(maxval=len(xs)).start()
-    for i, x in enumerate(xs):
-        outs = f_lower_bound(x)
+    for i, y in enumerate(xs):
+        outs = f_lower_bound(y)
         lb, nll = outs[:2]
         outs = outs[2:]
         lbs = outs[:len(outs)/2]
@@ -150,9 +150,17 @@ def eval_model(
             x_limit=10)
 
         print 'Saving sampling from posterior'
-        for i, py in enumerate(outs_s['pys']):
-            f_post = theano.function([X], py, updates=updates_s)
-            py_s = f_post(xs[0])
+        x_test = x[:1000]
+        idx = outs_s['energies'][0].argsort()[::-1][:100].astype('int64')
+        f_idx = theano.function([X], idx, updates=updates_s)
+        idx = f_idx(x_test).tolist()
+        for i, (py, energies) in enumerate(zip(outs_s['pys'], outs_s['energies'])):
+            f_post = theano.function([X], [py[:5], energies], updates=updates_s)
+            outs = f_post(x_test[idx])
+            py_s = outs[0]
+            energy = outs[1].mean()
+            print energy
+            py_s = np.concatenate([x_test[idx][None, :, :], py_s])
             data_iter.save_images(
                 py_s,
                 path.join(out_path, 'samples_from_post_%d.png' % i)
