@@ -125,8 +125,10 @@ def train_model(
 
     # ========================================================================
     print 'Setting up data'
-    train, valid, test = load_data(dataset, batch_size,
-                                   valid_batch_size, test_batch_size,
+    train, valid, test = load_data(dataset,
+                                   batch_size,
+                                   valid_batch_size,
+                                   test_batch_size,
                                    **dataset_args)
 
     # ========================================================================
