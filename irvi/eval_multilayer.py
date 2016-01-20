@@ -39,6 +39,7 @@ def eval_model(
     z_init='recognition_net',
     inference_method='momentum',
     inference_rate=.01,
+    rate=0.,
     n_mcmc_samples=20,
     posterior_samples=20,
     inference_samples=20,
@@ -46,6 +47,9 @@ def eval_model(
     dataset_args=None,
     extra_inference_args=dict(),
     **kwargs):
+
+    if rate > 0:
+        inference_rate = rate
 
     model_args = dict(
         prior=prior,
@@ -147,6 +151,7 @@ def make_argument_parser():
     parser.add_argument('-i', '--inference_samples', default=1000, type=int)
     parser.add_argument('-s', '--inference_steps', default=50, type=int)
     parser.add_argument('-d', '--data_samples', default=10000, type=int)
+    parser.add_argument('-r', '--rate', default=0, type=float)
     return parser
 
 if __name__ == '__main__':
@@ -184,4 +189,5 @@ if __name__ == '__main__':
                inference_samples=args.inference_samples, 
                data_samples=args.data_samples,
                steps=args.inference_steps,
+               rate=args.rate,
                **exp_dict)
