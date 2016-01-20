@@ -18,6 +18,7 @@ from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import time
 
+from datasets.cifar import CIFAR
 from datasets.mnist import MNIST
 from models.gbn import GaussianBeliefNet as GBN
 from models.mlp import MLP
@@ -27,9 +28,11 @@ from utils.monitor import SimpleMonitor
 from utils import op
 from utils.tools import (
     check_bad_nums,
+    debug_shape,
     itemlist,
     load_model,
     load_experiment,
+    print_profile,
     _slice
 )
 
@@ -42,7 +45,7 @@ def concatenate_inputs(model, y, py):
     '''
     y_hat = model.conditional.sample(py)
 
-    py = T.concatenate([y[None, :, :], py], axis=0)
+    py = T.concatenate([y[None, :, :], model.get_center(py)], axis=0)
     y = T.concatenate([y[None, :, :], y_hat], axis=0)
 
     return py, y
@@ -53,29 +56,32 @@ def load_data(dataset,
               test_batch_size,
               **dataset_args):
     if dataset == 'mnist':
-        if train_batch_size is not None:
-            train = MNIST(batch_size=train_batch_size,
-                          mode='train',
-                          inf=False,
-                          **dataset_args)
-        else:
-            train = None
-        if valid_batch_size is not None:
-            valid = MNIST(batch_size=valid_batch_size,
-                          mode='valid',
-                          inf=False,
-                          **dataset_args)
-        else:
-            valid = None
-        if test_batch_size is not None:
-            test = MNIST(batch_size=test_batch_size,
-                         mode='test',
-                         inf=False,
-                         **dataset_args)
-        else:
-            test = None
+        C = MNIST
+    elif dataset == 'cifar':
+        C = CIFAR
+
+    if train_batch_size is not None:
+        train = C(batch_size=train_batch_size,
+                  mode='train',
+                  inf=False,
+                  **dataset_args)
     else:
-        raise ValueError()
+        train = None
+    if valid_batch_size is not None:
+        valid = C(batch_size=valid_batch_size,
+                  mode='valid',
+                  inf=False,
+                  **dataset_args)
+    else:
+        valid = None
+    if test_batch_size is not None:
+        test = C(batch_size=test_batch_size,
+                 mode='test',
+                 inf=False,
+                 **dataset_args)
+    else:
+        test = None
+
 
     return train, valid, test
 
@@ -133,7 +139,7 @@ def train_model(
 
     # ========================================================================
     print 'Setting model and variables'
-    dim_in = train.dims['mnist']
+    dim_in = train.dims[dataset]
     X = T.matrix('x', dtype=floatX)
     X.tag.test_value = np.zeros((batch_size, dim_in), dtype=X.dtype)
     trng = RandomStreams(random.randint(0, 1000000))
@@ -211,6 +217,7 @@ def train_model(
         model = models['gbn']
 
     tparams = model.set_tparams(excludes=excludes)
+    print_profile(tparams)
 
     # ========================================================================
     print 'Getting cost'
@@ -241,6 +248,7 @@ def train_model(
         n_inference_steps=n_inference_steps_test)
 
     py_s = rval['py']
+
     lower_bound = rval['lower_bound']
     lower_bound0 = rval['lower_bounds'][0]
     pd_s, d_hat_s = concatenate_inputs(model, X, py_s)
