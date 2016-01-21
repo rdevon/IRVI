@@ -151,19 +151,23 @@ def eval_model(
 
         print 'Saving sampling from posterior'
         x_test = x[:1000]
-        idx = outs_s['energies'][0].argsort()[::-1][:100].astype('int64')
-        f_idx = theano.function([X], idx, updates=updates_s)
-        idx = f_idx(x_test).tolist()
-        for i, (py, energies) in enumerate(zip(outs_s['pys'], outs_s['energies'])):
-            f_post = theano.function([X], [py[:5], energies], updates=updates_s)
-            outs = f_post(x_test[idx])
-            py_s = outs[0]
-            energy = outs[1].mean()
-            print energy
-            py_s = np.concatenate([x_test[idx][None, :, :], py_s])
+        b_energies = outs_s['energies'][0]
+        for i, (py, energies) in enumerate(zip(outs_s['pys'], outs_s['energies']))[1:]:
+            best_idx = (energies - b_energies).argsort()[:20].astype('int64')
+            worst_idx = (b_energies - energies).argsort()[:20].astype('int64')
+            p_best = T.concatenate([py[:, best_idx].mean(axis=0)[None, :, :], X[best_idx][None, :, :]])
+            f_best = theano.function([X[best_idx]], p_best, updates=updates_s)
+            py_best = f_best(x_test)
             data_iter.save_images(
                 py_s,
-                path.join(out_path, 'samples_from_post_%d.png' % i)
+                path.join(out_path, 'samples_from_post_best_%d.png' % i)
+            )
+            p_worst = T.concatenate([py[:, worst_idx].mean(axis=0)[None, :, :], X[worst_idx][None, :, :]])
+            f_worst = theano.function([X[worst_idx]], p_worst, updates=updates_s)
+            py_worst = f_worst(x_test)
+            data_iter.save_images(
+                py_s,
+                path.join(out_path, 'samples_from_post_best_%d.png' % i)
             )
 
 def make_argument_parser():
