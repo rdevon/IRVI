@@ -99,6 +99,7 @@ def eval_model(
     x_v, _ = valid_iter.next()
 
     dx = 100
+    data_samples = min(data_samples, data_iter.n)
     xs = [x[i: (i + dx)] for i in range(0, data_samples, dx)]
     N = data_samples // dx
 
