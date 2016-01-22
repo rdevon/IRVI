@@ -15,11 +15,14 @@ import theano
 from theano import tensor as T
 import time
 
-from deep_sbn_exp import load_data
-from deep_sbn_exp import unpack
-from mnist import MNIST
-import op
-from tools import itemlist, load_experiment, load_model
+from main_multilayer import load_data, unpack
+from datasets.mnist import MNIST
+from utils import op
+from utils.tools import (
+    itemlist, 
+    load_experiment, 
+    load_model
+)
 
 
 floatX = theano.config.floatX
@@ -68,11 +71,7 @@ def eval_model(
     else:
         raise ValueError()
 
-    if prior == 'logistic':
-        model = models['sbn']
-    elif prior == 'gaussian':
-        model = models['gbn']
-
+    model = models['sbn']
     tparams = model.set_tparams()
 
     # ========================================================================
@@ -91,6 +90,7 @@ def eval_model(
     x_v, _ = valid_iter.next()
 
     dx = 100
+    data_samples = min(data_samples, data_iter.n)
     xs = [x[i: (i + dx)] for i in range(0, data_samples, dx)]
     N = data_samples // dx
 
