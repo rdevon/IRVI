@@ -20,6 +20,13 @@ import time
 
 from datasets.cifar import CIFAR
 from datasets.mnist import MNIST
+from models.darn import (
+    AutoRegressor
+)
+from models.distributions import (
+    Bernoulli,
+    Gaussian
+)
 from models.gbn import GaussianBeliefNet as GBN
 from models.mlp import MLP
 from models.sbn import SigmoidBeliefNetwork as SBN
@@ -43,12 +50,12 @@ def concatenate_inputs(model, y, py):
     '''
     Function to concatenate ground truth to samples and probabilities.
     '''
-    y_hat = model.conditional.sample(py)
+    y_hat, updates = model.conditional.sample(py[0], 1)
 
     py = T.concatenate([y[None, :, :], model.get_center(py)], axis=0)
     y = T.concatenate([y[None, :, :], y_hat], axis=0)
 
-    return py, y
+    return (py, y), updates
 
 def load_data(dataset,
               train_batch_size,
@@ -169,6 +176,10 @@ def train_model(
     else:
         if prior == 'logistic':
             out_act = 'T.nnet.sigmoid'
+            prior_model = Bernoulli(dim_h)
+        elif prior == 'darn':
+            out_act = 'T.nnet.sigmoid'
+            prior_model = AutoRegressor(dim_h)
         elif prior == 'gaussian':
             out_act = 'lambda x: x'
         else:
@@ -182,7 +193,7 @@ def train_model(
         if generation_net is not None:
             generation_net['dim_in'] = dim_h
             t = generation_net.get('type', None)
-            if t is None:
+            if t is None or t == 'darn':
                 generation_net['dim_out'] = train.dims[generation_net['output']]
                 generation_net['out_act'] = train.acts[generation_net['output']]
             elif t == 'MMMLP':
@@ -198,7 +209,7 @@ def train_model(
         mlps = SBN.mlp_factory(recognition_net=recognition_net,
                                generation_net=generation_net)
 
-        if prior == 'logistic':
+        if prior == 'logistic' or prior == 'darn':
             C = SBN
         elif prior == 'gaussian':
             C = GBN
@@ -206,7 +217,7 @@ def train_model(
             raise ValueError()
 
         kwargs.update(**mlps)
-        model = C(recognition_net['dim_in'], dim_h, trng=trng, **kwargs)
+        model = C(recognition_net['dim_in'], dim_h, trng=trng, prior=prior_model, **kwargs)
 
         models = OrderedDict()
         models[model.name] = model
@@ -249,9 +260,19 @@ def train_model(
 
     py_s = rval['py']
 
+    '''
+    y_hat, updates = model.conditional.sample(py_s[0], 1)
+
+    debug_shape(X, train.next()[0], y_hat, updates_s)
+
+    py = T.concatenate([y[None, :, :], model.get_center(py)], axis=0)
+    y = T.concatenate([y[None, :, :], y_hat], axis=0)
+    '''
+
     lower_bound = rval['lower_bound']
     lower_bound0 = rval['lower_bounds'][0]
-    pd_s, d_hat_s = concatenate_inputs(model, X, py_s)
+    (pd_s, d_hat_s), updates_c = concatenate_inputs(model, X, py_s)
+    updates_s.update(updates_c)
 
     outs_s = [lower_bound, lower_bound0, pd_s, d_hat_s]
 
@@ -261,8 +282,8 @@ def train_model(
     f_test = theano.function([X], outs_s, updates=updates_s)
 
     # Sample from prior
-    py_p = model.sample_from_prior()
-    f_prior = theano.function([], py_p)
+    py_p, updates_p = model.sample_from_prior()
+    f_prior = theano.function([], py_p, updates=updates_p)
 
     # ========================================================================
     print 'Setting final tparams and save function'
