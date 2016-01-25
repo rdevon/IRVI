@@ -260,17 +260,9 @@ def train_model(
 
     py_s = rval['py']
 
-    '''
-    y_hat, updates = model.conditional.sample(py_s[0], 1)
-
-    debug_shape(X, train.next()[0], y_hat, updates_s)
-
-    py = T.concatenate([y[None, :, :], model.get_center(py)], axis=0)
-    y = T.concatenate([y[None, :, :], y_hat], axis=0)
-    '''
-
     lower_bound = rval['lower_bound']
     lower_bound0 = rval['lower_bounds'][0]
+
     (pd_s, d_hat_s), updates_c = concatenate_inputs(model, X, py_s)
     updates_s.update(updates_c)
 
