@@ -96,7 +96,6 @@ def eval_model(
         X_i = X
 
     x, _ = data_iter.next()
-    x_v, _ = valid_iter.next()
 
     dx = 100
     data_samples = min(data_samples, data_iter.n)
