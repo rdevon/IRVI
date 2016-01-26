@@ -76,7 +76,7 @@ def eval_model(
     else:
         raise ValueError()
 
-    if prior == 'logistic':
+    if prior == 'logistic' or prior == 'darn':
         model = models['sbn']
     elif prior == 'gaussian':
         model = models['gbn']
