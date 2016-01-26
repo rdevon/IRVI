@@ -141,8 +141,8 @@ def eval_model(
         np.save(path.join(out_path, 'lbs.npy'), lbs_t)
         np.save(path.join(out_path, 'nlls.npy'), nlls_t)
 
-        py_p = model.sample_from_prior()
-        f_prior = theano.function([], py_p)
+        py_p, updates = model.sample_from_prior()
+        f_prior = theano.function([], py_p, updates=updates)
 
         samples = f_prior()
         data_iter.save_images(
