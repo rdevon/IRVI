@@ -106,7 +106,7 @@ def train_model(
 
     input_mode=None,
     generation_net=None, recognition_net=None,
-    excludes=['log_sigma'],
+    excludes=['gaussian.log_sigma'],
     center_input=True,
 
     z_init=None,
@@ -182,8 +182,10 @@ def train_model(
             prior_model = AutoRegressor(dim_h)
         elif prior == 'gaussian':
             out_act = 'lambda x: x'
+            prior_model = Gaussian(dim_h)
         else:
             raise ValueError('%s prior not known' % prior)
+        print prior, prior_model
 
         if recognition_net is not None:
             input_layer = recognition_net.pop('input_layer')
@@ -222,7 +224,7 @@ def train_model(
         models = OrderedDict()
         models[model.name] = model
 
-    if prior == 'logistic':
+    if prior == 'logistic' or prior == 'darn':
         model = models['sbn']
     elif prior == 'gaussian':
         model = models['gbn']
@@ -232,17 +234,11 @@ def train_model(
 
     # ========================================================================
     print 'Getting cost'
-    (z, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
+    (qk, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
         X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples,
         pass_gradients=pass_gradients)
 
-    '''
-    f = theano.function([X], entropy.shape, updates=updates)
-    print f(train.next()[0])
-    assert False
-    '''
-
-    cost = (y_energy + h_energy + prior_energy).axis=0
+    cost = (y_energy + h_energy + prior_energy).mean(axis=0)
 
     extra_outs = [prior_energy.mean(0), h_energy.mean(0), y_energy.mean(0), entropy.mean(0)]
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
@@ -255,6 +251,12 @@ def train_model(
         cost += rec_l2_cost + gen_l2_cost
         extra_outs += [rec_l2_cost, gen_l2_cost]
         extra_outs_names += ['Rec net L2 cost', 'Gen net L2 cost']
+        if prior == 'darn':
+            print 'Adding autoregressor weight decay'
+            ar_l2_cost = model.prior.get_L2_weight_cost(l2_decay)
+            cost += ar_l2_cost
+            extra_outs += [ar_l2_cost]
+            extra_outs_names += ['AR L2 cost']
 
     # ========================================================================
     print 'Extra functions'
@@ -276,6 +278,9 @@ def train_model(
 
     if 'inference_cost' in rval.keys():
         outs_s.append(rval['inference_cost'])
+
+    outs_s.append(rval['i_costs'])
+    outs_s += rval['lower_bounds']
 
     f_test = theano.function([X], outs_s, updates=updates_s)
 
@@ -442,11 +447,15 @@ def train_model(
                     'elapsed_time': t1-t0}
                 )
 
+                index = 4
                 try:
                     i_cost = outs_v[4]
+                    index += 1
                     outs.update(inference_cost=i_cost)
                 except IndexError:
                     pass
+                print 'icosts', outs_v[index]
+                print 'lower bounds', np.array(outs_v[index+1:])
 
                 monitor.update(**outs)
                 t0 = time.time()
