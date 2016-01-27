@@ -236,9 +236,15 @@ def train_model(
         X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples,
         pass_gradients=pass_gradients)
 
-    cost = y_energy + h_energy + prior_energy
+    '''
+    f = theano.function([X], entropy.shape, updates=updates)
+    print f(train.next()[0])
+    assert False
+    '''
 
-    extra_outs = [prior_energy, h_energy, y_energy, entropy]
+    cost = (y_energy + h_energy + prior_energy).axis=0
+
+    extra_outs = [prior_energy.mean(0), h_energy.mean(0), y_energy.mean(0), entropy.mean(0)]
     extra_outs_names = ['cost', 'prior_energy', 'h energy',
                         'train y energy', 'entropy']
 
