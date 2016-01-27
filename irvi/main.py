@@ -222,7 +222,7 @@ def train_model(
         models = OrderedDict()
         models[model.name] = model
 
-    if prior == 'logistic':
+    if prior == 'logistic' or prior == 'darn':
         model = models['sbn']
     elif prior == 'gaussian':
         model = models['gbn']
@@ -249,6 +249,12 @@ def train_model(
         cost += rec_l2_cost + gen_l2_cost
         extra_outs += [rec_l2_cost, gen_l2_cost]
         extra_outs_names += ['Rec net L2 cost', 'Gen net L2 cost']
+        if prior == 'darn':
+            print 'Adding autoregressor weight decay'
+            ar_l2_cost = model.prior.get_L2_weight_cost(l2_decay)
+            cost += ar_l2_cost
+            extra_outs += [ar_l2_cost]
+            extra_outs_names += ['AR L2 cost']
 
     # ========================================================================
     print 'Extra functions'
@@ -271,6 +277,9 @@ def train_model(
     if 'inference_cost' in rval.keys():
         outs_s.append(rval['inference_cost'])
 
+    outs_s.append(rval['i_costs'])
+    outs_s += rval['lower_bounds']
+
     f_test = theano.function([X], outs_s, updates=updates_s)
 
     # Sample from prior
@@ -285,6 +294,9 @@ def train_model(
     tparams = OrderedDict((k, v)
         for k, v in tparams.iteritems()
         if (v not in updates.keys()))
+
+    #tparams.pop('autoregressor_b')
+    #tparams.pop('bernoulli_z')
 
     print 'Learned model params: %s' % tparams.keys()
     print 'Saved params: %s' % all_params.keys()
@@ -436,11 +448,15 @@ def train_model(
                     'elapsed_time': t1-t0}
                 )
 
+                index = 4
                 try:
                     i_cost = outs_v[4]
+                    index += 1
                     outs.update(inference_cost=i_cost)
                 except IndexError:
                     pass
+                print 'icosts', outs_v[index]
+                print 'lower bounds', np.array(outs_v[index+1:])
 
                 monitor.update(**outs)
                 t0 = time.time()
