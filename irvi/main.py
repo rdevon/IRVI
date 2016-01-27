@@ -229,7 +229,7 @@ def train_model(
     elif prior == 'gaussian':
         model = models['gbn']
 
-    tparams = model.set_tparams(excludes=excludes)
+    tparams = model.set_tparams(excludes=[])
     print_profile(tparams)
 
     # ========================================================================
@@ -295,7 +295,7 @@ def train_model(
 
     tparams = OrderedDict((k, v)
         for k, v in tparams.iteritems()
-        if (v not in updates.keys()))
+        if (v not in updates.keys() or v not in excludes))
 
     print 'Learned model params: %s' % tparams.keys()
     print 'Saved params: %s' % all_params.keys()
