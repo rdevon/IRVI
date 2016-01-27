@@ -71,18 +71,25 @@ def eval_model(
 
     models, _ = load_model(model_file, unpack, **model_args)
 
-    if dataset == 'mnist':
-        data_iter = MNIST(batch_size=data_samples, mode=mode, inf=False, **dataset_args)
-        valid_iter = MNIST(batch_size=500, mode='valid', inf=False, **dataset_args)
-    else:
-        raise ValueError()
-
     if prior == 'logistic' or prior == 'darn':
         model = models['sbn']
     elif prior == 'gaussian':
         model = models['gbn']
 
     tparams = model.set_tparams()
+    
+    '''
+    np.set_printoptions(precision=2)
+    sam, _ = model.sample_from_prior(2)
+    f = theano.function([], sam)
+    print f()
+    assert False
+    '''
+
+    if dataset == 'mnist':
+        data_iter = MNIST(batch_size=data_samples, mode=mode, inf=False, **dataset_args)
+    else:
+        raise ValueError()
 
     if calculate_probs:
         # ========================================================================
@@ -108,32 +115,46 @@ def eval_model(
                'with %d inference steps' % (N * dx, posterior_samples, steps))
 
         outs_s, updates_s = model(X_i, X, n_inference_steps=steps, n_samples=posterior_samples, calculate_log_marginal=True, stride=steps//10)
-        f_lower_bound = theano.function([X], [outs_s['lower_bound'], outs_s['nll']] + outs_s['lower_bounds'] + outs_s['nlls'], updates=updates_s)
+        f_lower_bound = theano.function([X], 
+                                        [outs_s['lower_bound'], 
+                                         outs_s['nll']] + outs_s['lower_bounds'] + outs_s['nlls'] + outs_s['prior_terms'] + outs_s['entropy_terms'], updates=updates_s)
         lb_t = []
         nll_t = []
         nlls_t = []
         lbs_t = []
+        ens_t = []
+        pts_t = []
 
         pbar = ProgressBar(maxval=len(xs)).start()
         for i, y in enumerate(xs):
             outs = f_lower_bound(y)
             lb, nll = outs[:2]
             outs = outs[2:]
-            lbs = outs[:len(outs)/2]
-            nlls = outs[len(outs)/2:]
+            s = len(outs) / 4
+            lbs = outs[:s]
+            nlls = outs[s:2*s]
+            ens = outs[2*s:3*s]
+            pts = outs[3*s:]
             lbs_t.append(lbs)
             nlls_t.append(nlls)
+            ens_t.append(ens)
+            pts_t.append(pts)
             lb_t.append(lb)
             nll_t.append(nll)
             pbar.update(i)
 
         lb_t = np.mean(lb_t)
         nll_t = np.mean(nll_t)
+        
+        ens_t = np.mean(ens_t, axis=0).tolist()
+        pts_t = np.mean(pts_t, axis=0).tolist()
         lbs_t = np.mean(lbs_t, axis=0).tolist()
         nlls_t = np.mean(nlls_t, axis=0).tolist()
         print 'Final lower bound and NLL: %.2f and %.2f' % (lb_t, nll_t)
-        print lbs_t
-        print nlls_t
+        print 'Lower bounds', lbs_t
+        print 'NLLs', nlls_t
+        print 'Entropies', ens_t
+        print 'Prior terms', pts_t
 
     if out_path is not None:
         plt.savefig(out_path)
@@ -156,27 +177,28 @@ def eval_model(
             x_test = x[:1000]
             b_energies = outs_s['energies'][0]
             b_py = outs_s['pys'][0]
-            for i, (py, energies) in enumerate(zip(outs_s['pys'][1:], outs_s['energies'])[1:]):
-                best_idx = (energies - b_energies).argsort()[:20].astype('int64')
-                worst_idx = (b_energies - energies).argsort()[:20].astype('int64')
-                p_best = T.concatenate([X[best_idx][None, :, :],
-                                        b_py[:, best_idx].mean(axis=0)[None, :, :],
-                                        py[:, best_idx].mean(axis=0)[None, :, :]])
-                f_best = theano.function([X], p_best, updates=updates_s)
-                py_best = f_best(x_test)
-                data_iter.save_images(
-                    py_best,
-                    path.join(out_path, 'samples_from_post_best_%d.png' % i)
-                )
-                p_worst = T.concatenate([X[worst_idx][None, :, :],
-                                         b_py[:, worst_idx].mean(axis=0)[None, :, :],
-                                         py[:, worst_idx].mean(axis=0)[None, :, :]])
-                f_worst = theano.function([X], p_worst, updates=updates_s)
-                py_worst = f_worst(x_test)
-                data_iter.save_images(
-                    py_worst,
-                    path.join(out_path, 'samples_from_post_worst_%d.png' % i)
-                )
+            py = outs_s['pys'][-1]
+            energies = outs_s['energies'][-1]
+            best_idx = (energies - b_energies).argsort().astype('int64')
+            worst_idx = (b_energies - energies).argsort().astype('int64')
+            p_best = T.concatenate([X[best_idx][None, :, :],
+                                    b_py[:, best_idx].mean(axis=0)[None, :, :],
+                                    py[:, best_idx].mean(axis=0)[None, :, :]])
+            f_best = theano.function([X], p_best, updates=updates_s)
+            py_best = f_best(x_test)
+            data_iter.save_images(
+                py_best,
+                path.join(out_path, 'samples_from_post_best.png')
+            )
+            p_worst = T.concatenate([X[worst_idx][None, :, :],
+                                     b_py[:, worst_idx].mean(axis=0)[None, :, :],
+                                     py[:, worst_idx].mean(axis=0)[None, :, :]])
+            f_worst = theano.function([X], p_worst, updates=updates_s)
+            py_worst = f_worst(x_test)
+            data_iter.save_images(
+                py_worst,
+                path.join(out_path, 'samples_from_post_worst.png')
+            )
 
 def make_argument_parser():
     parser = argparse.ArgumentParser()
