@@ -86,11 +86,13 @@ def eval_model(
     assert False
     '''
 
+
+    if dataset == 'mnist':
+        data_iter = MNIST(batch_size=data_samples, mode=mode, inf=False, **dataset_args)
+    else:
+        raise ValueError()
+
     if calculate_probs:
-        if dataset == 'mnist':
-            data_iter = MNIST(batch_size=data_samples, mode=mode, inf=False, **dataset_args)
-        else:
-            raise ValueError()
         # ========================================================================
         print 'Setting up Theano graph for lower bound'
 
