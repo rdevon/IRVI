@@ -77,7 +77,7 @@ def eval_model(
         model = models['gbn']
 
     tparams = model.set_tparams()
-    
+
     '''
     np.set_printoptions(precision=2)
     sam, _ = model.sample_from_prior(2)
@@ -86,12 +86,11 @@ def eval_model(
     assert False
     '''
 
-    if dataset == 'mnist':
-        data_iter = MNIST(batch_size=data_samples, mode=mode, inf=False, **dataset_args)
-    else:
-        raise ValueError()
-
     if calculate_probs:
+        if dataset == 'mnist':
+            data_iter = MNIST(batch_size=data_samples, mode=mode, inf=False, **dataset_args)
+        else:
+            raise ValueError()
         # ========================================================================
         print 'Setting up Theano graph for lower bound'
 
@@ -115,8 +114,8 @@ def eval_model(
                'with %d inference steps' % (N * dx, posterior_samples, steps))
 
         outs_s, updates_s = model(X_i, X, n_inference_steps=steps, n_samples=posterior_samples, calculate_log_marginal=True, stride=steps//10)
-        f_lower_bound = theano.function([X], 
-                                        [outs_s['lower_bound'], 
+        f_lower_bound = theano.function([X],
+                                        [outs_s['lower_bound'],
                                          outs_s['nll']] + outs_s['lower_bounds'] + outs_s['nlls'] + outs_s['prior_terms'] + outs_s['entropy_terms'], updates=updates_s)
         lb_t = []
         nll_t = []
@@ -145,7 +144,7 @@ def eval_model(
 
         lb_t = np.mean(lb_t)
         nll_t = np.mean(nll_t)
-        
+
         ens_t = np.mean(ens_t, axis=0).tolist()
         pts_t = np.mean(pts_t, axis=0).tolist()
         lbs_t = np.mean(lbs_t, axis=0).tolist()
