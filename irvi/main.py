@@ -340,6 +340,7 @@ def train_model(
         widgets = ['Epoch {epoch} ({name}, '.format(epoch=e, name=name),
                    Timer(), '): ', Bar()]
         epoch_pbar = ProgressBar(widgets=widgets, maxval=train.n).start()
+        training_time = 0
         while True:
             try:
                 x, _ = train.next()
@@ -351,6 +352,7 @@ def train_model(
             except StopIteration:
                 print
                 epoch_t1 = time.time()
+                training_time += epoch_t1
                 valid.reset()
                 maxvalid = min(max_valid, valid.n)
 
@@ -401,7 +403,8 @@ def train_model(
                     print 'Best (%.2f) at epoch %d' % (best_cost, best_epoch)
 
                 monitor.update(**results_train)
-                monitor.update(dt_epoch=(epoch_t1-epoch_t0))
+                monitor.update(dt_epoch=(epoch_t1-epoch_t0),
+                               training_time=training_time)
                 monitor.update_valid(**results_valid)
                 monitor.display()
 
@@ -409,6 +412,11 @@ def train_model(
                     out_path, '{name}_monitor.png').format(name=name))
                 monitor.save_stats(path.join(
                     out_path, '{name}_monitor.npz').format(name=name))
+
+                prior_file = path.join(out_path, 'samples_from_prior.png')
+                print 'Saving posterior samples'
+                samples = f_prior()
+                train.save_images(samples[:, None], prior_file, x_limit=10)
 
                 e += 1
                 epoch_t0 = time.time()
@@ -421,6 +429,11 @@ def train_model(
                         lr = learning_rate_schedule[e]
                         print 'Changing learning rate to %.5f' % lr
                         learning_rate = lr
+
+                widgets = ['Epoch {epoch} ({name}, '.format(epoch=e, name=name),
+                           Timer(), '): ', Bar()]
+                epoch_pbar = ProgressBar(widgets=widgets, maxval=train.n).start()
+
                 continue
 
             if e > epochs:
