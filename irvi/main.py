@@ -176,6 +176,36 @@ def train_model(
     # ========================================================================
     print 'Loading model and forming graph'
 
+    if prior == 'logistic':
+        out_act = 'T.nnet.sigmoid'
+    elif prior == 'darn':
+        out_act = 'T.nnet.sigmoid'
+    elif prior == 'gaussian':
+        out_act = 'lambda x: x'
+    else:
+        raise ValueError('%s prior not known' % prior)
+
+    if recognition_net is not None:
+        input_layer = recognition_net.pop('input_layer')
+        recognition_net['dim_in'] = train.dims[input_layer]
+        recognition_net['dim_out'] = dim_h
+        recognition_net['out_act'] = out_act
+    if generation_net is not None:
+        generation_net['dim_in'] = dim_h
+        t = generation_net.get('type', None)
+        if t is None or t == 'darn':
+            generation_net['dim_out'] = train.dims[generation_net['output']]
+            generation_net['out_act'] = train.acts[generation_net['output']]
+        elif t == 'MMMLP':
+            generation_net['graph']['outs'] = dict()
+            for out in generation_net['graph']['outputs']:
+                generation_net['graph']['outs'][out] = dict(
+                    dim=train.dims[out],
+                    act=train.acts[out]
+                )
+        else:
+            raise ValueError()
+
     if model_to_load is not None:
         models, _ = load_model(model_to_load, unpack, **kwargs)
     elif load_last:
@@ -183,38 +213,13 @@ def train_model(
         models, _ = load_model(model_file, unpack, **kwargs)
     else:
         if prior == 'logistic':
-            out_act = 'T.nnet.sigmoid'
             prior_model = Bernoulli(dim_h)
         elif prior == 'darn':
-            out_act = 'T.nnet.sigmoid'
             prior_model = AutoRegressor(dim_h)
         elif prior == 'gaussian':
-            out_act = 'lambda x: x'
             prior_model = Gaussian(dim_h)
         else:
             raise ValueError('%s prior not known' % prior)
-        print prior, prior_model
-
-        if recognition_net is not None:
-            input_layer = recognition_net.pop('input_layer')
-            recognition_net['dim_in'] = train.dims[input_layer]
-            recognition_net['dim_out'] = dim_h
-            recognition_net['out_act'] = out_act
-        if generation_net is not None:
-            generation_net['dim_in'] = dim_h
-            t = generation_net.get('type', None)
-            if t is None or t == 'darn':
-                generation_net['dim_out'] = train.dims[generation_net['output']]
-                generation_net['out_act'] = train.acts[generation_net['output']]
-            elif t == 'MMMLP':
-                generation_net['graph']['outs'] = dict()
-                for out in generation_net['graph']['outputs']:
-                    generation_net['graph']['outs'][out] = dict(
-                        dim=train.dims[out],
-                        act=train.acts[out]
-                    )
-            else:
-                raise ValueError()
 
         mlps = SBN.mlp_factory(recognition_net=recognition_net,
                                generation_net=generation_net)
@@ -352,7 +357,7 @@ def train_model(
             except StopIteration:
                 print
                 epoch_t1 = time.time()
-                training_time += epoch_t1
+                training_time += (epoch_t1 - epoch_t0)
                 valid.reset()
                 maxvalid = min(max_valid, valid.n)
 
