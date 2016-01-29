@@ -9,7 +9,14 @@ import numpy as np
 import os
 from os import path
 import pprint
-from progressbar import ProgressBar
+from progressbar import (
+    Bar,
+    Percentage,
+    ProgressBar,
+    RotatingMarker,
+    SimpleProgress,
+    Timer
+)
 import random
 import shutil
 import sys
@@ -40,6 +47,7 @@ from utils.tools import (
     load_model,
     load_experiment,
     print_profile,
+    update_dict_of_lists,
     _slice
 )
 
@@ -234,21 +242,13 @@ def train_model(
 
     # ========================================================================
     print 'Getting cost'
-    (qk, prior_energy, h_energy, y_energy, entropy), updates, constants = model.inference(
+    results, updates, constants = model.inference(
         X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples,
         pass_gradients=pass_gradients)
 
-    '''
-    f = theano.function([X], h_energy.shape, updates=updates)
-    print f(train.next()[0])
-    assert False
-    '''
-
-    cost = (y_energy + h_energy + prior_energy).sum(axis=0)
-
-    extra_outs = [prior_energy.mean(0), h_energy.mean(0), y_energy.mean(0), entropy.mean(0)]
-    extra_outs_names = ['cost', 'prior_energy', 'h energy',
-                        'train y energy', 'entropy']
+    cost = results.pop('cost')
+    extra_outs = []
+    extra_outs_names = ['cost']
 
     if l2_decay > 0.:
         print 'Adding %.5f L2 weight decay' % l2_decay
@@ -266,29 +266,19 @@ def train_model(
 
     # ========================================================================
     print 'Extra functions'
-
     # Test function with sampling
-    rval, updates_s = model(
+    results_s, samples, full_results, updates_s = model(
         X_i, X, n_samples=n_mcmc_samples_test,
         n_inference_steps=n_inference_steps_test)
 
-    py_s = rval['py']
+    f_test_keys = results_s.keys()
+    f_test = theano.function([X], results_s.values(), updates=updates_s)
 
-    lower_bound = rval['lower_bound']
-    lower_bound0 = rval['lower_bounds'][0]
-
+    py_s = samples['py'][-1]
     (pd_s, d_hat_s), updates_c = concatenate_inputs(model, X, py_s)
     updates_s.update(updates_c)
 
-    outs_s = [lower_bound, lower_bound0, pd_s, d_hat_s]
-
-    if 'inference_cost' in rval.keys():
-        outs_s.append(rval['inference_cost'])
-
-    outs_s.append(rval['i_costs'])
-    outs_s += rval['lower_bounds']
-
-    f_test = theano.function([X], outs_s, updates=updates_s)
+    f_sample = theano.function([X], [pd_s, d_hat_s], updates=updates_s)
 
     # Sample from prior
     py_p, updates_p = model.sample_from_prior()
@@ -328,8 +318,7 @@ def train_model(
     print 'Building optimizer'
     lr = T.scalar(name='lr')
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
-        lr, tparams, grads, [X], cost,
-        extra_ups=updates,
+        lr, tparams, grads, [X], cost, extra_ups=updates,
         extra_outs=extra_outs, **optimizer_args)
 
     monitor = SimpleMonitor()
@@ -340,56 +329,70 @@ def train_model(
     best_cost = float('inf')
     best_epoch = 0
 
-    valid_lbs = []
-    train_lbs = []
-
     if out_path is not None:
         bestfile = path.join(out_path, '{name}_best.npz'.format(name=name))
 
     try:
-        t0 = time.time()
+        epoch_t0 = time.time()
         s = 0
         e = 0
+
+        widgets = ['Epoch {epoch} ({name}, '.format(epoch=e, name=name),
+                   Timer(), '): ', Bar()]
+        epoch_pbar = ProgressBar(widgets=widgets, maxval=train.n).start()
         while True:
             try:
                 x, _ = train.next()
+                if train.pos == -1:
+                    epoch_pbar.update(train.n)
+                else:
+                    epoch_pbar.update(train.pos)
+
             except StopIteration:
-                print 'End Epoch {epoch} ({name})'.format(epoch=e, name=name)
-                print '=' * 100
+                print
+                epoch_t1 = time.time()
                 valid.reset()
+                maxvalid = min(max_valid, valid.n)
 
-                lb_vs = []
-                lb_ts = []
-
-                print 'Validating'
-                pbar = ProgressBar(maxval=min(max_valid, valid.n)).start()
+                widgets =['Validating: (%d posterior samples)' % n_mcmc_samples_test,
+                          Percentage(), ' (', Timer(), ')']
+                pbar    = ProgressBar(widgets=widgets, maxval=maxvalid).start()
+                results_train = OrderedDict()
+                results_valid = OrderedDict()
                 while True:
                     try:
-                        if valid.pos != -1:
+                        x_valid, _ = valid.next()
+                        if valid.pos > max_valid:
+                            raise StopIteration
+                        x_train, _ = train.next()
+
+                        r_train = f_test(x_train)
+                        r_valid = f_test(x_valid)
+                        results_i_train = dict((k, v) for k, v in zip(f_test_keys, r_train))
+                        results_i_valid = dict((k, v) for k, v in zip(f_test_keys, r_valid))
+                        update_dict_of_lists(results_train, **results_i_train)
+                        update_dict_of_lists(results_valid, **results_i_valid)
+
+                        if valid.pos == -1:
+                            pbar.update(maxvalid)
+                        else:
                             pbar.update(valid.pos)
 
-                        x_v, _ = valid.next()
-                        x_t, _ = train.next()
-                        if valid.pos >= max_valid:
-                            raise StopIteration
-
-                        lb_v = f_test(x_v)[0]
-                        lb_t = f_test(x_t)[0]
-
-                        lb_vs.append(lb_v)
-                        lb_ts.append(lb_t)
-
                     except StopIteration:
+                        print
                         break
 
-                lb_v = np.mean(lb_vs)
-                lb_t = np.mean(lb_ts)
+                def summarize(d):
+                    for k, v in d.iteritems():
+                        d[k] = np.mean(v)
 
-                print 'Train / Valid lower bound at end of epoch: %.2f / %.2f' % (lb_t, lb_v)
+                summarize(results_train)
+                summarize(results_valid)
+                lower_bound = results_valid['lower_bound']
 
-                if lb_v < best_cost:
-                    print 'Found best: %.2f' % lb_v
-                    best_cost = lb_v
+                if lower_bound < best_cost:
+                    print 'Found best: %.2f' % lower_bound
+                    best_cost = lower_bound
                     best_epoch = e
                     if out_path is not None:
                         print 'Saving best to %s' % bestfile
@@ -397,18 +400,18 @@ def train_model(
                 else:
                     print 'Best (%.2f) at epoch %d' % (best_cost, best_epoch)
 
-                valid_lbs.append(lb_v)
-                train_lbs.append(lb_t)
+                monitor.update(**results_train)
+                monitor.update(dt_epoch=(epoch_t1-epoch_t0))
+                monitor.update_valid(**results_valid)
+                monitor.display()
 
-                if out_path is not None:
-                    print 'Saving lower bounds in %s' % out_path
-                    np.save(path.join(out_path, 'valid_lbs.npy'), valid_lbs)
-                    np.save(path.join(out_path, 'train_lbs.npy'), train_lbs)
+                monitor.save(path.join(
+                    out_path, '{name}_monitor.png').format(name=name))
+                monitor.save_stats(path.join(
+                    out_path, '{name}_monitor.npz').format(name=name))
 
                 e += 1
-
-                print '=' * 100
-                print 'Epoch {epoch} ({name})'.format(epoch=e, name=name)
+                epoch_t0 = time.time()
 
                 valid.reset()
                 train.reset()
@@ -418,7 +421,6 @@ def train_model(
                         lr = learning_rate_schedule[e]
                         print 'Changing learning rate to %.5f' % lr
                         learning_rate = lr
-
                 continue
 
             if e > epochs:
@@ -427,68 +429,28 @@ def train_model(
             rval = f_grad_shared(x)
 
             if check_bad_nums(rval, extra_outs_names):
-                return
+                raise ValueError('Bad number!')
 
-            if s % show_freq == 0:
+            if save_images and s % model_save_freq == 0:
                 try:
                     x_v, _ = valid.next()
                 except StopIteration:
                     x_v, _ = valid.next()
 
-                outs_v = f_test(x_v)
-                outs_t = f_test(x)
+                pd_v, d_hat_v = f_sample(x_v)
+                d_hat_s = np.concatenate([pd_v[:10],
+                                          d_hat_v[1][None, :, :]], axis=0)
+                d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]
+                train.save_images(d_hat_s, path.join(
+                    out_path, '{name}_samples.png'.format(name=name)))
 
-                lb_v, lb0_v, pd_v, d_hat_v = outs_v[:4]
-                lb_t = outs_t[0]
-
-                outs = OrderedDict((k, v)
-                    for k, v in zip(extra_outs_names,
-                                    rval[:len(extra_outs_names)]))
-
-                t1 = time.time()
-                outs.update(**{
-                    'train lower bound': lb_t,
-                    'valid lower bound': lb_v,
-                    'valid lower bound zero': lb0_v,
-                    'elapsed_time': t1-t0}
+                pd_p = f_prior()
+                train.save_images(
+                    pd_p[:, None], path.join(
+                        out_path,
+                        '{name}_samples_from_prior.png'.format(name=name)),
+                    x_limit=10
                 )
-
-                index = 4
-                try:
-                    i_cost = outs_v[4]
-                    index += 1
-                    outs.update(inference_cost=i_cost)
-                except IndexError:
-                    pass
-                print 'icosts', outs_v[index]
-                print 'lower bounds', np.array(outs_v[index+1:])
-
-                monitor.update(**outs)
-                t0 = time.time()
-
-                monitor.display(e, s)
-
-                if save_images and s % model_save_freq == 0:
-                    monitor.save(path.join(
-                        out_path, '{name}_monitor.png').format(name=name))
-                    if archive_every and s % archive_every == 0:
-                        monitor.save(path.join(
-                            out_path, '{name}_monitor({s})'.format(name=name, s=s))
-                        )
-
-                    d_hat_s = np.concatenate([pd_v[:10],
-                                              d_hat_v[1][None, :, :]], axis=0)
-                    d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]
-                    train.save_images(d_hat_s, path.join(
-                        out_path, '{name}_samples.png'.format(name=name)))
-
-                    pd_p = f_prior()
-                    train.save_images(
-                        pd_p[:, None], path.join(
-                            out_path,
-                            '{name}_samples_from_prior.png'.format(name=name)),
-                        x_limit=10
-                    )
 
             f_grad_updates(learning_rate)
             s += 1
