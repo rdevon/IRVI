@@ -495,8 +495,8 @@ def make_argument_parser():
     parser.add_argument('experiment', default=None)
     parser.add_argument('-o', '--out_path', default=None,
                         help='Output path for stuff')
-    parser.add_argument('-l', '--load_last', action='store_true')
-    parser.add_argument('-r', '--load_model', default=None)
+    parser.add_argument('-r', '--load_last', action='store_true')
+    parser.add_argument('-l', '--load_model', default=None)
     parser.add_argument('-i', '--save_images', action='store_true')
     parser.add_argument('-n', '--name', default=None)
     return parser
