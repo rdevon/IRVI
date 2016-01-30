@@ -123,6 +123,7 @@ def train_model(
     n_inference_steps=20,
     n_inference_steps_test=20,
     n_inference_samples=20,
+    n_inference_samples_test=100,
     extra_inference_args=dict(),
 
     n_mcmc_samples=20,
@@ -136,7 +137,6 @@ def train_model(
         z_init=z_init,
         inference_method=inference_method,
         inference_rate=inference_rate,
-        n_inference_samples=n_inference_samples,
         extra_inference_args=extra_inference_args
     )
 
@@ -249,7 +249,7 @@ def train_model(
     print 'Getting cost'
     results, updates, constants = model.inference(
         X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples,
-        pass_gradients=pass_gradients)
+        n_inference_samples=n_inference_samples, pass_gradients=pass_gradients)
 
     cost = results.pop('cost')
     extra_outs = []
@@ -274,7 +274,8 @@ def train_model(
     # Test function with sampling
     results_s, samples, full_results, updates_s = model(
         X_i, X, n_samples=n_mcmc_samples_test,
-        n_inference_steps=n_inference_steps_test)
+        n_inference_steps=n_inference_steps_test,
+        n_inference_samples=n_inference_samples_test)
 
     f_test_keys = results_s.keys()
     f_test = theano.function([X], results_s.values(), updates=updates_s)
