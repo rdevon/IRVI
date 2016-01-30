@@ -417,6 +417,8 @@ def train_model(
                     out_path, '{name}_monitor.png').format(name=name))
                 monitor.save_stats(path.join(
                     out_path, '{name}_monitor.npz').format(name=name))
+                monitor.save_stats(path.join(
+                    out_path, '{name}_monitor_valid.npz').format(name=name))
 
                 prior_file = path.join(out_path, 'samples_from_prior.png')
                 print 'Saving posterior samples'
