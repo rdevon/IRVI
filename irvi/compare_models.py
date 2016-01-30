@@ -115,7 +115,7 @@ def compare(model_dirs,
 
         ax.set_ylabel(k)
         ax.set_xlabel(xlabel)
-        ax.legend(loc=3)
+        ax.legend()
         ax.patch.set_alpha(0.5)
 
     plt.tight_layout()
