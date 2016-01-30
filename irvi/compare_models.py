@@ -84,7 +84,7 @@ def compare(model_dirs,
     names = model_results.pop('name')
     training_times = model_results.pop('training_time')
 
-    out_dir = path.join(out_path, 'compare.' + '|'.join(names))
+    out_dir = path.join(out_path, 'compare.' + '.'.join(names))
     if path.isfile(out_dir):
         raise ValueError()
     elif not path.isdir(out_dir):
