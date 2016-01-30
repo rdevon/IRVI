@@ -127,7 +127,6 @@ def compare(model_dirs,
     for model_dir in model_dirs:
         sample_from_prior(model_dir, out_dir)
 
-
 def make_argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('models', nargs='+')
