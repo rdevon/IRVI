@@ -362,7 +362,7 @@ def train_model(
                 valid.reset()
                 maxvalid = min(max_valid, valid.n)
 
-                widgets =['Validating: (%d posterior samples)' % n_mcmc_samples_test,
+                widgets =['Validating: (%d posterior samples) ' % n_mcmc_samples_test,
                           Percentage(), ' (', Timer(), ')']
                 pbar    = ProgressBar(widgets=widgets, maxval=maxvalid).start()
                 results_train = OrderedDict()
