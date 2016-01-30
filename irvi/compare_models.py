@@ -84,7 +84,7 @@ def compare(model_dirs,
     names = model_results.pop('name')
     training_times = model_results.pop('training_time')
 
-    out_dir = path.join(out_path, 'compare.' + '|'.join(names))
+    out_dir = path.join(out_path, 'compare.' + '.'.join(names))
     if path.isfile(out_dir):
         raise ValueError()
     elif not path.isdir(out_dir):
@@ -126,7 +126,6 @@ def compare(model_dirs,
 
     for model_dir in model_dirs:
         sample_from_prior(model_dir, out_dir)
-
 
 def make_argument_parser():
     parser = argparse.ArgumentParser()
