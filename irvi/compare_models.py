@@ -17,10 +17,11 @@ from theano import tensor as T
 import time
 
 from datasets.mnist import MNIST
+from models.dsbn import unpack as unpack_dsbn
 from models.gbn import GaussianBeliefNet as GBN
 from models.mlp import MLP
 from models.sbn import SigmoidBeliefNetwork as SBN
-from models.sbn import unpack
+from models.sbn import unpack as unpack_sbn
 from utils.tools import (
     check_bad_nums,
     floatX,
@@ -32,17 +33,26 @@ from utils.tools import (
 )
 
 
-def sample_from_prior(model_dir, out_path):
+def unpack_model_and_data(model_dir):
     name       = model_dir.split('/')[-2]
     model_file = glob(path.join(model_dir, '*best*npz'))[0]
-    models, model_args  = load_model(model_file, unpack)
 
-    model = models['sbn']
-    tparams = model.set_tparams()
+    try:
+        models, model_args = load_model(model_file, unpack_sbn)
+    except:
+        models, model_args = load_model(model_file, unpack_dsbn)
 
     dataset = model_args['dataset']
     dataset_args = model_args['dataset_args']
     data_iter = MNIST(batch_size=10, **dataset_args)
+
+    return models, data_iter, name
+
+def sample_from_prior(model_dir, out_path):
+    models, data_iter, name = unpack_model_and_data(model_dir)
+
+    model = models['sbn']
+    tparams = model.set_tparams()
 
     py_p, updates = model.sample_from_prior()
     f_prior = theano.function([], py_p, updates=updates)
