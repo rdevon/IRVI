@@ -16,6 +16,7 @@ import theano
 from theano import tensor as T
 import time
 
+from datasets.mnist import MNIST
 from models.gbn import GaussianBeliefNet as GBN
 from models.mlp import MLP
 from models.sbn import SigmoidBeliefNetwork as SBN
@@ -30,6 +31,26 @@ from utils.tools import (
     _slice
 )
 
+
+def sample_from_prior(model_dir, out_path):
+    name       = model_dir.split('/')[-2]
+    model_file = glob(path.join(model_dir, '*best*npz'))[0]
+    models, model_args  = load_model(model_file, unpack)
+
+    model = models['sbn']
+    tparams = model.set_tparams()
+
+    dataset = model_args['dataset']
+    dataset_args = model_args['dataset_args']
+    data_iter = MNIST(batch_size=10, **dataset_args)
+
+    py_p, updates = model.sample_from_prior()
+    f_prior = theano.function([], py_p, updates=updates)
+    samples = f_prior()
+    data_iter.save_images(
+        samples[:, None],
+        path.join(out_path, name + '_samples_from_prior.png'),
+        x_limit=10)
 
 def compare(model_dirs,
             out_path,
@@ -63,6 +84,12 @@ def compare(model_dirs,
     names = model_results.pop('name')
     training_times = model_results.pop('training_time')
 
+    out_dir = path.join(out_path, 'compare.' + '|'.join(names))
+    if path.isfile(out_dir):
+        raise ValueError()
+    elif not path.isdir(out_dir):
+        os.mkdir(path.abspath(out_dir))
+
     plt.clf()
     x = 3
     y = ((len(model_results) - 1) // x) + 1
@@ -92,8 +119,13 @@ def compare(model_dirs,
         ax.patch.set_alpha(0.5)
 
     plt.tight_layout()
-    plt.savefig(path.join(out_path, 'results.png'))
+    plt.savefig(path.join(out_dir, 'results.png'))
     plt.close()
+
+    print 'Sampling from priors'
+
+    for model_dir in model_dirs:
+        sample_from_prior(model_dir, out_dir)
 
 def make_argument_parser():
     parser = argparse.ArgumentParser()
