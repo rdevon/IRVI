@@ -25,6 +25,7 @@ from theano import tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import time
 
+from datasets.caltech import CALTECH
 from datasets.cifar import CIFAR
 from datasets.mnist import MNIST
 from models.darn import (
@@ -74,6 +75,8 @@ def load_data(dataset,
         C = MNIST
     elif dataset == 'cifar':
         C = CIFAR
+    elif dataset == 'caltech':
+        C = CALTECH
 
     if train_batch_size is not None:
         train = C(batch_size=train_batch_size,
