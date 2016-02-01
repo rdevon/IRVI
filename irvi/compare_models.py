@@ -110,7 +110,6 @@ def test(models, data_iter, name, n_inference_steps=100, n_inference_samples=100
         n_inference_steps=n_inference_steps,
         n_samples=posterior_samples,
         n_inference_samples=n_inference_samples,
-        stride=n_inference_steps//10,
         stride=0)
 
     f_test_keys  = results.keys()
