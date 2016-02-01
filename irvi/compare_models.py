@@ -110,7 +110,8 @@ def test(models, data_iter, name, n_inference_steps=100, n_inference_samples=100
         n_inference_steps=n_inference_steps,
         n_samples=posterior_samples,
         n_inference_samples=n_inference_samples,
-        stride=n_inference_steps//10)
+        stride=n_inference_steps//10,
+        stride=0)
 
     f_test_keys  = results.keys()
     f_test       = theano.function([X], results.values(), updates=updates)
@@ -140,7 +141,8 @@ def test(models, data_iter, name, n_inference_steps=100, n_inference_samples=100
 def compare(model_dirs,
             out_path,
             by_training_time=False,
-            omit_deltas=True):
+            omit_deltas=True,
+            **test_args):
 
     model_results = OrderedDict()
     valid_results = OrderedDict()
@@ -214,7 +216,7 @@ def compare(model_dirs,
     for model_dir in model_dirs:
         models, data_iter, name, exp_dict = unpack_model_and_data(model_dir)
         sample_from_prior(models, data_iter, name, out_dir)
-        rs = test(models, data_iter, name)
+        rs = test(models, data_iter, name, **test_args)
         update_dict_of_lists(results, **rs)
         update_dict_of_lists(hps, **exp_dict)
 
@@ -233,10 +235,19 @@ def make_argument_parser():
     parser.add_argument('-t', '--by_time', action='store_true')
     parser.add_argument('-o', '--out_path', required=True)
     parser.add_argument('-d', '--see_deltas', action='store_true')
+    parser.add_argument('-p', '--posterior_samples', default=1000, type=int)
+    parser.add_argument('-i', '--inference_samples', default=100, type=int)
+    parser.add_argument('-s', '--inference_steps', default=100, type=int)
+    parser.add_argument('-b', '--batch_size', default=100, type=int)
     return parser
 
 if __name__ == '__main__':
     parser = make_argument_parser()
     args = parser.parse_args()
-    compare(args.models, args.out_path, omit_deltas=not(args.see_deltas),
+    compare(args.models, args.out_path,
+            omit_deltas=not(args.see_deltas),
+            posterior_samples=args.posterior_samples,
+            n_inference_samples=args.inference_samples,
+            n_inference_steps=args.inference_steps,
+            dx=args.batch_size,
             by_training_time=args.by_time)
