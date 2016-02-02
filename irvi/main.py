@@ -436,7 +436,10 @@ def train_model(
                 train.reset()
 
                 if learning_rate_schedule is not None:
-                    if e in learning_rate_schedule.keys():
+                    if 'decay' in learning_rate_schedule.keys():
+                        learning_rate /= learning_rate_schedule['decay']
+                        print 'Changing learning rate to %.5f' % learning_rate
+                    elif e in learning_rate_schedule.keys():
                         lr = learning_rate_schedule[e]
                         print 'Changing learning rate to %.5f' % lr
                         learning_rate = lr

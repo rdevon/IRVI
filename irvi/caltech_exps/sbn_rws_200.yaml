@@ -1,0 +1,37 @@
+{
+  name: 'ct_sbn_rws_200',
+  prior: 'logistic',
+  learning_rate: 0.0001,
+  dim_h: 200,
+  epochs: 500,
+  batch_size: 100,
+  l2_decay: 0.0002,
+  optimizer: 'rmsprop',
+  recognition_net: {
+    input_layer: 'caltech',
+    dim_h: 240,
+    h_act: 'T.nnet.softplus',
+    n_layers: 1
+  },
+  generation_net: {
+    dim_h: 240,
+    h_act: 'T.nnet.softplus',
+    n_layers: 1,
+    output: 'caltech'
+  },
+  z_init: 'recognition_net',
+  inference_method: 'rws',
+  inference_rate: 0.1,
+  n_inference_steps: 0,
+  n_inference_steps_test: 20,
+  n_inference_samples: 20,
+  n_inference_samples_test: 20,
+  n_mcmc_samples: 20,
+  n_mcmc_samples_test: 100,
+  dataset: 'caltech',
+  dataset_args: {
+    source: '/export/mialab/users/dhjelm/data/caltech101_silhouettes_28_split1.mat',
+  },
+  show_freq: 1000,
+  model_save_freq: 1000
+}

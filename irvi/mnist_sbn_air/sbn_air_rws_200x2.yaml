@@ -1,0 +1,23 @@
+{
+  name: 'sbn_air_rws_200x2',
+  learning_rate: 0.0002,
+  dim_hs: [200, 200],
+  epochs: 500,
+  batch_size: 100,
+  optimizer: 'rmsprop',
+  z_init: 'recognition_net',
+  inference_method: 'rws',
+  inference_rate: 0.1,
+  n_inference_steps: 20,
+  n_inference_steps_test: 20,
+  n_inference_samples: 20,
+  n_inference_samples_test: 20,
+  n_mcmc_samples: 20,
+  n_mcmc_samples_test: 100,
+  dataset: 'mnist',
+  dataset_args: {
+    source: '/export/mialab/users/dhjelm/data/mnist_binarized_salakhutdinov.pkl.gz',
+  },
+  show_freq: 1000,
+  model_save_freq: 1000,
+}

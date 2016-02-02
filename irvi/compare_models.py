@@ -20,6 +20,7 @@ import theano
 from theano import tensor as T
 import time
 
+from datasets.caltech import CALTECH
 from datasets.mnist import MNIST
 from models.dsbn import unpack as unpack_dsbn
 from models.gbn import GaussianBeliefNet as GBN
@@ -54,7 +55,10 @@ def unpack_model_and_data(model_dir):
 
     dataset = model_args['dataset']
     dataset_args = model_args['dataset_args']
-    data_iter = MNIST(batch_size=10, mode='test', **dataset_args)
+    if dataset == 'mnist':
+        data_iter = MNIST(batch_size=10, mode='test', **dataset_args)
+    elif dataset == 'caltech':
+        data_iter = CALTECH(batch_size=10, mode='test', **dataset_args)
 
     yaml = glob(path.join(model_dir, '*.yaml'))[0]
     exp_dict = load_experiment(path.abspath(yaml))
