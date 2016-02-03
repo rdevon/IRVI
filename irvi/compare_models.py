@@ -56,17 +56,25 @@ def unpack_model_and_data(model_dir):
 
     dataset = model_args['dataset']
     dataset_args = model_args['dataset_args']
+    print dataset_args
     if dataset == 'mnist':
+        print 'Loading MNIST'
+        train_iter = MNIST(mode='train', **dataset_args)
         data_iter = MNIST(batch_size=10, mode='test', **dataset_args)
     elif dataset == 'caltech':
+        print 'Loading Caltech 101 Silhouettes'
+        train_iter = CALTECH(mode='train', **dataset_args)
         data_iter = CALTECH(batch_size=10, mode='test', **dataset_args)
     elif dataset == 'uci':
+        train_iter = UCI(mode='train', **dataset_args)
         data_iter = UCI(batch_size=10, mode='test', **dataset_args)
+    mean_image = train_iter.mean_image.astype(floatX)
 
     yaml = glob(path.join(model_dir, '*.yaml'))[0]
     exp_dict = load_experiment(path.abspath(yaml))
 
     def filter(dim_hs=None, dim_h=None, inference_method=None, inference_rate=None,
+
                n_mcmc_samples=None, n_inference_steps=None, prior=None,
                n_inference_samples=None, epochs=None, l2_decay=None,
                **kwargs):
@@ -83,7 +91,7 @@ def unpack_model_and_data(model_dir):
 
     exp_dict = filter(**exp_dict)
 
-    return models, data_iter, name, exp_dict
+    return models, data_iter, name, exp_dict, mean_image
 
 def sample_from_prior(models, data_iter, name, out_dir):
     model = models['sbn']
@@ -97,7 +105,7 @@ def sample_from_prior(models, data_iter, name, out_dir):
         path.join(out_dir, name + '_samples_from_prior.png'),
         x_limit=10)
 
-def test(models, data_iter, name, n_inference_steps=100, n_inference_samples=100,
+def test(models, data_iter, name, mean_image, n_inference_steps=100, n_inference_samples=100,
          data_samples=10000, posterior_samples=1000, dx=100,
          center_input=True, **extra_kwargs):
 
@@ -106,12 +114,13 @@ def test(models, data_iter, name, n_inference_steps=100, n_inference_samples=100
     data_iter.reset()
 
     X = T.matrix('x', dtype=floatX)
+
     if center_input:
         print 'Centering input with train dataset mean image'
-        X_mean = theano.shared(data_iter.mean_image.astype(floatX), name='X_mean')
+        X_mean = theano.shared(mean_image, name='X_mean')
         X_i = X - X_mean
     else:
-        X_i = X
+        X_i = X.copy()
 
     results, _, _, updates = model(
         X_i, X,
@@ -122,20 +131,22 @@ def test(models, data_iter, name, n_inference_steps=100, n_inference_samples=100
 
     f_test_keys  = results.keys()
     f_test       = theano.function([X], results.values(), updates=updates)
-
-    data_samples = min(data_samples, data_iter.n)
-    x, _         = data_iter.next(batch_size=data_samples)
-    xs           = [x[i: (i + dx)] for i in range(0, data_samples, dx)]
-    N            = data_samples // dx
-
     widgets = ['Testing %s:' % name, Timer(), Bar()]
-    pbar = ProgressBar(maxval=len(xs)).start()
+    pbar = ProgressBar(maxval=data_iter.n).start()
     rs = OrderedDict()
-    for i, y in enumerate(xs):
+    while True:
+        try:
+            y, _ = data_iter.next(batch_size=dx)
+        except StopIteration:
+            break
         r = f_test(y)
         rs_i = dict((k, v) for k, v in zip(f_test_keys, r))
         update_dict_of_lists(rs, **rs_i)
-        pbar.update(i+1)
+
+        if data_iter.pos == -1:
+            pbar.update(data_iter.n)
+        else:
+            pbar.update(data_iter.pos)
     print
 
     def summarize(d):
@@ -143,10 +154,12 @@ def test(models, data_iter, name, n_inference_steps=100, n_inference_samples=100
             d[k] = np.mean(v)
 
     summarize(rs)
+
     return rs
 
 def compare(model_dirs,
             out_path,
+            name=None,
             by_training_time=False,
             omit_deltas=True,
             **test_args):
@@ -155,20 +168,21 @@ def compare(model_dirs,
     valid_results = OrderedDict()
 
     for model_dir in model_dirs:
-        name = model_dir.split('/')[-2]
+        n = model_dir.split('/')[-1]
+        if n == '':
+            n = model_dir.split('/')[-2]
         result_file = path.join(model_dir,
-                                '{name}_monitor.npz'.format(name=name))
+                                '{name}_monitor.npz'.format(name=n))
         params = np.load(result_file)
         d = dict(params)
         update_dict_of_lists(model_results, **d)
 
         valid_file = path.join(model_dir,
-                               '{name}_monitor_valid.npz'.format(name=name))
+                               '{name}_monitor_valid.npz'.format(name=n))
         params_valid = np.load(valid_file)
         d_valid = dict(params_valid)
         update_dict_of_lists(valid_results, **d_valid)
-
-        update_dict_of_lists(model_results, name=name)
+        update_dict_of_lists(model_results, name=n)
 
     if omit_deltas:
         model_results = OrderedDict(
@@ -178,7 +192,10 @@ def compare(model_dirs,
     names = model_results.pop('name')
     training_times = model_results.pop('training_time')
 
-    out_dir = path.join(out_path, 'compare.' + '.'.join(names))
+    if name is None:
+        name = '.'.join(names)
+
+    out_dir = path.join(out_path, 'compare.' + name)
     if path.isfile(out_dir):
         raise ValueError()
     elif not path.isdir(out_dir):
@@ -189,7 +206,7 @@ def compare(model_dirs,
     y = ((len(model_results) - 1) // x) + 1
 
     fig, axes = plt.subplots(y, x)
-    fig.set_size_inches(20, 20)
+    fig.set_size_inches(15, 10)
 
     if by_training_time:
         xlabel = 'seconds'
@@ -200,12 +217,12 @@ def compare(model_dirs,
 
     for j, (k, vs) in enumerate(model_results.iteritems()):
         ax = axes[j // x, j % x]
-        for name, u, v in zip(names, us, vs):
-            ax.plot(u, v, label=name)
+        for n, u, v in zip(names, us, vs):
+            ax.plot(u[10:], v[10:], label=n)
 
         if k in valid_results.keys():
-            for name, u, v in zip(names, us, valid_results[k]):
-                ax.plot(u, v, label=name + '(v)')
+            for n, u, v in zip(names, us, valid_results[k]):
+                ax.plot(u[10:], v[10:], label=n + '(v)')
 
         ax.set_ylabel(k)
         ax.set_xlabel(xlabel)
@@ -221,9 +238,9 @@ def compare(model_dirs,
     results = OrderedDict()
     hps = OrderedDict()
     for model_dir in model_dirs:
-        models, data_iter, name, exp_dict = unpack_model_and_data(model_dir)
+        models, data_iter, name, exp_dict, mean_image = unpack_model_and_data(model_dir)
         sample_from_prior(models, data_iter, name, out_dir)
-        rs = test(models, data_iter, name, **test_args)
+        rs = test(models, data_iter, name, mean_image, **test_args)
         update_dict_of_lists(results, **rs)
         update_dict_of_lists(hps, **exp_dict)
 
@@ -238,7 +255,8 @@ def compare(model_dirs,
 
 def make_argument_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('models', nargs='+')
+    parser.add_argument('-l', '--model_list', nargs='+', default=None)
+    parser.add_argument('-D', '--by_dir', default=None)
     parser.add_argument('-t', '--by_time', action='store_true')
     parser.add_argument('-o', '--out_path', required=True)
     parser.add_argument('-d', '--see_deltas', action='store_true')
@@ -251,7 +269,15 @@ def make_argument_parser():
 if __name__ == '__main__':
     parser = make_argument_parser()
     args = parser.parse_args()
-    compare(args.models, args.out_path,
+
+    if args.model_list is not None:
+        models = args.model_list
+        name = None
+    elif args.by_dir is not None:
+        models = glob(path.join(args.by_dir, '*'))
+        name = os.path.basename(os.path.normpath(args.by_dir))
+
+    compare(models, args.out_path, name=name,
             omit_deltas=not(args.see_deltas),
             posterior_samples=args.posterior_samples,
             n_inference_samples=args.inference_samples,
