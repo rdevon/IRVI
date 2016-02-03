@@ -28,6 +28,7 @@ import time
 from datasets.caltech import CALTECH
 from datasets.cifar import CIFAR
 from datasets.mnist import MNIST
+from datasets.uci import UCI
 from models.darn import (
     AutoRegressor
 )
@@ -77,6 +78,8 @@ def load_data(dataset,
         C = CIFAR
     elif dataset == 'caltech':
         C = CALTECH
+    elif dataset == 'uci':
+        C = UCI
 
     if train_batch_size is not None:
         train = C(batch_size=train_batch_size,

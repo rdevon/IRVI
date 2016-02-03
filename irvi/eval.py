@@ -24,6 +24,7 @@ from utils.monitor import SimpleMonitor
 from utils import op
 from utils.tools import (
     check_bad_nums,
+    floatX,
     itemlist,
     load_model,
     load_experiment,
@@ -31,24 +32,19 @@ from utils.tools import (
 )
 
 
-floatX = theano.config.floatX
-
 def eval_model(
-    model_file, steps=50,
-    calculate_probs=True,
+    model_file, steps=20,
     data_samples=10000,
     out_path=None,
     optimizer=None,
     optimizer_args=dict(),
     batch_size=100,
-    valid_scores=None,
     mode='valid',
     prior='logistic',
     center_input=True,
     z_init='recognition_net',
     inference_method='momentum',
     inference_rate=.01,
-    rate=0.,
     n_mcmc_samples=20,
     posterior_samples=20,
     inference_samples=20,
@@ -57,15 +53,11 @@ def eval_model(
     extra_inference_args=dict(),
     **kwargs):
 
-    if rate > 0:
-        inference_rate = rate
-
     model_args = dict(
         prior=prior,
         z_init=z_init,
         inference_method=inference_method,
         inference_rate=inference_rate,
-        n_inference_samples=inference_samples,
         extra_inference_args=extra_inference_args
     )
 
@@ -92,127 +84,73 @@ def eval_model(
     else:
         raise ValueError()
 
-    if calculate_probs:
-        # ========================================================================
-        print 'Setting up Theano graph for lower bound'
+    # ========================================================================
+    print 'Setting up Theano graph for lower bound'
 
-        X = T.matrix('x', dtype=floatX)
+    X = T.matrix('x', dtype=floatX)
 
-        if center_input:
-            print 'Centering input with train dataset mean image'
-            X_mean = theano.shared(data_iter.mean_image.astype(floatX), name='X_mean')
-            X_i = X - X_mean
-        else:
-            X_i = X
+    if center_input:
+        print 'Centering input with train dataset mean image'
+        X_mean = theano.shared(data_iter.mean_image.astype(floatX), name='X_mean')
+        X_i = X - X_mean
+    else:
+        X_i = X
 
-        x, _ = data_iter.next()
+    x, _ = data_iter.next()
 
-        dx = 100
-        data_samples = min(data_samples, data_iter.n)
-        xs = [x[i: (i + dx)] for i in range(0, data_samples, dx)]
-        N = data_samples // dx
+    dx = 100
+    data_samples = min(data_samples, data_iter.n)
+    xs = [x[i: (i + dx)] for i in range(0, data_samples, dx)]
+    N = data_samples // dx
 
-        print ('Calculating final lower bound and marginal with %d data samples, %d posterior samples '
-               'with %d inference steps' % (N * dx, posterior_samples, steps))
+    print ('Calculating final lower bound and marginal with %d data samples, %d posterior samples '
+           'with %d inference steps' % (N * dx, posterior_samples, steps))
 
-        outs_s, updates_s = model(X_i, X, n_inference_steps=steps, n_samples=posterior_samples, calculate_log_marginal=True, stride=steps//10)
-        f_lower_bound = theano.function([X],
-                                        [outs_s['lower_bound'],
-                                         outs_s['nll']] + outs_s['lower_bounds'] + outs_s['nlls'] + outs_s['prior_terms'] + outs_s['entropy_terms'], updates=updates_s)
-        lb_t = []
-        nll_t = []
-        nlls_t = []
-        lbs_t = []
-        ens_t = []
-        pts_t = []
+    results, samples, full_results, updates_s = model(X_i, X, n_inference_steps=steps, n_samples=posterior_samples, stride=0)
 
-        pbar = ProgressBar(maxval=len(xs)).start()
-        for i, y in enumerate(xs):
-            outs = f_lower_bound(y)
-            lb, nll = outs[:2]
-            outs = outs[2:]
-            s = len(outs) / 4
-            lbs = outs[:s]
-            nlls = outs[s:2*s]
-            ens = outs[2*s:3*s]
-            pts = outs[3*s:]
-            lbs_t.append(lbs)
-            nlls_t.append(nlls)
-            ens_t.append(ens)
-            pts_t.append(pts)
-            lb_t.append(lb)
-            nll_t.append(nll)
-            pbar.update(i)
-
-        lb_t = np.mean(lb_t)
-        nll_t = np.mean(nll_t)
-
-        ens_t = np.mean(ens_t, axis=0).tolist()
-        pts_t = np.mean(pts_t, axis=0).tolist()
-        lbs_t = np.mean(lbs_t, axis=0).tolist()
-        nlls_t = np.mean(nlls_t, axis=0).tolist()
-        print 'Final lower bound and NLL: %.2f and %.2f' % (lb_t, nll_t)
-        print 'Lower bounds', lbs_t
-        print 'NLLs', nlls_t
-        print 'Entropies', ens_t
-        print 'Prior terms', pts_t
-
-    if out_path is not None:
-        plt.savefig(out_path)
-        print 'Sampling from the prior'
-
-        py_p, updates = model.sample_from_prior()
-        f_prior = theano.function([], py_p, updates=updates)
-
-        samples = f_prior()
-        data_iter.save_images(
-            samples[:, None],
-            path.join(out_path, 'samples_from_prior.png'),
-            x_limit=10)
-
-        if calculate_probs:
-            np.save(path.join(out_path, 'lbs.npy'), lbs_t)
-            np.save(path.join(out_path, 'nlls.npy'), nlls_t)
-
-            print 'Saving sampling from posterior'
-            x_test = x[:1000]
-            b_energies = outs_s['energies'][0]
-            b_py = outs_s['pys'][0]
-            py = outs_s['pys'][-1]
-            energies = outs_s['energies'][-1]
-            best_idx = (energies - b_energies).argsort().astype('int64')
-            worst_idx = (b_energies - energies).argsort().astype('int64')
-            p_best = T.concatenate([X[best_idx][None, :, :],
-                                    b_py[:, best_idx].mean(axis=0)[None, :, :],
-                                    py[:, best_idx].mean(axis=0)[None, :, :]])
-            f_best = theano.function([X], p_best, updates=updates_s)
-            py_best = f_best(x_test)
-            data_iter.save_images(
-                py_best,
-                path.join(out_path, 'samples_from_post_best.png')
-            )
-            p_worst = T.concatenate([X[worst_idx][None, :, :],
-                                     b_py[:, worst_idx].mean(axis=0)[None, :, :],
-                                     py[:, worst_idx].mean(axis=0)[None, :, :]])
-            f_worst = theano.function([X], p_worst, updates=updates_s)
-            py_worst = f_worst(x_test)
-            data_iter.save_images(
-                py_worst,
-                path.join(out_path, 'samples_from_post_worst.png')
-            )
+    print 'Saving sampling from posterior'
+    x_test = x
+    b_energies = samples['batch_energies'][0]
+    energies = samples['batch_energies'][-1]
+    b_py = samples['py'][0]
+    py = samples['py'][-1]
+    '''
+    f = theano.function([X], [b_energies.shape, energies.shape, b_py.shape, py.shape], updates=updates_s)
+    assert False, f(x_test)
+    '''
+    best_idx = (energies - b_energies).argsort()[:1000].astype('int64')
+    #worst_idx = (b_energies - energies).argsort().astype('int64')
+    p_best = T.concatenate([X[best_idx][None, :, :],
+                            b_py[:, best_idx].mean(axis=0)[None, :, :],
+                            py[:, best_idx].mean(axis=0)[None, :, :]])
+    f_best = theano.function([X], p_best, updates=updates_s)
+    py_best = f_best(x_test)
+    data_iter.save_images(
+        py_best,
+        path.join(out_path, 'samples_from_post_best.png')
+    )
+    '''
+    p_worst = T.concatenate([X[worst_idx][None, :, :],
+                             b_py[:, worst_idx].mean(axis=0)[None, :, :],
+                             py[:, worst_idx].mean(axis=0)[None, :, :]])
+    f_worst = theano.function([X], p_worst, updates=updates_s)
+    py_worst = f_worst(x_test)
+    data_iter.save_images(
+        py_worst,
+        path.join(out_path, 'samples_from_post_worst.png')
+    )
+    '''
 
 def make_argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('experiment_dir')
     parser.add_argument('-m', '--mode', default='valid',
                         help='Dataset mode: valid, test, or train')
-    parser.add_argument('-p', '--posterior_samples', default=1000, type=int,
+    parser.add_argument('-p', '--posterior_samples', default=20, type=int,
                         help='Number of posterior during eval')
-    parser.add_argument('-i', '--inference_samples', default=1000, type=int)
-    parser.add_argument('-s', '--inference_steps', default=50, type=int)
+    parser.add_argument('-i', '--inference_samples', default=20, type=int)
+    parser.add_argument('-s', '--inference_steps', default=20, type=int)
     parser.add_argument('-d', '--data_samples', default=10000, type=int)
-    parser.add_argument('-r', '--rate', default=0., type=float)
-    parser.add_argument('-x', '--only_sample_prior', action='store_true')
     return parser
 
 if __name__ == '__main__':
@@ -241,15 +179,10 @@ if __name__ == '__main__':
     except:
         raise ValueError()
 
-    valid_file = path.join(exp_dir, 'valid_lbs.npy')
-    valid_scores = np.load(valid_file)
 
     eval_model(model_file, mode=args.mode, out_path=out_path,
-               calculate_probs=(not args.only_sample_prior),
-               valid_scores=valid_scores,
                posterior_samples=args.posterior_samples,
                inference_samples=args.inference_samples,
                data_samples=args.data_samples,
                steps=args.inference_steps,
-               rate=args.rate,
                **exp_dict)
