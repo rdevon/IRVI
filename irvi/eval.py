@@ -80,6 +80,7 @@ def eval_model(
 
 
     if dataset == 'mnist':
+        train_iter = MNIST(mode='train', **dataset_args)
         data_iter = MNIST(batch_size=data_samples, mode=mode, inf=False, **dataset_args)
     else:
         raise ValueError()
@@ -91,7 +92,7 @@ def eval_model(
 
     if center_input:
         print 'Centering input with train dataset mean image'
-        X_mean = theano.shared(data_iter.mean_image.astype(floatX), name='X_mean')
+        X_mean = theano.shared(train_iter.mean_image.astype(floatX), name='X_mean')
         X_i = X - X_mean
     else:
         X_i = X
