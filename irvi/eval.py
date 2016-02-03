@@ -34,20 +34,17 @@ from utils.tools import (
 
 def eval_model(
     model_file, steps=20,
-    calculate_probs=True,
     data_samples=10000,
     out_path=None,
     optimizer=None,
     optimizer_args=dict(),
     batch_size=100,
-    valid_scores=None,
     mode='valid',
     prior='logistic',
     center_input=True,
     z_init='recognition_net',
     inference_method='momentum',
     inference_rate=.01,
-    rate=0.,
     n_mcmc_samples=20,
     posterior_samples=20,
     inference_samples=20,
@@ -55,9 +52,6 @@ def eval_model(
     dataset_args=None,
     extra_inference_args=dict(),
     **kwargs):
-
-    if rate > 0:
-        inference_rate = rate
 
     model_args = dict(
         prior=prior,
@@ -112,16 +106,21 @@ def eval_model(
     print ('Calculating final lower bound and marginal with %d data samples, %d posterior samples '
            'with %d inference steps' % (N * dx, posterior_samples, steps))
 
-    outs_s, updates_s = model(X_i, X, n_inference_steps=steps, n_samples=posterior_samples, calculate_log_marginal=True, stride=steps//10)
+
+    results, samples, full_results, updates_s = model(X_i, X, n_inference_steps=steps, n_samples=posterior_samples, stride=0)
 
     print 'Saving sampling from posterior'
-    x_test = x[:1000]
-    b_energies = outs_s['energies'][0]
-    b_py = outs_s['pys'][0]
-    py = outs_s['pys'][-1]
-    energies = outs_s['energies'][-1]
-    best_idx = (energies - b_energies).argsort().astype('int64')
-    worst_idx = (b_energies - energies).argsort().astype('int64')
+    x_test = x
+    b_energies = samples['batch_energies'][0]
+    energies = samples['batch_energies'][-1]
+    b_py = samples['py'][0]
+    py = samples['py'][-1]
+    '''
+    f = theano.function([X], [b_energies.shape, energies.shape, b_py.shape, py.shape], updates=updates_s)
+    assert False, f(x_test)
+    '''
+    best_idx = (energies - b_energies).argsort()[:1000].astype('int64')
+    #worst_idx = (b_energies - energies).argsort().astype('int64')
     p_best = T.concatenate([X[best_idx][None, :, :],
                             b_py[:, best_idx].mean(axis=0)[None, :, :],
                             py[:, best_idx].mean(axis=0)[None, :, :]])
@@ -131,28 +130,17 @@ def eval_model(
         py_best,
         path.join(out_path, 'samples_from_post_best.png')
     )
-    p_worst = T.concatenate([X[worst_idx][None, :, :],
-                             b_py[:, worst_idx].mean(axis=0)[None, :, :],
-                             py[:, worst_idx].mean(axis=0)[None, :, :]])
-    f_worst = theano.function([X], p_worst, updates=updates_s)
-    py_worst = f_worst(x_test)
-    data_iter.save_images(
-        py_worst,
-        path.join(out_path, 'samples_from_post_worst.png')
-    )
 
 def make_argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('experiment_dir')
     parser.add_argument('-m', '--mode', default='valid',
                         help='Dataset mode: valid, test, or train')
-    parser.add_argument('-p', '--posterior_samples', default=1000, type=int,
+    parser.add_argument('-p', '--posterior_samples', default=20, type=int,
                         help='Number of posterior during eval')
-    parser.add_argument('-i', '--inference_samples', default=1000, type=int)
-    parser.add_argument('-s', '--inference_steps', default=50, type=int)
+    parser.add_argument('-i', '--inference_samples', default=20, type=int)
+    parser.add_argument('-s', '--inference_steps', default=20, type=int)
     parser.add_argument('-d', '--data_samples', default=10000, type=int)
-    parser.add_argument('-r', '--rate', default=0., type=float)
-    parser.add_argument('-x', '--only_sample_prior', action='store_true')
     return parser
 
 if __name__ == '__main__':
@@ -181,15 +169,10 @@ if __name__ == '__main__':
     except:
         raise ValueError()
 
-    valid_file = path.join(exp_dir, 'valid_lbs.npy')
-    valid_scores = np.load(valid_file)
 
     eval_model(model_file, mode=args.mode, out_path=out_path,
-               calculate_probs=(not args.only_sample_prior),
-               valid_scores=valid_scores,
                posterior_samples=args.posterior_samples,
                inference_samples=args.inference_samples,
                data_samples=args.data_samples,
                steps=args.inference_steps,
-               rate=args.rate,
                **exp_dict)
