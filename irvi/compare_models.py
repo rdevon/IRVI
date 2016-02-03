@@ -22,6 +22,7 @@ import time
 
 from datasets.caltech import CALTECH
 from datasets.mnist import MNIST
+from datasets.uci import UCI
 from models.dsbn import unpack as unpack_dsbn
 from models.gbn import GaussianBeliefNet as GBN
 from models.mlp import MLP
@@ -59,6 +60,8 @@ def unpack_model_and_data(model_dir):
         data_iter = MNIST(batch_size=10, mode='test', **dataset_args)
     elif dataset == 'caltech':
         data_iter = CALTECH(batch_size=10, mode='test', **dataset_args)
+    elif dataset == 'uci':
+        data_iter = UCI(batch_size=10, mode='test', **dataset_args)
 
     yaml = glob(path.join(model_dir, '*.yaml'))[0]
     exp_dict = load_experiment(path.abspath(yaml))
