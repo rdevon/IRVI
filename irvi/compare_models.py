@@ -22,6 +22,7 @@ import time
 
 from datasets.caltech import CALTECH
 from datasets.mnist import MNIST
+from datasets.uci import UCI
 from models.dsbn import unpack as unpack_dsbn
 from models.gbn import GaussianBeliefNet as GBN
 from models.mlp import MLP
@@ -59,11 +60,14 @@ def unpack_model_and_data(model_dir):
     if dataset == 'mnist':
         print 'Loading MNIST'
         train_iter = MNIST(mode='train', **dataset_args)
-        data_iter = MNIST(batch_size=10, mode='valid', **dataset_args)
+        data_iter = MNIST(batch_size=10, mode='test', **dataset_args)
     elif dataset == 'caltech':
         print 'Loading Caltech 101 Silhouettes'
         train_iter = CALTECH(mode='train', **dataset_args)
-        data_iter = CALTECH(batch_size=10, mode='valid', **dataset_args)
+        data_iter = CALTECH(batch_size=10, mode='test', **dataset_args)
+    elif dataset == 'uci':
+        train_iter = UCI(mode='train', **dataset_args)
+        data_iter = UCI(batch_size=10, mode='test', **dataset_args)
     mean_image = train_iter.mean_image.astype(floatX)
 
     yaml = glob(path.join(model_dir, '*.yaml'))[0]
