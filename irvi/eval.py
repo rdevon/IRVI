@@ -16,6 +16,7 @@ from theano import tensor as T
 import time
 
 from datasets.mnist import MNIST
+from main import load_data
 from models.gbn import GaussianBeliefNet as GBN
 from models.mlp import MLP
 from models.sbn import SigmoidBeliefNetwork as SBN
@@ -33,7 +34,11 @@ from utils.tools import (
 
 
 def eval_model(
-    model_file, steps=20,
+    model_file, 
+    transpose=False,
+    drop_units=0,
+    metric='likelihood',
+    steps=20,
     data_samples=10000,
     out_path=None,
     optimizer=None,
@@ -70,20 +75,17 @@ def eval_model(
 
     tparams = model.set_tparams()
 
-    '''
-    np.set_printoptions(precision=2)
-    sam, _ = model.sample_from_prior(2)
-    f = theano.function([], sam)
-    print f()
-    assert False
-    '''
+    train_iter, valid_iter, test_iter = load_data(dataset, batch_size, batch_size, batch_size,
+                                                  **dataset_args)
 
-
-    if dataset == 'mnist':
-        train_iter = MNIST(mode='train', **dataset_args)
-        data_iter = MNIST(batch_size=data_samples, mode=mode, inf=False, **dataset_args)
+    if mode == 'train':
+        data_iter = train_tier
+    elif mode == 'valid':
+        data_iter = valid_iter
+    elif mode == 'test':
+        data_iter = test_iter
     else:
-        raise ValueError()
+        raise ValueError(mode)
 
     # ========================================================================
     print 'Setting up Theano graph for lower bound'
@@ -98,38 +100,52 @@ def eval_model(
         X_i = X
 
     x, _ = data_iter.next()
-
-    dx = 100
-    data_samples = min(data_samples, data_iter.n)
-    xs = [x[i: (i + dx)] for i in range(0, data_samples, dx)]
-    N = data_samples // dx
-
-    print ('Calculating final lower bound and marginal with %d data samples, %d posterior samples '
-           'with %d inference steps' % (N * dx, posterior_samples, steps))
-
-
-    results, samples, full_results, updates_s = model(X_i, X, n_inference_steps=steps, n_samples=posterior_samples, stride=0)
+    if drop_units:
+        print 'Dropping %.2f%% of units' % (100 * drop_units)
+        q0 = model.posterior(X_i)
+        r = model.trng.binomial(p=1-drop_units, size=q0.shape, dtype=floatX)
+        q0 = q0 * r + 0.5 * (1. - r)
+    else:
+        q0 = None
+    results, samples, full_results, updates_s = model(X_i, X, n_inference_steps=steps, n_samples=posterior_samples, stride=0, q0=q0, n_inference_samples=inference_samples)
 
     print 'Saving sampling from posterior'
     x_test = x
-    b_energies = samples['batch_energies'][0]
-    energies = samples['batch_energies'][-1]
     b_py = samples['py'][0]
     py = samples['py'][-1]
+
+    if metric == 'likelihood':
+        energies0 = samples['batch_energies'][0]
+        energiesk = samples['batch_energies'][-1]
+        distance = energiesk - energies0
+    elif metric == 'cosine':
+        q0 = samples['q'][0]
+        qk = samples['q'][-1]
+        distance = (q0 * qk).sum(axis=1) / (q0.norm(L=2) * qk.norm(L=2))
+    elif metric == 'manhattan':
+        q0 = samples['q'][0]
+        qk = samples['q'][-1]
+        distance = -(abs(q0 - qk)).sum(axis=1)
+    else:
+        raise ValueError(metric)
     '''
-    f = theano.function([X], [b_energies.shape, energies.shape, b_py.shape, py.shape], updates=updates_s)
-    assert False, f(x_test)
+    f = theano.function([X], [q0.shape, qk.shape, T.tensordot(q0, qk, axis=1).shape, metric.shape], updates=updates_s)
+    print f(x_test)
+    assert False
     '''
-    best_idx = (energies - b_energies).argsort()[:1000].astype('int64')
+
+    best_idx = distance.argsort()[:1000].astype('int64')
     #worst_idx = (b_energies - energies).argsort().astype('int64')
     p_best = T.concatenate([X[best_idx][None, :, :],
                             b_py[:, best_idx].mean(axis=0)[None, :, :],
                             py[:, best_idx].mean(axis=0)[None, :, :]])
     f_best = theano.function([X], p_best, updates=updates_s)
     py_best = f_best(x_test)
+
     data_iter.save_images(
         py_best,
-        path.join(out_path, 'samples_from_post_best.png')
+        path.join(out_path, 'samples_from_post_best.png'),
+        transpose=transpose
     )
 
 def make_argument_parser():
@@ -142,6 +158,10 @@ def make_argument_parser():
     parser.add_argument('-i', '--inference_samples', default=20, type=int)
     parser.add_argument('-s', '--inference_steps', default=20, type=int)
     parser.add_argument('-d', '--data_samples', default=10000, type=int)
+    parser.add_argument('-M', '--metric', default='likelihood')
+    parser.add_argument('-D', '--drop_units', default=0, type=float)
+    parser.add_argument('-r', '--inference_rate', default=0.1, type=float)
+    parser.add_argument('-t', '--transpose', action='store_true')
     return parser
 
 if __name__ == '__main__':
@@ -170,10 +190,13 @@ if __name__ == '__main__':
     except:
         raise ValueError()
 
-
-    eval_model(model_file, mode=args.mode, out_path=out_path,
+    exp_dict.pop('inference_rate')
+    eval_model(model_file, metric=args.metric, mode=args.mode, out_path=out_path,
+               transpose=args.transpose,
+               inference_rate=args.inference_rate,
                posterior_samples=args.posterior_samples,
                inference_samples=args.inference_samples,
                data_samples=args.data_samples,
                steps=args.inference_steps,
+               drop_units=args.drop_units,
                **exp_dict)

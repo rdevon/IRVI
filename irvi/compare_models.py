@@ -106,7 +106,7 @@ def sample_from_prior(models, data_iter, name, out_dir):
         x_limit=10)
 
 def test(models, data_iter, name, mean_image, n_inference_steps=100, n_inference_samples=100,
-         data_samples=10000, posterior_samples=1000, dx=100,
+         data_samples=10000, posterior_samples=1000, dx=100, calculate_true_likelihood,
          center_input=True, **extra_kwargs):
 
     model = models['sbn']
