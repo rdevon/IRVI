@@ -34,6 +34,7 @@ from utils.tools import (
     itemlist,
     load_model,
     load_experiment,
+    log_sum_exp,
     update_dict_of_lists,
     _slice
 )
@@ -105,8 +106,42 @@ def sample_from_prior(models, data_iter, name, out_dir):
         path.join(out_dir, name + '_samples_from_prior.png'),
         x_limit=10)
 
+def calculate_true_likelihood(models, data_iter):
+    model = models['sbn']
+    H = T.matrix('H', dtype=floatX)
+    Y = T.matrix('Y', dtype=floatX)
+    log_ph = -model.prior.neg_log_prob(H)
+    py = model.conditional(H)
+    log_py_h = -model.conditional.neg_log_prob(Y, py)
+    log_p = log_ph + log_py_h
+    log_px = log_sum_exp(log_p, axis=0)
+
+    f_test = theano.function([Y, H], log_px)
+
+    dim = model.dim_h
+    h_i = np.array([[i] for i in range(2 ** dim)], dtype=np.uint8)
+    h = np.unpackbits(h_i, axis=1)[:, -dim:].astype(floatX)
+
+    vals = []
+    widgets = ['Calculating LL %s:' % name, Timer(), Bar()]
+    pbar = ProgressBar(maxval=data_iter.n).start()
+    while True:
+        try:
+            y, _ = data_iter.next(batch_size=dx)
+        except StopIteration:
+            break
+        r = f_test(y, h)
+        vals.append(r)
+
+        if data_iter.pos == -1:
+            pbar.update(data_iter.n)
+        else:
+            pbar.update(data_iter.pos)
+    print
+    print 'LL: ', np.mean(vals)
+
 def test(models, data_iter, name, mean_image, n_inference_steps=100, n_inference_samples=100,
-         data_samples=10000, posterior_samples=1000, dx=100, calculate_true_likelihood,
+         data_samples=10000, posterior_samples=1000, dx=100, calculate_true_likelihood=False,
          center_input=True, **extra_kwargs):
 
     model = models['sbn']
