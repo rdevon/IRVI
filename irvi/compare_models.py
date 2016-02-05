@@ -39,11 +39,11 @@ from utils.tools import (
 )
 
 
-def unpack_model_and_data(model_dir):
+def unpack_model_and_data(model_dir, inference_rate=0.1):
 
     model_args = dict(
         inference_method='adaptive',
-        inference_rate=0.1,
+        inference_rate=inference_rate,
     )
 
     name       = model_dir.split('/')[-2]
@@ -159,6 +159,7 @@ def test(models, data_iter, name, mean_image, n_inference_steps=100, n_inference
 
 def compare(model_dirs,
             out_path,
+            inference_rate=0.1,
             name=None,
             by_training_time=False,
             omit_deltas=True,
@@ -238,7 +239,7 @@ def compare(model_dirs,
     results = OrderedDict()
     hps = OrderedDict()
     for model_dir in model_dirs:
-        models, data_iter, name, exp_dict, mean_image = unpack_model_and_data(model_dir)
+        models, data_iter, name, exp_dict, mean_image = unpack_model_and_data(model_dir, inference_rate=inference_rate)
         sample_from_prior(models, data_iter, name, out_dir)
         rs = test(models, data_iter, name, mean_image, **test_args)
         update_dict_of_lists(results, **rs)
@@ -264,6 +265,7 @@ def make_argument_parser():
     parser.add_argument('-i', '--inference_samples', default=100, type=int)
     parser.add_argument('-s', '--inference_steps', default=100, type=int)
     parser.add_argument('-b', '--batch_size', default=100, type=int)
+    parser.add_argument('-r', '--inference_rate', default=0.1, type=float)
     return parser
 
 if __name__ == '__main__':
@@ -280,6 +282,7 @@ if __name__ == '__main__':
     compare(models, args.out_path, name=name,
             omit_deltas=not(args.see_deltas),
             posterior_samples=args.posterior_samples,
+            inference_rate=args.inference_rate,
             n_inference_samples=args.inference_samples,
             n_inference_steps=args.inference_steps,
             dx=args.batch_size,
