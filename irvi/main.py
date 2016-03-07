@@ -1,7 +1,3 @@
-'''
-SFFN experiment
-'''
-
 import argparse
 from collections import OrderedDict
 from glob import glob
@@ -17,44 +13,41 @@ from progressbar import (
     SimpleProgress,
     Timer
 )
-import random
 import shutil
 import sys
 import theano
 from theano import tensor as T
-from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 import time
 
-from datasets.caltech import CALTECH
-from datasets.cifar import CIFAR
-from datasets.mnist import MNIST
-from datasets.uci import UCI
-from models.darn import (
-    AutoRegressor
-)
+from datasets.fmri import load_data
+from inference import resolve as resolve_inference
 from models.distributions import (
-    Bernoulli,
+    Binomial,
     Gaussian
 )
-from models.gbn import GaussianBeliefNet as GBN
-from models.mlp import MLP
-from models.sbn import SigmoidBeliefNetwork as SBN
-from models.sbn import unpack
+from models.darn import AutoRegressor
+from models.sbn import (
+    SBN,
+    unpack as unpack_sbn
+)
+from models.gbn import (
+    GBN,
+    unpack as unpack_gbn
+)
 from utils.monitor import SimpleMonitor
+from utils import floatX
 from utils import op
 from utils.tools import (
     check_bad_nums,
-    debug_shape,
+    get_trng,
     itemlist,
-    load_model,
     load_experiment,
+    load_model,
     print_profile,
-    update_dict_of_lists,
-    _slice
+    print_section,
+    resolve_path,
+    update_dict_of_lists
 )
-
-
-floatX = theano.config.floatX
 
 def concatenate_inputs(model, y, py):
     '''
@@ -67,110 +60,68 @@ def concatenate_inputs(model, y, py):
 
     return (py, y), updates
 
-def load_data(dataset,
-              train_batch_size,
-              valid_batch_size,
-              test_batch_size,
-              **dataset_args):
-    if dataset == 'mnist':
-        C = MNIST
-    elif dataset == 'cifar':
-        C = CIFAR
-    elif dataset == 'caltech':
-        C = CALTECH
-    elif dataset == 'uci':
-        C = UCI
-
-    if train_batch_size is not None:
-        train = C(batch_size=train_batch_size,
-                  mode='train',
-                  inf=False,
-                  **dataset_args)
-    else:
-        train = None
-    if valid_batch_size is not None:
-        valid = C(batch_size=valid_batch_size,
-                  mode='valid',
-                  inf=False,
-                  **dataset_args)
-    else:
-        valid = None
-    if test_batch_size is not None:
-        test = C(batch_size=test_batch_size,
-                 mode='test',
-                 inf=False,
-                 **dataset_args)
-    else:
-        test = None
-
-
-    return train, valid, test
-
-def train_model(
-    out_path='', name='', load_last=False, model_to_load=None, save_images=True,
-
-    learning_rate=0.0001, optimizer='rmsprop', optimizer_args=dict(),
-    learning_rate_schedule=None,
-    batch_size=100, valid_batch_size=100, test_batch_size=1000,
-    max_valid=10000,
-    epochs=100,
-
-    dim_h=300, prior='logistic', pass_gradients=False,
+def init_learning_args(
+    learning_rate=0.0001,
     l2_decay=0.,
+    optimizer='rmsprop',
+    optimizer_args=dict(),
+    learning_rate_schedule=None,
+    batch_size=100,
+    valid_batch_size=100,
+    epochs=100,
+    n_posterior_samples=20,
+    n_posterior_samples_test=20,
+    valid_key='lower_bound',
+    valid_sign='-',
+    excludes=['gaussian_log_sigma', 'gaussian_mu']):
+    return locals()
 
-    input_mode=None,
-    generation_net=None, recognition_net=None,
-    excludes=['gaussian.log_sigma'],
-    center_input=True,
+def init_inference_args(
+    init_inference='recognition_network',
+    inference_method=None,
+    inference_rate=0.01,
+    n_inference_steps=0,
+    n_inference_samples=0,
+    pass_gradients=True):
+    return locals()
 
-    z_init=None,
-    inference_method='momentum',
-    inference_rate=.01,
-    n_inference_steps=20,
-    n_inference_steps_test=20,
-    n_inference_samples=20,
-    n_inference_samples_test=100,
-    extra_inference_args=dict(),
 
-    n_mcmc_samples=20,
-    n_mcmc_samples_test=20,
+def train(
+    out_path='', name='', model_to_load=None, save_images=True,
+    dim_h=100, center_input=True, prior='binomial',
+    recognition_net=None, generation_net=None,
 
-    dataset=None, dataset_args=None,
-    model_save_freq=1000, show_freq=100
-    ):
-
-    kwargs = dict(
-        z_init=z_init,
-        inference_method=inference_method,
-        inference_rate=inference_rate,
-        extra_inference_args=extra_inference_args
-    )
+    learning_args=dict(),
+    inference_args=dict(),
+    inference_args_test=dict(),
+    dataset_args=None):
 
     # ========================================================================
+    learning_args = init_learning_args(**learning_args)
+    inference_args = init_inference_args(**inference_args)
+    inference_args_test = init_inference_args(**inference_args_test)
+
     print 'Dataset args: %s' % pprint.pformat(dataset_args)
-    print 'Model args: %s' % pprint.pformat(kwargs)
+    print 'Learning args: %s' % pprint.pformat(learning_args)
+    print 'Inference args: %s' % pprint.pformat(inference_args)
+    print 'Inference args (test): %s' % pprint.pformat(inference_args_test)
 
     # ========================================================================
-    print 'Setting up data'
-    train, valid, test = load_data(dataset,
-                                   batch_size,
-                                   valid_batch_size,
-                                   test_batch_size,
-                                   **dataset_args)
+    print_section('Setting up data')
+    train, valid, test, idx = load_data(
+        train_batch_size=learning_args['batch_size'],
+        valid_batch_size=learning_args['valid_batch_size'],
+        **dataset_args)
+    dataset_args['idx'] = idx
 
     # ========================================================================
-    print 'Setting model and variables'
-    dim_in = train.dims[dataset]
+    print_section('Setting model and variables')
+    dim_in = train.dims[train.name]
+    batch_size = learning_args['batch_size']
+
     X = T.matrix('x', dtype=floatX)
     X.tag.test_value = np.zeros((batch_size, dim_in), dtype=X.dtype)
-    trng = RandomStreams(random.randint(0, 1000000))
-
-    if input_mode == 'sample':
-        print 'Sampling datapoints'
-        X = trng.binomial(p=X, size=X.shape, n=1, dtype=X.dtype)
-    elif input_mode == 'noise':
-        print 'Adding noise to data points'
-        X = X * trng.binomial(p=0.1, size=X.shape, n=1, dtype=X.dtype)
+    trng = get_trng()
 
     if center_input:
         print 'Centering input with train dataset mean image'
@@ -180,124 +131,138 @@ def train_model(
         X_i = X
 
     # ========================================================================
-    print 'Loading model and forming graph'
+    print_section('Loading model and forming graph')
 
-    if prior == 'logistic':
-        out_act = 'T.nnet.sigmoid'
+    if prior == 'gaussian':
+        C = GBN
+        PC = Gaussian
+        unpack = unpack_gbn
+        model_name = 'gbn'
+    elif prior == 'binomial':
+        C = SBN
+        PC = Binomial
+        unpack = unpack_sbn
+        model_name = 'sbn'
     elif prior == 'darn':
-        out_act = 'T.nnet.sigmoid'
-    elif prior == 'gaussian':
-        out_act = 'lambda x: x'
+        C = SBN
+        PC = AutoRegressor
+        unpack = unpack_sbn
+        model_name = 'sbn'
     else:
-        raise ValueError('%s prior not known' % prior)
-
-    if recognition_net is not None:
-        input_layer = recognition_net.pop('input_layer')
-        recognition_net['dim_in'] = train.dims[input_layer]
-        recognition_net['dim_out'] = dim_h
-        recognition_net['out_act'] = out_act
-    if generation_net is not None:
-        generation_net['dim_in'] = dim_h
-        t = generation_net.get('type', None)
-        if t is None or t == 'darn':
-            generation_net['dim_out'] = train.dims[generation_net['output']]
-            generation_net['out_act'] = train.acts[generation_net['output']]
-        elif t == 'MMMLP':
-            generation_net['graph']['outs'] = dict()
-            for out in generation_net['graph']['outputs']:
-                generation_net['graph']['outs'][out] = dict(
-                    dim=train.dims[out],
-                    act=train.acts[out]
-                )
-        else:
-            raise ValueError()
+        raise ValueError(prior)
 
     if model_to_load is not None:
-        models, _ = load_model(model_to_load, unpack, **kwargs)
-    elif load_last:
-        model_file = glob(path.join(out_path, '*last.npz'))[0]
-        models, _ = load_model(model_file, unpack, **kwargs)
+        models, _ = load_model(model_to_load, unpack,
+                               distributions=train.distributions, dims=train.dims)
     else:
-        if prior == 'logistic':
-            prior_model = Bernoulli(dim_h)
-        elif prior == 'darn':
-            prior_model = AutoRegressor(dim_h)
-        elif prior == 'gaussian':
-            prior_model = Gaussian(dim_h)
-        else:
-            raise ValueError('%s prior not known' % prior)
+        prior_model = PC(dim_h)
+        mlps = C.mlp_factory(
+            dim_h, train.dims, train.distributions,
+            prototype=train.mask,
+            recognition_net=recognition_net,
+            generation_net=generation_net)
 
-        mlps = SBN.mlp_factory(recognition_net=recognition_net,
-                               generation_net=generation_net)
-
-        if prior == 'logistic' or prior == 'darn':
-            C = SBN
-        elif prior == 'gaussian':
-            C = GBN
-        else:
-            raise ValueError()
-
-        kwargs.update(**mlps)
-        model = C(recognition_net['dim_in'], dim_h, trng=trng, prior=prior_model, **kwargs)
+        model = C(dim_in, dim_h, trng=trng, prior=prior_model, **mlps)
 
         models = OrderedDict()
         models[model.name] = model
 
-    if prior == 'logistic' or prior == 'darn':
-        model = models['sbn']
-    elif prior == 'gaussian':
-        model = models['gbn']
-
+    model = models[model_name]
     tparams = model.set_tparams(excludes=[])
     print_profile(tparams)
 
-    # ========================================================================
-    print 'Getting cost'
-    results, updates, constants = model.inference(
-        X_i, X, n_inference_steps=n_inference_steps, n_samples=n_mcmc_samples,
-        n_inference_samples=n_inference_samples, pass_gradients=pass_gradients)
+    # ==========================================================================
+    print_section('Getting cost')
+
+    inference_method = inference_args['inference_method']
+
+    if inference_method is not None:
+        inference = resolve_inference(model, **inference_args)
+    else:
+        inference = None
+
+    if inference_method == 'momentum':
+        if prior == 'binomial':
+            raise NotImplementedError()
+        i_results, constants, updates = inference.inference(X_i, X)
+        qk = i_results['qk']
+        results, samples, constants_m = model(
+            X_i, X, qk=qk, pass_gradients=inference_args['pass_gradients'],
+            n_posterior_samples=learning_args['n_posterior_samples'])
+        constants += constants_m
+    elif inference_method == 'rws':
+        results, _, constants = inference(
+            X_i, X, n_posterior_samples=learning_args['n_posterior_samples'])
+        updates = theano.OrderedUpdates()
+    elif inference_method == 'air':
+        if prior == 'gaussian':
+            raise NotImplementedError()
+        i_results, constants, updates = inference.inference(X_i, X)
+        qk = i_results['qk']
+        results, _, _ = model(
+            X_i, X, qk=qk, n_posterior_samples=learning_args['n_posterior_samples'])
+    elif inference_method is None:
+        if prior != 'gaussian':
+            raise NotImplementedError()
+        qk = None
+        constants = []
+        updates = theano.OrderedUpdates()
+        results, samples, constants_m = model(
+            X_i, X, qk=qk, pass_gradients=inference_args['pass_gradients'],
+            n_posterior_samples=learning_args['n_posterior_samples'])
+        constants += constants_m
+    else:
+        raise ValueError(inference_method)
 
     cost = results.pop('cost')
     extra_outs = []
-    extra_outs_names = ['cost']
+    extra_outs_keys = ['cost']
 
+    l2_decay = learning_args['l2_decay']
     if l2_decay > 0.:
         print 'Adding %.5f L2 weight decay' % l2_decay
-        rec_l2_cost = model.posterior.get_L2_weight_cost(l2_decay)
-        gen_l2_cost = model.conditional.get_L2_weight_cost(l2_decay)
-        cost += rec_l2_cost + gen_l2_cost
-        extra_outs += [rec_l2_cost, gen_l2_cost]
-        extra_outs_names += ['Rec net L2 cost', 'Gen net L2 cost']
-        if prior == 'darn':
-            print 'Adding autoregressor weight decay'
-            ar_l2_cost = model.prior.get_L2_weight_cost(l2_decay)
-            cost += ar_l2_cost
-            extra_outs += [ar_l2_cost]
-            extra_outs_names += ['AR L2 cost']
+        l2_rval = model.l2_decay(l2_decay)
+        cost += l2_rval.pop('cost')
+        extra_outs += l2_rval.values()
+        extra_outs_keys += l2_rval.keys()
 
-    # ========================================================================
-    print 'Extra functions'
+    # ==========================================================================
+    print_section('Test functions')
     # Test function with sampling
-    results_s, samples, full_results, updates_s = model(
-        X_i, X, n_samples=n_mcmc_samples_test,
-        n_inference_steps=n_inference_steps_test,
-        n_inference_samples=n_inference_samples_test)
+    inference_method_test = inference_args_test['inference_method']
+    if inference_method_test is not None:
+        inference = resolve_inference(model, **inference_args_test)
+    else:
+        inference = None
 
-    f_test_keys = results_s.keys()
-    f_test = theano.function([X], results_s.values(), updates=updates_s)
+    if inference_method_test == 'momentum':
+        if prior == 'binomial':
+            raise NotImplementedError()
+        results, samples, full_results, updates_s = inference(
+            X_i, X,
+            n_posterior_samples=learning_args['n_posterior_samples_test'])
+        py = samples['py'][-1]
+    elif inference_method_test == 'rws':
+        results, samples,  = inference(
+            X_i, X, n_posterior_samples=learning_args['n_posterior_samples_test'])
+        updates_s = theano.OrderedUpdates()
+        py = samples['py']
+    elif inference_method_test == 'air':
+        results, samples, full_results, updates_s = inference(
+            X_i, X, n_posterior_samples=learning_args['n_posterior_samples_test'])
+        py = samples['py'][-1]
+    elif inference_method_test is None:
+        updates_s = theano.OrderedUpdates()
+        py = samples['py']
+    else:
+        raise ValueError(inference_method_test)
 
-    py_s = samples['py'][-1]
-    (pd_s, d_hat_s), updates_c = concatenate_inputs(model, X, py_s)
-    updates_s.update(updates_c)
-
-    f_sample = theano.function([X], [pd_s, d_hat_s], updates=updates_s)
-
-    # Sample from prior
-    py_p, updates_p = model.sample_from_prior()
-    f_prior = theano.function([], py_p, updates=updates_p)
+    f_test_keys = results.keys()
+    f_test = theano.function([X], results.values(), updates=updates_s)
+    f_icost = theano.function([X], full_results['i_cost'], updates=updates_s)
 
     # ========================================================================
-    print 'Setting final tparams and save function'
+    print_section('Setting final tparams and save function')
 
     all_params = OrderedDict((k, v) for k, v in tparams.iteritems())
 
@@ -310,25 +275,27 @@ def train_model(
 
     def save(tparams, outfile):
         d = dict((k, v.get_value()) for k, v in all_params.items())
-
         d.update(
             dim_in=dim_in,
             dim_h=dim_h,
-            input_mode=input_mode,
             prior=prior,
-            generation_net=generation_net, recognition_net=recognition_net,
-            dataset=dataset, dataset_args=dataset_args
+            center_input=center_input,
+            generation_net=generation_net,
+            recognition_net=recognition_net,
+            dataset_args=dataset_args
         )
         np.savez(outfile, **d)
 
     # ========================================================================
-    print 'Getting gradients.'
+    print_section('Getting gradients.')
     grads = T.grad(cost, wrt=itemlist(tparams),
                    consider_constant=constants)
 
     # ========================================================================
-    print 'Building optimizer'
+    print_section('Building optimizer')
     lr = T.scalar(name='lr')
+    optimizer = learning_args['optimizer']
+    optimizer_args = learning_args['optimizer_args']
     f_grad_shared, f_grad_updates = eval('op.' + optimizer)(
         lr, tparams, grads, [X], cost, extra_ups=updates,
         extra_outs=extra_outs, **optimizer_args)
@@ -336,7 +303,7 @@ def train_model(
     monitor = SimpleMonitor()
 
     # ========================================================================
-    print 'Actually running (main loop)'
+    print_section('Actually running (main loop)')
 
     best_cost = float('inf')
     best_epoch = 0
@@ -344,18 +311,23 @@ def train_model(
     if out_path is not None:
         bestfile = path.join(out_path, '{name}_best.npz'.format(name=name))
 
+    epochs = learning_args['epochs']
+    learning_rate = learning_args['learning_rate']
+    learning_rate_schedule = learning_args['learning_rate_schedule']
+    valid_key = learning_args['valid_key']
+    valid_sign = learning_args['valid_sign']
     try:
         epoch_t0 = time.time()
         s = 0
         e = 0
 
-        widgets = ['Epoch {epoch} ({name}, '.format(epoch=e, name=name),
+        widgets = ['Epoch {epoch} (training {name}, '.format(epoch=e, name=name),
                    Timer(), '): ', Bar()]
         epoch_pbar = ProgressBar(widgets=widgets, maxval=train.n).start()
         training_time = 0
         while True:
             try:
-                x, _ = train.next()
+                x = train.next()[train.name]
                 if train.pos == -1:
                     epoch_pbar.update(train.n)
                 else:
@@ -366,20 +338,21 @@ def train_model(
                 epoch_t1 = time.time()
                 training_time += (epoch_t1 - epoch_t0)
                 valid.reset()
-                maxvalid = min(max_valid, valid.n)
+                maxvalid = valid.n
 
-                widgets =['Validating: (%d posterior samples) ' % n_mcmc_samples_test,
-                          Percentage(), ' (', Timer(), ')']
+                widgets = ['Validating: (%d posterior samples) '
+                           % learning_args['n_posterior_samples_test'],
+                           Percentage(), ' (', Timer(), ')']
                 pbar    = ProgressBar(widgets=widgets, maxval=maxvalid).start()
                 results_train = OrderedDict()
                 results_valid = OrderedDict()
                 while True:
                     try:
-                        x_valid, _ = valid.next()
-                        if valid.pos > max_valid:
+                        x_valid = valid.next()[train.name]
+                        if valid.pos > maxvalid:
                             raise StopIteration
-                        x_train, _ = train.next()
-
+                        x_train = train.next()[train.name]
+                        #print f_icost(x_valid)
                         r_train = f_test(x_train)
                         r_valid = f_test(x_valid)
                         results_i_train = dict((k, v) for k, v in zip(f_test_keys, r_train))
@@ -402,11 +375,13 @@ def train_model(
 
                 summarize(results_train)
                 summarize(results_valid)
-                lower_bound = results_valid['lower_bound']
+                valid_value = results_valid[valid_key]
+                if valid_sign == '-':
+                    valid_value *= -1
 
-                if lower_bound < best_cost:
-                    print 'Found best: %.2f' % lower_bound
-                    best_cost = lower_bound
+                if valid_value < best_cost:
+                    print 'Found best %s: %.2f' % (valid_key, valid_value)
+                    best_cost = valid_value
                     best_epoch = e
                     if out_path is not None:
                         print 'Saving best to %s' % bestfile
@@ -426,11 +401,6 @@ def train_model(
                     out_path, '{name}_monitor.npz').format(name=name))
                 monitor.save_stats_valid(path.join(
                     out_path, '{name}_monitor_valid.npz').format(name=name))
-
-                prior_file = path.join(out_path, 'samples_from_prior.png')
-                print 'Saving posterior samples'
-                samples = f_prior()
-                train.save_images(samples[:, None], prior_file, x_limit=10)
 
                 e += 1
                 epoch_t0 = time.time()
@@ -457,31 +427,11 @@ def train_model(
                 break
 
             rval = f_grad_shared(x)
-
-            if check_bad_nums(rval, extra_outs_names):
-                raise ValueError('Bad number!')
-
-            if save_images and s % model_save_freq == 0:
-                try:
-                    x_v, _ = valid.next()
-                except StopIteration:
-                    x_v, _ = valid.next()
-
-                pd_v, d_hat_v = f_sample(x_v)
-                d_hat_s = np.concatenate([pd_v[:10],
-                                          d_hat_v[1][None, :, :]], axis=0)
-                d_hat_s = d_hat_s[:, :min(10, d_hat_s.shape[1] - 1)]
-                train.save_images(d_hat_s, path.join(
-                    out_path, '{name}_samples.png'.format(name=name)))
-
-                pd_p = f_prior()
-                train.save_images(
-                    pd_p[:, None], path.join(
-                        out_path,
-                        '{name}_samples_from_prior.png'.format(name=name)),
-                    x_limit=10
-                )
-
+            check_bad_nums(rval, extra_outs_keys)
+            if check_bad_nums(rval[:1], extra_outs_keys[:1]):
+                print zip(extra_outs_keys, rval)
+                print 'Dying, found bad cost... Sorry (bleh)'
+                exit()
             f_grad_updates(learning_rate)
             s += 1
 
@@ -517,17 +467,29 @@ if __name__ == '__main__':
     exp_dict = load_experiment(path.abspath(args.experiment))
     if args.name is not None:
         exp_dict['name'] = args.name
-    out_path = path.join(args.out_path, exp_dict['name'])
 
-    if out_path is not None:
-        print 'Saving to %s' % out_path
-        if path.isfile(out_path):
-            raise ValueError()
-        elif not path.isdir(out_path):
-            os.mkdir(path.abspath(out_path))
+    if args.out_path is None:
+        out_path = resolve_path('$irvi_outs')
+    else:
+        out_path = args.out_path
+    out_path = path.join(out_path, exp_dict['name'])
+
+    print 'Saving to %s' % out_path
+    if path.isfile(out_path):
+        raise ValueError()
+    elif not path.isdir(out_path):
+        os.mkdir(path.abspath(out_path))
 
     shutil.copy(path.abspath(args.experiment), path.abspath(out_path))
 
-    train_model(out_path=out_path, load_last=args.load_last,
-                model_to_load=args.load_model, save_images=args.save_images,
-                **exp_dict)
+    if args.load_model is not None:
+        model_to_load = args.load_model
+    elif args.load_last:
+        model_to_load = glob(path.join(args.out_path, '*last.npz'))
+    else:
+        model_to_load = None
+
+    train(out_path=out_path,
+          model_to_load=model_to_load,
+          save_images=args.save_images,
+          **exp_dict)
