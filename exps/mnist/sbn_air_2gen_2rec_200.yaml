@@ -1,37 +1,41 @@
 {
   name: 'sbn_air_2gen_2rec_200',
-  prior: 'logistic',
-  learning_rate: 0.0001,
+  prior: 'binomial',
   dim_h: 200,
-  epochs: 500,
-  batch_size: 100,
-  l2_decay: 0.0002,
-  optimizer: 'rmsprop',
+  learning_args: {
+    epochs: 500,
+    n_posterior_samples: 20,
+    n_posterior_samples_test: 100,
+    batch_size: 100,
+    learning_rate: 0.0001,
+    optimizer: 'rmsprop',
+    epochs: 500,
+    l2_decay: 0.0002
+  },
   recognition_net: {
     input_layer: 'mnist',
-    dim_h: 240,
-    h_act: 'T.nnet.softplus',
-    n_layers: 2
+    dim_h: [240],
+    h_act: 'T.nnet.softplus'
   },
   generation_net: {
-    dim_h: 240,
+    dim_h: [240],
     h_act: 'T.nnet.softplus',
-    n_layers: 2,
     output: 'mnist'
   },
-  z_init: 'recognition_net',
-  inference_method: 'adaptive',
-  inference_rate: 0.1,
-  n_inference_steps: 20,
-  n_inference_steps_test: 20,
-  n_inference_samples: 20,
-  n_inference_samples_test: 20,
-  n_mcmc_samples: 20,
-  n_mcmc_samples_test: 100,
-  dataset: 'mnist',
-  dataset_args: {
-    source: '/export/mialab/users/dhjelm/data/mnist_binarized_salakhutdinov.pkl.gz',
+  inference_args: {
+    inference_method: 'air',
+    inference_rate: 0.1,
+    n_inference_steps: 20,
+    n_inference_samples: 20,
   },
-  show_freq: 1000,
-  model_save_freq: 1000
+  inference_args_test: {
+    inference_method: 'air',
+    inference_rate: 0.1,
+    n_inference_steps: 20,
+    n_inference_samples: 20,
+  },
+  dataset_args: {
+    dataset: 'mnist',
+    source: '$irvi_data/mnist_binarized_salakhutdinov.pkl.gz',
+  }
 }

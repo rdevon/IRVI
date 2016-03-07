@@ -1,23 +1,31 @@
 {
   name: 'sbn_air50_200x2',
-  learning_rate: 0.0001,
+  prior: 'binomial',
   dim_hs: [200, 200],
-  epochs: 500,
-  batch_size: 100,
-  optimizer: 'rmsprop',
-  z_init: 'recognition_net',
-  inference_method: 'adaptive',
-  inference_rate: 0.1,
-  n_inference_steps: 50,
-  n_inference_steps_test: 20,
-  n_inference_samples: 20,
-  n_inference_samples_test: 20,
-  n_mcmc_samples: 20,
-  n_mcmc_samples_test: 100,
-  dataset: 'mnist',
-  dataset_args: {
-    source: '/export/mialab/users/dhjelm/data/mnist_binarized_salakhutdinov.pkl.gz',
+  learning_args: {
+    epochs: 500,
+    n_posterior_samples: 20,
+    n_posterior_samples_test: 100,
+    batch_size: 100,
+    learning_rate: 0.0001,
+    optimizer: 'rmsprop',
+    epochs: 500,
+    l2_decay: 0.0002
   },
-  show_freq: 1000,
-  model_save_freq: 1000,
+  inference_args: {
+    inference_method: 'air',
+    inference_rate: 0.1,
+    n_inference_steps: 50,
+    n_inference_samples: 50,
+  },
+  inference_args_test: {
+    inference_method: 'air',
+    inference_rate: 0.1,
+    n_inference_steps: 50,
+    n_inference_samples: 50,
+  },
+  dataset_args: {
+    dataset: 'mnist',
+    source: '$irvi_data/mnist_binarized_salakhutdinov.pkl.gz',
+  }
 }
