@@ -1,7 +1,7 @@
 {
-  name: 'ct_sbn_rws_200x2',
+  name: 'ct_sbn_rws_200x3',
   prior: 'binomial',
-  dim_hs: [200, 200],
+  dim_hs: [200, 200, 200],
   learning_args: {
     epochs: 500,
     n_posterior_samples: 20,

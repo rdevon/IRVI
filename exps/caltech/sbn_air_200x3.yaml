@@ -1,24 +1,31 @@
 {
   name: 'ct_sbn_air_200x3',
-  learning_rate: 0.0001,
+  prior: 'binomial',
   dim_hs: [200, 200, 200],
-  epochs: 500,
-  batch_size: 100,
-  l2_decay: 0.0002,
-  optimizer: 'rmsprop',
-  z_init: 'recognition_net',
-  inference_method: 'adaptive',
-  inference_rate: 0.1,
-  n_inference_steps: 20,
-  n_inference_steps_test: 100,
-  n_inference_samples: 20,
-  n_inference_samples_test: 100,
-  n_mcmc_samples: 20,
-  n_mcmc_samples_test: 1000,
-  dataset: 'caltech',
-  dataset_args: {
-    source: '/export/mialab/users/dhjelm/data/caltech101_silhouettes_28_split1.mat',
+  learning_args: {
+    epochs: 500,
+    n_posterior_samples: 20,
+    n_posterior_samples_test: 1000,
+    batch_size: 100,
+    learning_rate: 0.0001,
+    optimizer: 'rmsprop',
+    epochs: 500,
+    l2_decay: 0.0002
   },
-  show_freq: 1000,
-  model_save_freq: 1000
+  inference_args: {
+    inference_method: 'air',
+    inference_rate: 0.1,
+    n_inference_steps: 20,
+    n_inference_samples: 20,
+  },
+  inference_args_test: {
+    inference_method: 'air',
+    inference_rate: 0.1,
+    n_inference_steps: 100,
+    n_inference_samples: 100,
+  },
+  dataset_args: {
+    dataset: 'caltech',
+    source: '$irvi_data/caltech101_silhouettes_28_split1.mat',
+  }
 }

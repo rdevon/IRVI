@@ -19,20 +19,24 @@ import theano
 from theano import tensor as T
 import time
 
-from datasets.fmri import load_data
+from datasets import load_data
 from inference import resolve as resolve_inference
 from models.distributions import (
     Binomial,
     Gaussian
 )
 from models.darn import AutoRegressor
-from models.sbn import (
-    SBN,
-    unpack as unpack_sbn
+from models.dsbn import (
+    DeepSBN,
+    unpack as unpack_deepsbn
 )
 from models.gbn import (
     GBN,
     unpack as unpack_gbn
+)
+from models.sbn import (
+    SBN,
+    unpack as unpack_sbn
 )
 from utils.monitor import SimpleMonitor
 from utils import floatX
@@ -88,13 +92,20 @@ def init_inference_args(
 
 def train(
     out_path='', name='', model_to_load=None, save_images=True,
-    dim_h=100, center_input=True, prior='binomial',
+    dim_h=None, dim_hs=None, center_input=True, prior='binomial',
     recognition_net=None, generation_net=None,
 
     learning_args=dict(),
     inference_args=dict(),
     inference_args_test=dict(),
     dataset_args=None):
+
+    if dim_h is None:
+        assert dim_hs is not None
+        deep = True
+    else:
+        assert dim_hs is None
+        deep = False
 
     # ========================================================================
     learning_args = init_learning_args(**learning_args)
@@ -108,11 +119,10 @@ def train(
 
     # ========================================================================
     print_section('Setting up data')
-    train, valid, test, idx = load_data(
+    train, valid, test = load_data(
         train_batch_size=learning_args['batch_size'],
         valid_batch_size=learning_args['valid_batch_size'],
         **dataset_args)
-    dataset_args['idx'] = idx
 
     # ========================================================================
     print_section('Setting model and variables')
@@ -134,16 +144,24 @@ def train(
     print_section('Loading model and forming graph')
 
     if prior == 'gaussian':
+        if deep:
+            raise NotImplementedError()
         C = GBN
         PC = Gaussian
         unpack = unpack_gbn
         model_name = 'gbn'
     elif prior == 'binomial':
-        C = SBN
+        if deep:
+            C = DeepSBN
+            unpack = unpack_deepsbn
+        else:
+            C = SBN
+            unpack = unpack_sbn
         PC = Binomial
-        unpack = unpack_sbn
         model_name = 'sbn'
     elif prior == 'darn':
+        if deep:
+            raise NotImplementedError()
         C = SBN
         PC = AutoRegressor
         unpack = unpack_sbn
@@ -155,14 +173,16 @@ def train(
         models, _ = load_model(model_to_load, unpack,
                                distributions=train.distributions, dims=train.dims)
     else:
-        prior_model = PC(dim_h)
-        mlps = C.mlp_factory(
-            dim_h, train.dims, train.distributions,
-            prototype=train.mask,
-            recognition_net=recognition_net,
-            generation_net=generation_net)
+        if deep:
+            model = C(dim_in, dim_hs, trng=trng)
+        else:
+            prior_model = PC(dim_h)
+            mlps = C.mlp_factory(
+                dim_h, train.dims, train.distributions,
+                recognition_net=recognition_net,
+                generation_net=generation_net)
 
-        model = C(dim_in, dim_h, trng=trng, prior=prior_model, **mlps)
+            model = C(dim_in, dim_h, trng=trng, prior=prior_model, **mlps)
 
         models = OrderedDict()
         models[model.name] = model
@@ -177,7 +197,7 @@ def train(
     inference_method = inference_args['inference_method']
 
     if inference_method is not None:
-        inference = resolve_inference(model, **inference_args)
+        inference = resolve_inference(model, deep=deep, **inference_args)
     else:
         inference = None
 
@@ -187,7 +207,7 @@ def train(
         i_results, constants, updates = inference.inference(X_i, X)
         qk = i_results['qk']
         results, samples, constants_m = model(
-            X_i, X, qk=qk, pass_gradients=inference_args['pass_gradients'],
+            X_i, X, qk, pass_gradients=inference_args['pass_gradients'],
             n_posterior_samples=learning_args['n_posterior_samples'])
         constants += constants_m
     elif inference_method == 'rws':
@@ -200,7 +220,7 @@ def train(
         i_results, constants, updates = inference.inference(X_i, X)
         qk = i_results['qk']
         results, _, _ = model(
-            X_i, X, qk=qk, n_posterior_samples=learning_args['n_posterior_samples'])
+            X_i, X, qk, n_posterior_samples=learning_args['n_posterior_samples'])
     elif inference_method is None:
         if prior != 'gaussian':
             raise NotImplementedError()
@@ -208,7 +228,7 @@ def train(
         constants = []
         updates = theano.OrderedUpdates()
         results, samples, constants_m = model(
-            X_i, X, qk=qk, pass_gradients=inference_args['pass_gradients'],
+            X_i, X, qk, pass_gradients=inference_args['pass_gradients'],
             n_posterior_samples=learning_args['n_posterior_samples'])
         constants += constants_m
     else:
@@ -231,7 +251,7 @@ def train(
     # Test function with sampling
     inference_method_test = inference_args_test['inference_method']
     if inference_method_test is not None:
-        inference = resolve_inference(model, **inference_args_test)
+        inference = resolve_inference(model, deep=deep, **inference_args_test)
     else:
         inference = None
 
