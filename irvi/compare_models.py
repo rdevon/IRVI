@@ -23,14 +23,14 @@ import time
 from datasets.caltech import CALTECH
 from datasets.mnist import MNIST
 from datasets.uci import UCI
+from inference import resolve as resolve_inference
 from models.dsbn import unpack as unpack_dsbn
-from models.gbn import GaussianBeliefNet as GBN
+from models.gbn import unpack as unpack_gbn
 from models.mlp import MLP
-from models.sbn import SigmoidBeliefNetwork as SBN
 from models.sbn import unpack as unpack_sbn
+from utils import floatX
 from utils.tools import (
     check_bad_nums,
-    floatX,
     itemlist,
     load_model,
     load_experiment,
@@ -40,62 +40,69 @@ from utils.tools import (
 )
 
 
-def unpack_model_and_data(model_dir, inference_rate=0.1):
+def unpack_model_and_data(model_dir):
+    name         = model_dir.split('/')[-2]
+    yaml         = glob(path.join(model_dir, '*.yaml'))[0]
+    model_file   = glob(path.join(model_dir, '*best*npz'))[0]
+    exp_dict     = load_experiment(path.abspath(yaml))
+    dataset_args = exp_dict['dataset_args']
+    dataset      = dataset_args['dataset']
 
-    model_args = dict(
-        inference_method='adaptive',
-        inference_rate=inference_rate,
-    )
-
-    name       = model_dir.split('/')[-2]
-    model_file = glob(path.join(model_dir, '*best*npz'))[0]
-
-    try:
-        models, model_args = load_model(model_file, unpack_sbn, **model_args)
-    except:
-        models, model_args = load_model(model_file, unpack_dsbn, **model_args)
-
-    dataset = model_args['dataset']
-    dataset_args = model_args['dataset_args']
-    print dataset_args
-    if dataset == 'mnist':
-        print 'Loading MNIST'
-        train_iter = MNIST(mode='train', **dataset_args)
-        data_iter = MNIST(batch_size=10, mode='test', **dataset_args)
-    elif dataset == 'caltech':
-        print 'Loading Caltech 101 Silhouettes'
-        train_iter = CALTECH(mode='train', **dataset_args)
-        data_iter = CALTECH(batch_size=10, mode='test', **dataset_args)
-    elif dataset == 'uci':
-        train_iter = UCI(mode='train', **dataset_args)
-        data_iter = UCI(batch_size=10, mode='test', **dataset_args)
-    mean_image = train_iter.mean_image.astype(floatX)
-
-    yaml = glob(path.join(model_dir, '*.yaml'))[0]
-    exp_dict = load_experiment(path.abspath(yaml))
-
-    def filter(dim_hs=None, dim_h=None, inference_method=None, inference_rate=None,
-
-               n_mcmc_samples=None, n_inference_steps=None, prior=None,
-               n_inference_samples=None, epochs=None, l2_decay=None,
+    def filter(prior=None, dim_hs=None, dim_h=None,
+               inference_args=None, learning_args=None,
                **kwargs):
         if dim_h is not None:
             dim_hs = [dim_h]
-        return OrderedDict(epochs=epochs,
-            dim_hs=dim_hs, inference_method=inference_method,
-            inference_rate=inference_rate,
-            n_mcmc_samples=n_mcmc_samples,
-            n_inference_steps=n_inference_steps,
-            prior=prior, n_inference_samples=n_inference_samples,
-            l2_decay=l2_decay
+        return OrderedDict(
+            prior=prior,
+            dim_hs=dim_hs,
+            inference_args=inference_args,
+            learning_args=learning_args
         )
 
     exp_dict = filter(**exp_dict)
+    prior    = exp_dict['prior']
+    deep     = len(exp_dict['dim_hs']) > 1
 
-    return models, data_iter, name, exp_dict, mean_image
+    if dataset == 'mnist':
+        print 'Loading MNIST'
+        train_iter = MNIST(mode='train', batch_size=10, **dataset_args)
+        data_iter = MNIST(batch_size=10, mode='test', **dataset_args)
+    elif dataset == 'caltech':
+        print 'Loading Caltech 101 Silhouettes'
+        train_iter = CALTECH(mode='train', batch_size=10, **dataset_args)
+        data_iter = CALTECH(batch_size=10, mode='test', **dataset_args)
+    elif dataset == 'uci':
+        print 'Loading the %s UCI dataset' % dataset
+        train_iter = UCI(mode='train', batch_size=10, **dataset_args)
+        data_iter = UCI(batch_size=10, mode='test', **dataset_args)
+    mean_image = train_iter.mean_image.astype(floatX)
+
+    if prior == 'gaussian':
+        unpack = unpack_gbn
+        model_name = 'gbn'
+        inference_method = 'momentum'
+    elif prior in ['binomial', 'darn'] and not deep:
+        unpack = unpack_sbn
+        model_name = 'sbn'
+        inference_method = 'air'
+    elif prior == 'binomial' and deep:
+        unpack = unpack_dsbn
+        model_name = 'sbn'
+        inference_method = 'air'
+    else:
+        raise ValueError(prior)
+
+    models, _ = load_model(model_file, unpack,
+                           distributions=data_iter.distributions,
+                           dims=data_iter.dims)
+
+    models['main'] = models[model_name]
+
+    return models, data_iter, name, exp_dict, mean_image, deep, inference_method
 
 def sample_from_prior(models, data_iter, name, out_dir):
-    model = models['sbn']
+    model = models['main']
     tparams = model.set_tparams()
 
     py_p, updates = model.sample_from_prior()
@@ -107,7 +114,7 @@ def sample_from_prior(models, data_iter, name, out_dir):
         x_limit=10)
 
 def calculate_true_likelihood(models, data_iter):
-    model = models['sbn']
+    model = models['main']
     H = T.matrix('H', dtype=floatX)
     Y = T.matrix('Y', dtype=floatX)
     log_ph = -model.prior.neg_log_prob(H)
@@ -140,11 +147,13 @@ def calculate_true_likelihood(models, data_iter):
     print
     print 'LL: ', np.mean(vals)
 
-def test(models, data_iter, name, mean_image, n_inference_steps=100, n_inference_samples=100,
-         data_samples=10000, posterior_samples=1000, dx=100, calculate_true_likelihood=False,
+def test(models, data_iter, name, mean_image, deep=False,
+         data_samples=10000, n_posterior_samples=1000,
+         inference_args=None, inference_method=None,
+         dx=100, calculate_true_likelihood=False,
          center_input=True, **extra_kwargs):
 
-    model = models['sbn']
+    model = models['main']
     tparams = model.set_tparams()
     data_iter.reset()
 
@@ -157,12 +166,21 @@ def test(models, data_iter, name, mean_image, n_inference_steps=100, n_inference
     else:
         X_i = X.copy()
 
-    results, _, _, updates = model(
-        X_i, X,
-        n_inference_steps=n_inference_steps,
-        n_samples=posterior_samples,
-        n_inference_samples=n_inference_samples,
-        stride=0)
+    inference = resolve_inference(model, deep=deep,
+                                  inference_method=inference_method,
+                                  **inference_args)
+
+    if inference_method == 'momentum':
+        if prior == 'binomial':
+            raise NotImplementedError()
+        results, samples, full_results, updates = inference(
+            X_i, X,
+            n_posterior_samples=n_posterior_samples)
+    elif inference_method == 'air':
+        results, samples, full_results, updates = inference(
+            X_i, X, n_posterior_samples=n_posterior_samples)
+    else:
+        raise ValueError(inference_method)
 
     f_test_keys  = results.keys()
     f_test       = theano.function([X], results.values(), updates=updates)
@@ -171,7 +189,7 @@ def test(models, data_iter, name, mean_image, n_inference_steps=100, n_inference
     rs = OrderedDict()
     while True:
         try:
-            y, _ = data_iter.next(batch_size=dx)
+            y = data_iter.next(batch_size=dx)[data_iter.name]
         except StopIteration:
             break
         r = f_test(y)
@@ -194,7 +212,6 @@ def test(models, data_iter, name, mean_image, n_inference_steps=100, n_inference
 
 def compare(model_dirs,
             out_path,
-            inference_rate=0.1,
             name=None,
             by_training_time=False,
             omit_deltas=True,
@@ -274,9 +291,10 @@ def compare(model_dirs,
     results = OrderedDict()
     hps = OrderedDict()
     for model_dir in model_dirs:
-        models, data_iter, name, exp_dict, mean_image = unpack_model_and_data(model_dir, inference_rate=inference_rate)
+        models, data_iter, name, exp_dict, mean_image, deep, inference_method = unpack_model_and_data(model_dir)
         sample_from_prior(models, data_iter, name, out_dir)
-        rs = test(models, data_iter, name, mean_image, **test_args)
+        rs = test(models, data_iter, name, mean_image, deep=deep,
+                  inference_method=inference_method, **test_args)
         update_dict_of_lists(results, **rs)
         update_dict_of_lists(hps, **exp_dict)
 
@@ -296,9 +314,9 @@ def make_argument_parser():
     parser.add_argument('-t', '--by_time', action='store_true')
     parser.add_argument('-o', '--out_path', required=True)
     parser.add_argument('-d', '--see_deltas', action='store_true')
-    parser.add_argument('-p', '--posterior_samples', default=1000, type=int)
-    parser.add_argument('-i', '--inference_samples', default=100, type=int)
-    parser.add_argument('-s', '--inference_steps', default=100, type=int)
+    parser.add_argument('-p', '--n_posterior_samples', default=1000, type=int)
+    parser.add_argument('-i', '--n_inference_samples', default=100, type=int)
+    parser.add_argument('-s', '--n_inference_steps', default=100, type=int)
     parser.add_argument('-b', '--batch_size', default=100, type=int)
     parser.add_argument('-r', '--inference_rate', default=0.1, type=float)
     return parser
@@ -314,11 +332,15 @@ if __name__ == '__main__':
         models = glob(path.join(args.by_dir, '*'))
         name = os.path.basename(os.path.normpath(args.by_dir))
 
+    inference_args = OrderedDict(
+        inference_rate=args.inference_rate,
+        n_inference_samples=args.n_inference_samples,
+        n_inference_steps=args.n_inference_steps,
+    )
+
     compare(models, args.out_path, name=name,
             omit_deltas=not(args.see_deltas),
-            posterior_samples=args.posterior_samples,
-            inference_rate=args.inference_rate,
-            n_inference_samples=args.inference_samples,
-            n_inference_steps=args.inference_steps,
+            n_posterior_samples=args.n_posterior_samples,
+            inference_args=inference_args,
             dx=args.batch_size,
             by_training_time=args.by_time)

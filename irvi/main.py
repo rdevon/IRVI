@@ -298,6 +298,7 @@ def train(
         d.update(
             dim_in=dim_in,
             dim_h=dim_h,
+            dim_hs=dim_hs,
             prior=prior,
             center_input=center_input,
             generation_net=generation_net,
